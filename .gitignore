@@ -21,6 +21,10 @@ target/
 *.sqlite3-*
 *.pem
 *.key
+*.p12
+*.pfx
+.idea/
+.vscode/
 .cache/
 tmp/
 coverage/
