@@ -1,0 +1,1 @@
+export default function AccountPage(){return <main className="content-page"><p className="kicker">ACCOUNT</p><h1>用户中心</h1><p>账户资料、会员、Credits、订单和登录设备的统一入口。Phase 0 展示信息架构占位。</p><section className="feature-grid">{['当前套餐','Credits 钱包','登录设备'].map((x)=><article key={x}><h2>{x}</h2><p>数据接口将在 Phase 1 接入。</p></article>)}</section></main>}

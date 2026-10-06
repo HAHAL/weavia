@@ -1,0 +1,2 @@
+import { Button, EmptyState, PageHeader } from '@weavia/ui';
+export function PlaceholderPage({title,description}:{title:string;description:string}){return <><PageHeader eyebrow="WEAVIA" title={title} description={description}/><div className="page-card"><EmptyState title={`${title}即将接入`} description="Phase 0 已完成页面、路由和模块边界，业务持久化将在下一阶段实现。" action={<Button variant="secondary">返回首页</Button>}/></div></>}

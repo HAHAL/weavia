@@ -1,0 +1,2 @@
+const features = [['AI 模特','用商品图快速生成面向电商与广告的真人模特视觉。'],['AI 商拍','在无需搭建摄影棚的情况下生成专业商业场景图。'],['本地项目','素材、结果和历史任务按项目组织并优先保存在本地。']];
+export default function ProductPage(){return <main className="content-page"><p className="kicker">PRODUCT</p><h1>把复杂 AI，收进简单的创作流程。</h1><p>用户只需要上传商品、选择模特或场景、确认比例与质量。模型路由、任务状态和成本估算由系统统一处理。</p><section className="feature-grid">{features.map(([title,body])=><article key={title}><h2>{title}</h2><p>{body}</p></article>)}</section></main>}

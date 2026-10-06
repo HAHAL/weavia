@@ -1,0 +1,1 @@
+export default function DownloadPage(){return <main className="content-page"><p className="kicker">DOWNLOAD</p><h1>你的 AI 商品创作工作室。</h1><p>macOS 与 Windows 安装包入口已预留。Phase 0 暂不发布生产安装包。</p><section className="feature-grid"><article><h2>macOS</h2><p>Apple Silicon / Intel 构建将在发布阶段提供。</p></article><article><h2>Windows</h2><p>Windows 10/11 安装包将在发布阶段提供。</p></article></section></main>}
