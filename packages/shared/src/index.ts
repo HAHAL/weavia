@@ -40,7 +40,8 @@ export interface CreditsWallet {
   currency: 'credits';
 }
 
-export type CreditsTransactionType = 'grant' | 'freeze' | 'consume' | 'unfreeze' | 'expire' | 'adjust';
+export type CreditsTransactionType =
+  'grant' | 'freeze' | 'consume' | 'unfreeze' | 'expire' | 'adjust';
 
 export interface CreditsTransaction {
   id: EntityId;
@@ -62,28 +63,85 @@ export interface CostEstimate {
 }
 
 export interface CreditsService {
-  estimate(input: { capability: AICapability; quality: Quality; outputCount: number }): Promise<CostEstimate>;
+  estimate(input: {
+    capability: AICapability;
+    quality: Quality;
+    outputCount: number;
+  }): Promise<CostEstimate>;
   reserve(taskId: EntityId, credits: number, idempotencyKey: string): Promise<CreditsTransaction>;
   settle(taskId: EntityId, deliveredOutputs: number): Promise<CreditsTransaction[]>;
   release(taskId: EntityId): Promise<CreditsTransaction>;
 }
 
-export type AuthStatus = 'anonymous' | 'authorizing' | 'authenticated' | 'expired';
+export type AuthStatus =
+  | 'unauthenticated'
+  | 'starting'
+  | 'waiting_browser'
+  | 'exchanging'
+  | 'authenticated'
+  | 'refreshing'
+  | 'error';
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   expiresAt: IsoDateTime;
   tokenType: 'Bearer';
 }
+export type AuthErrorCode =
+  | 'NETWORK_ERROR'
+  | 'SESSION_EXPIRED'
+  | 'AUTH_CODE_EXPIRED'
+  | 'AUTH_CODE_USED'
+  | 'INVALID_STATE'
+  | 'INVALID_CALLBACK'
+  | 'INVALID_TOKEN'
+  | 'REFRESH_FAILED'
+  | 'USER_CANCELLED'
+  | 'DEVICE_ERROR'
+  | 'UNKNOWN';
+export interface AuthErrorShape {
+  code: AuthErrorCode;
+  message: string;
+}
+export interface DeviceInfo {
+  deviceId: string;
+  deviceName: string;
+  platform: string;
+  osVersion: string;
+  appVersion: string;
+}
+export interface Device extends DeviceInfo {
+  userId: EntityId;
+  createdAt: IsoDateTime;
+  lastSeenAt: IsoDateTime;
+}
 export interface DesktopAuthRequest {
   state: string;
-  codeChallenge: string;
   redirectUri: string;
   deviceId: string;
 }
-export interface DesktopAuthResult { code: string; state: string; }
+export interface DesktopAuthResult {
+  code: string;
+  state: string;
+}
+export interface DesktopLoginSession {
+  loginSessionId: string;
+  state: string;
+  loginUrl: string;
+  expiresAt: IsoDateTime;
+}
+export interface AuthSessionResult extends AuthTokens {
+  user: User;
+  device: Device;
+}
 
-export type AICapability = 'image_generation' | 'image_edit' | 'image_to_video' | 'text_to_video' | 'upscale' | 'background_remove';
+export type AICapability =
+  | 'image_generation'
+  | 'image_edit'
+  | 'image_to_video'
+  | 'text_to_video'
+  | 'upscale'
+  | 'background_remove';
 export type Quality = 'fast' | 'standard' | 'high';
 export type AspectRatio = '1:1' | '3:4' | '4:3' | '9:16' | '16:9';
 
@@ -114,4 +172,10 @@ export interface GenerationWorkflow<TInput> {
   submit(input: TInput): Promise<{ taskId: EntityId }>;
 }
 
-export const mockWallet: CreditsWallet = { userId: 'demo-user', available: 12850, frozen: 0, lifetimeConsumed: 3200, currency: 'credits' };
+export const mockWallet: CreditsWallet = {
+  userId: 'demo-user',
+  available: 12850,
+  frozen: 0,
+  lifetimeConsumed: 3200,
+  currency: 'credits',
+};

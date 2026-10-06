@@ -1,1 +1,3 @@
-fn main() { weavia_lib::run(); }
+fn main() {
+    weavia_lib::run();
+}

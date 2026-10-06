@@ -1,5 +1,99 @@
-import { Archive, Camera, FolderKanban, History, Home, Image, Settings, Sparkles, UserRound } from 'lucide-react';
+import {
+  Archive,
+  Camera,
+  FolderKanban,
+  History,
+  Home,
+  Image,
+  Settings,
+  Sparkles,
+  UserRound,
+} from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Badge } from '@weavia/ui';
-const primary = [[Home,'首页','/'],[FolderKanban,'项目','/projects'],[Sparkles,'AI 模特','/create/model'],[Camera,'AI 商拍','/create/commercial'],[Archive,'任务中心','/tasks'],[Image,'素材库','/assets'],[History,'历史记录','/history']] as const;
-export function AppShell(){const location=useLocation();const title=primary.find(([, ,href])=>href===location.pathname)?.[1]??(location.pathname==='/settings'?'设置':'织维');return <div className="app-shell"><aside className="sidebar"><NavLink to="/" className="brand"><span className="brand-symbol">W</span><span><strong>WEAVIA</strong><small>织维</small></span></NavLink><nav>{primary.map(([Icon,label,href])=><NavLink key={href} to={href} end={href==='/' }><Icon size={17}/><span>{label}</span>{label==='任务中心'&&<i>2</i>}</NavLink>)}</nav><div className="sidebar-bottom"><NavLink to="/account"><UserRound size={17}/><span>账户</span></NavLink><NavLink to="/settings"><Settings size={17}/><span>设置</span></NavLink><div className="plan-card"><div><Badge tone="accent">PRO</Badge><span>12,850 Credits</span></div><small>开发演示状态</small></div></div></aside><main className="app-main"><header className="topbar"><div><small>2026 秋季女装</small><strong>{title}</strong></div><div className="top-actions"><span className="sync-dot"/>本地已同步 <Badge tone="accent">12,850</Badge><button className="avatar">JL</button></div></header><section className="page"><Outlet/></section></main></div>}
+import { useAuthStore } from '../stores/auth';
+const primary = [
+  [Home, '首页', '/'],
+  [FolderKanban, '项目', '/projects'],
+  [Sparkles, 'AI 模特', '/create/model'],
+  [Camera, 'AI 商拍', '/create/commercial'],
+  [Archive, '任务中心', '/tasks'],
+  [Image, '素材库', '/assets'],
+  [History, '历史记录', '/history'],
+] as const;
+export function AppShell() {
+  const location = useLocation();
+  const auth = useAuthStore();
+  const title =
+    primary.find(([, , href]) => href === location.pathname)?.[1] ??
+    (location.pathname === '/settings'
+      ? '设置'
+      : location.pathname === '/account'
+        ? '账户'
+        : '织维');
+  const initials =
+    auth.user?.name
+      ?.split(' ')
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2) ?? 'W';
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <NavLink to="/" className="brand">
+          <span className="brand-symbol">W</span>
+          <span>
+            <strong>WEAVIA</strong>
+            <small>织维</small>
+          </span>
+        </NavLink>
+        <nav>
+          {primary.map(([Icon, label, href]) => (
+            <NavLink key={href} to={href} end={href === '/'}>
+              <Icon size={17} />
+              <span>{label}</span>
+              {label === '任务中心' && <i>2</i>}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <NavLink to="/account">
+            <UserRound size={17} />
+            <span>{auth.status === 'authenticated' ? '我的账户' : '登录账户'}</span>
+          </NavLink>
+          <NavLink to="/settings">
+            <Settings size={17} />
+            <span>设置</span>
+          </NavLink>
+          <div className="plan-card">
+            <div>
+              <Badge tone="accent">PRO</Badge>
+              <span>12,850 Credits</span>
+            </div>
+            <small>
+              {auth.status === 'authenticated' ? auth.user?.email : '登录后同步会员状态'}
+            </small>
+          </div>
+        </div>
+      </aside>
+      <main className="app-main">
+        <header className="topbar">
+          <div>
+            <small>2026 秋季女装</small>
+            <strong>{title}</strong>
+          </div>
+          <div className="top-actions">
+            <span className="sync-dot" />
+            本地已同步 <Badge tone="accent">12,850</Badge>
+            <NavLink to="/account" className="avatar">
+              {initials}
+            </NavLink>
+          </div>
+        </header>
+        <section className="page">
+          <Outlet />
+        </section>
+      </main>
+    </div>
+  );
+}
