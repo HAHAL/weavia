@@ -19,6 +19,7 @@ apps/admin       运营管理后台骨架
 packages/ui      设计令牌与共享基础组件
 packages/shared  跨端业务类型（Auth、会员、Credits、创作）
 packages/api-client  类型安全的 HTTP 客户端边界
+packages/auth-core   浏览器授权码、Session、Refresh 与设备注册核心
 packages/ai-core Provider 契约、注册表与 MockProvider
 packages/task-engine 通用任务状态机与 Mock Runner
 packages/database PostgreSQL/Drizzle Schema 与连接模块
@@ -52,6 +53,8 @@ pnpm --filter @weavia/admin dev     # http://localhost:3001
 pnpm --filter @weavia/desktop dev   # 浏览器 UI 开发
 pnpm --filter @weavia/desktop tauri:dev # 原生窗口
 ```
+
+Phase 1A 的 Demo 登录闭环需要 Web 与原生 Desktop 同时运行。Desktop 会打开系统浏览器，Web 使用 `WEAVIA Demo` 开发账户签发一次性 Authorization Code，再通过 `weavia://auth/callback` 返回客户端。Access/Refresh Token 不进入 URL，桌面凭据由系统 Keychain/Credential Store 保存。
 
 ## 数据库
 

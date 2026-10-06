@@ -1,5 +1,61 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Badge, Card, PageHeader } from '@weavia/ui';
-interface AppInfo { name:string; version:string; platform:string; }
-export function SettingsPage(){const [info,setInfo]=useState<AppInfo>({name:'WEAVIA',version:'0.1.0',platform:'Browser preview'});useEffect(()=>{if('__TAURI_INTERNALS__' in window) void invoke<AppInfo>('get_app_info').then(setInfo)},[]);return <><PageHeader eyebrow="PREFERENCES" title="设置" description="应用、本地存储和 AI 服务的基础配置入口。"/><div className="settings-grid"><Card><h2>应用信息</h2><dl><div><dt>名称</dt><dd>{info.name}</dd></div><div><dt>版本</dt><dd>{info.version}</dd></div><div><dt>平台</dt><dd>{info.platform}</dd></div></dl></Card><Card><h2>本地项目</h2><p>项目根目录将在首次创建项目时由用户选择。</p><Badge tone="success">Local First</Badge></Card><Card><h2>AI Provider</h2><p>真实 Provider 尚未接入。密钥未来写入 Keychain 或 Credential Manager。</p><Badge>Mock only</Badge></Card><Card><h2>账户授权</h2><p>浏览器登录、PKCE 与 Deep Link 将在 Phase 1 接入。</p><Badge>未登录</Badge></Card></div></>}
+interface AppInfo {
+  name: string;
+  version: string;
+  platform: string;
+}
+export function SettingsPage() {
+  const [info, setInfo] = useState<AppInfo>({
+    name: 'WEAVIA',
+    version: '0.1.0',
+    platform: 'Browser preview',
+  });
+  useEffect(() => {
+    if ('__TAURI_INTERNALS__' in window) void invoke<AppInfo>('get_app_info').then(setInfo);
+  }, []);
+  return (
+    <>
+      <PageHeader
+        eyebrow="PREFERENCES"
+        title="设置"
+        description="应用、本地存储和 AI 服务的基础配置入口。"
+      />
+      <div className="settings-grid">
+        <Card>
+          <h2>应用信息</h2>
+          <dl>
+            <div>
+              <dt>名称</dt>
+              <dd>{info.name}</dd>
+            </div>
+            <div>
+              <dt>版本</dt>
+              <dd>{info.version}</dd>
+            </div>
+            <div>
+              <dt>平台</dt>
+              <dd>{info.platform}</dd>
+            </div>
+          </dl>
+        </Card>
+        <Card>
+          <h2>本地项目</h2>
+          <p>项目根目录将在首次创建项目时由用户选择。</p>
+          <Badge tone="success">Local First</Badge>
+        </Card>
+        <Card>
+          <h2>AI Provider</h2>
+          <p>真实 Provider 尚未接入。密钥未来写入 Keychain 或 Credential Manager。</p>
+          <Badge>Mock only</Badge>
+        </Card>
+        <Card>
+          <h2>账户授权</h2>
+          <p>浏览器登录、PKCE 与 Deep Link 将在 Phase 1 接入。</p>
+          <Badge>未登录</Badge>
+        </Card>
+      </div>
+    </>
+  );
+}

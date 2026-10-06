@@ -33,9 +33,19 @@ Desktop First 与 Local First 是硬约束：原始商品素材、项目文件�
   .weavia/local.db
 ```
 
-## Auth 骨架
+## Desktop Auth（Phase 1A）
 
-Desktop 生成带 PKCE 的浏览器授权请求，Web 完成登录后通过一次性 code 回跳 `weavia://auth/callback`；Desktop 兑换 token，并将 refresh token 放入系统安全存储。本阶段只提供类型、页面和状态边界，不接 OAuth。
+```text
+Desktop → POST /auth/desktop/session → System Browser → Web DevAuthProvider
+   ↑                                                       ↓
+Session + Device ← code exchange ← weavia://auth/callback?code&state
+```
+
+- `@weavia/auth-core` 隔离 Authorization Code Store、一次性消费、5 分钟 TTL、opaque access/refresh token 和设备注册；开发期使用进程内 Store，生产环境替换为 PostgreSQL/Redis。
+- Desktop 仅在内存保存预期 `state`，回调必须同时匹配 `weavia://auth/callback`、`code` 与 `state`。Token 永不进入 URL。
+- macOS/Windows/Linux 的正式 Desktop 通过 Rust `keyring` 后端写入系统凭据库；稳定 `deviceId` 单独保存在应用数据目录，不与凭据混存。
+- 启动时以 refresh token 旋转会话；并发刷新使用 single-flight。服务端 Logout 失败也不会阻止本地凭据清除。
+- 当前 Provider 是 `DevAuthProvider`（`WEAVIA Demo / demo@weavia.local`），不接第三方 OAuth。
 
 ## 状态模型
 

@@ -81,6 +81,15 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.8.0
         version: 2.12.1
+      '@tauri-apps/plugin-deep-link':
+        specifier: ^2.4.3
+        version: 2.6.1
+      '@tauri-apps/plugin-opener':
+        specifier: ^2.5.0
+        version: 2.7.0
+      '@weavia/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@weavia/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -130,6 +139,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@weavia/auth-core':
+        specifier: workspace:*
+        version: link:../../packages/auth-core
       '@weavia/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -179,6 +191,23 @@ importers:
         version: 3.2.7(@types/node@22.20.5)(jsdom@27.4.0(supports-color@7.2.0))(supports-color@7.2.0)(tsx@4.23.15)
 
   packages/api-client:
+    dependencies:
+      '@weavia/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.5)(jsdom@27.4.0(supports-color@7.2.0))(supports-color@7.2.0)(tsx@4.23.15)
+
+  packages/auth-core:
+    dependencies:
+      '@weavia/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -1376,6 +1405,12 @@ packages:
     resolution: {integrity: sha512-kEDEiGzG+yAc5FeLxtXpES/VN+F2C8H0r4gDVtfRLKxT9np9101d9REG/Kgo2lr0hKi0IpDsODiHnU3+naOmLg==}
     engines: {node: '>= 10'}
     hasBin: true
+
+  '@tauri-apps/plugin-deep-link@2.6.1':
+    resolution: {integrity: sha512-yomIOIoiiDwXW3Bgy/V5c4frWo9sfWM9WZQew2s7vr7hXtDdbLDCLzvytIMCjMxbnln9O0oJsTI3XdDd2T9XlA==}
+
+  '@tauri-apps/plugin-opener@2.7.0':
+    resolution: {integrity: sha512-mBorYfVKh9Lt7s4ZFtKbMUTxBw+Y/sVmSlKCtkkoBgMTC/DIbt/kaPm67L/2djAUqDI1wbixy5OHHVmipjuGMw==}
 
   '@turbo/darwin-64@2.11.7':
     resolution: {integrity: sha512-Z2LFOxwbiJueD1miByXJS/BrW21vv6YaQXZustty5jEX4vQYw6zyh101Sz1QO7WG0mqBzKagZ/DoAeeujI0/Sw==}
@@ -3342,6 +3377,14 @@ snapshots:
       '@tauri-apps/cli-win32-arm64-msvc': 2.12.1
       '@tauri-apps/cli-win32-ia32-msvc': 2.12.1
       '@tauri-apps/cli-win32-x64-msvc': 2.12.1
+
+  '@tauri-apps/plugin-deep-link@2.6.1':
+    dependencies:
+      '@tauri-apps/api': 2.12.1
+
+  '@tauri-apps/plugin-opener@2.7.0':
+    dependencies:
+      '@tauri-apps/api': 2.12.1
 
   '@turbo/darwin-64@2.11.7':
     optional: true

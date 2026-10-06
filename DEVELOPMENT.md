@@ -34,4 +34,13 @@ pnpm build
 
 ## Desktop 原生层
 
-`src-tauri` 提供 `get_app_info`、项目目录结构定义和最小 capability。Phase 1 再接文件选择、SQLite、系统安全存储和 deep link 插件。
+`src-tauri` 提供应用/设备信息、稳定设备 ID、系统凭据库和 `weavia://` Deep Link。开发登录需要同时启动 Web 和 Tauri：
+
+```bash
+pnpm --filter @weavia/web dev
+pnpm --filter @weavia/desktop tauri:dev
+```
+
+在 Desktop 的“账户”页选择浏览器登录，再在 Web 使用 Demo 账户授权。macOS 的 URL Scheme 在应用 bundle 中注册；`tauri dev` 的 scheme 归属会受本机 LaunchServices 缓存影响，完整验证优先使用 Debug Bundle。
+
+开发期 Auth API 与授权码/Session Store 位于 Web Node 进程内，重启 Web 会让未完成授权和 refresh token 失效。这是开发 Provider 的明确边界，不用于生产部署。

@@ -3,7 +3,28 @@
   "productName": "WEAVIA",
   "version": "0.1.0",
   "identifier": "com.weavia.desktop",
-  "build": { "beforeDevCommand": "pnpm dev", "devUrl": "http://localhost:1420", "beforeBuildCommand": "pnpm build", "frontendDist": "../dist" },
-  "app": { "windows": [{ "title": "WEAVIA 织维", "width": 1440, "height": 960, "minWidth": 1100, "minHeight": 720, "resizable": true, "fullscreen": false }], "security": { "csp": "default-src 'self'; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost" } },
-  "bundle": { "active": true, "targets": "all", "icon": [] }
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "WEAVIA 织维",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1100,
+        "minHeight": 720,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+      "security": {
+        "csp": "default-src 'self'; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://localhost:3000 http://127.0.0.1:3000"
+      }
+  },
+  "bundle": { "active": true, "targets": "all", "icon": [] },
+  "plugins": { "deep-link": { "desktop": { "schemes": ["weavia"] } } }
 }
