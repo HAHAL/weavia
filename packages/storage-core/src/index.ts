@@ -18,10 +18,15 @@ export interface StoredObjectMetadata {
   createdAt: string;
 }
 
+export interface StoredObjectData extends StoredObjectMetadata {
+  body: Uint8Array;
+}
+
 export interface ObjectStorage {
   createUploadUrl(input: UploadUrlRequest): Promise<UploadUrlResult>;
   upload(uploadUrl: string, body: Uint8Array, contentType: string): Promise<void>;
   createDownloadUrl(objectKey: string, expiresInSeconds?: number): Promise<string>;
+  read(objectKey: string): Promise<StoredObjectData>;
   delete(objectKey: string): Promise<void>;
 }
 
@@ -78,6 +83,12 @@ export class LocalMockStorage implements ObjectStorage {
     if (!this.objects.has(objectKey)) throw new Error('Object not found');
     const expiresAt = this.now() + expiresInSeconds * 1000;
     return `localmock://download/${encodeURIComponent(objectKey)}?expires=${expiresAt}`;
+  }
+
+  async read(objectKey: string): Promise<StoredObjectData> {
+    const object = this.objects.get(objectKey);
+    if (!object) throw new Error('Object not found');
+    return { ...object, body: new Uint8Array(object.body) };
   }
 
   async delete(objectKey: string): Promise<void> {

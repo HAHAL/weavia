@@ -203,7 +203,51 @@ describe('AI Gateway', () => {
       referenceAssets: [{ assetId: 'asset-1', objectKey: ticket.objectKey, mimeType: 'image/png' }],
     });
     expect(result.status).toBe('generated');
-    expect(provider.lastInput?.referenceImages?.[0]?.uri).toContain('localmock://download/');
+    expect(provider.lastInput?.referenceImages?.[0]).toMatchObject({
+      type: 'base64',
+      value: 'data:image/png;base64,AQID',
+      mimeType: 'image/png',
+    });
+  });
+
+  it('selects the configured provider by requested capability', () => {
+    const value = catalog();
+    value.providers.push({
+      id: 'provider-edit',
+      code: 'dashscope',
+      name: 'Alibaba Cloud Model Studio',
+      type: 'dashscope-multimodal',
+      baseUrl: 'https://dashscope.aliyuncs.com/api/v1',
+      enabled: true,
+      configured: true,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    });
+    value.providerModels.push({
+      id: 'model-edit',
+      providerId: 'provider-edit',
+      modelId: 'qwen-image-edit-plus',
+      displayName: 'Qwen Image Edit Plus',
+      modality: 'image',
+      capabilities: ['image_to_image', 'image_edit'],
+      enabled: true,
+      metadata: {},
+    });
+    value.bindings.push({
+      id: 'binding-edit',
+      logicalModelId: 'logical-1',
+      providerModelId: 'model-edit',
+      priority: 1,
+      enabled: true,
+    });
+    expect(new ProviderRouter(value).route('weavia-image-pro', 'image_edit')).toMatchObject({
+      provider: { code: 'dashscope' },
+      model: { modelId: 'qwen-image-edit-plus' },
+    });
+    expect(new ProviderRouter(value).route('weavia-image-pro', 'text_to_image')).toMatchObject({
+      provider: { code: 'antdigital' },
+      model: { modelId: 'qwen-image-max' },
+    });
   });
 });
 

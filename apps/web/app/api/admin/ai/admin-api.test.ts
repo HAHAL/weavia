@@ -16,6 +16,6 @@ describe('AI admin APIs', () => {
       data: { logicalModels: unknown[]; bindings: unknown[] };
     };
     expect(body.data.logicalModels).toHaveLength(1);
-    expect(body.data.bindings).toHaveLength(1);
+    expect(body.data.bindings).toHaveLength(2);
   });
 });

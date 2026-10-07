@@ -7,7 +7,15 @@ import type {
 } from '@weavia/shared';
 
 export type ProviderId =
-  'mock' | 'alibaba' | 'volcengine' | 'tencent' | 'azure' | 'aws' | 'openai' | (string & {});
+  | 'mock'
+  | 'dashscope'
+  | 'alibaba'
+  | 'volcengine'
+  | 'tencent'
+  | 'azure'
+  | 'aws'
+  | 'openai'
+  | (string & {});
 export type ProviderTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface ProviderConfig {
@@ -31,11 +39,18 @@ export interface GenerationInput {
   modelId: string;
   prompt?: string;
   mode: ImageGenerationMode;
-  referenceImages?: Array<{ uri: string; mimeType: string }>;
+  referenceImages?: ReferenceImageInput[];
+  size?: string;
   quality: Quality;
   aspectRatio: AspectRatio;
   outputCount: number;
   idempotencyKey: string;
+}
+
+export interface ReferenceImageInput {
+  type: 'url' | 'base64';
+  value: string;
+  mimeType?: string;
 }
 export interface ProviderTaskResult {
   taskId: string;
@@ -354,12 +369,186 @@ export class AntDigitalProvider extends OpenAICompatibleImageProvider implements
   }
 }
 
+export interface DashScopeImageEditConfig {
+  providerId?: ProviderId;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  timeoutMs: number;
+  fetch?: typeof fetch;
+}
+
+interface DashScopeImageEditResponse {
+  output?: {
+    choices?: Array<{
+      message?: { content?: Array<{ image?: string }> };
+    }>;
+  };
+  usage?: { image_count?: number; width?: number; height?: number };
+  request_id?: string;
+  code?: string;
+  message?: string;
+}
+
+/** Alibaba Cloud Model Studio Qwen Image Edit HTTP adapter. */
+export class DashScopeImageEditProvider implements AIProvider {
+  readonly id: ProviderId;
+  readonly capabilities = new Set<AICapability>(['image_to_image', 'image_edit']);
+  private readonly fetcher: typeof fetch;
+
+  constructor(private readonly config: DashScopeImageEditConfig) {
+    this.id = config.providerId ?? 'dashscope';
+    this.fetcher = config.fetch ?? fetch;
+  }
+
+  async getModels(): Promise<ModelDefinition[]> {
+    return [
+      {
+        id: this.config.model,
+        providerId: this.id,
+        displayName: 'Qwen Image Edit',
+        capabilities: ['image_to_image', 'image_edit'],
+        supportedQualities: ['standard', 'high'],
+        supportedAspectRatios: ['1:1', '3:4', '4:3', '9:16', '16:9'],
+        enabled: true,
+      },
+    ];
+  }
+
+  async generateImage(input: GenerationInput): Promise<ProviderTaskResult> {
+    if (input.mode !== 'image_edit' && input.mode !== 'image_to_image')
+      throw new NormalizedProviderError(
+        'UNSUPPORTED_CAPABILITY',
+        'DashScope image edit requires a reference image mode',
+        false,
+        400,
+      );
+    if (!input.prompt?.trim())
+      throw new NormalizedProviderError('INVALID_REQUEST', 'Prompt is required', false, 400);
+    if (!input.referenceImages?.length)
+      throw new NormalizedProviderError(
+        'INVALID_REQUEST',
+        'At least one reference image is required',
+        false,
+        400,
+      );
+    if (input.referenceImages.length > 3)
+      throw new NormalizedProviderError(
+        'INVALID_REQUEST',
+        'DashScope supports at most three reference images',
+        false,
+        400,
+      );
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    try {
+      const response = await this.fetcher(
+        new URL(
+          'services/aigc/multimodal-generation/generation',
+          ensureTrailingSlash(this.config.baseUrl),
+        ),
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${this.config.apiKey}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: this.config.model,
+            input: {
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    ...input.referenceImages.map((image) => ({
+                      image:
+                        image.type === 'base64' && !image.value.startsWith('data:')
+                          ? `data:${image.mimeType ?? 'image/png'};base64,${image.value}`
+                          : image.value,
+                    })),
+                    { text: input.prompt },
+                  ],
+                },
+              ],
+            },
+            parameters: {
+              n: 1,
+              prompt_extend: true,
+              watermark: false,
+              size: normalizeDashScopeSize(input.size ?? sizeForAspectRatio(input.aspectRatio)),
+            },
+          }),
+          signal: controller.signal,
+        },
+      );
+      const body = (await readJson(response)) as DashScopeImageEditResponse;
+      if (!response.ok || body.code) throw mapDashScopeError(response.status, body);
+      const outputs = (body.output?.choices ?? []).flatMap((choice) =>
+        (choice.message?.content ?? []).flatMap((content) =>
+          content.image ? [{ uri: content.image, mediaType: 'image/png' }] : [],
+        ),
+      );
+      if (!outputs.length)
+        throw new NormalizedProviderError(
+          'GENERATION_FAILED',
+          'Provider response did not contain an image',
+          false,
+        );
+      const providerTaskId =
+        response.headers.get('x-request-id') ??
+        body.request_id ??
+        `dashscope-${input.idempotencyKey}`;
+      return {
+        taskId: input.idempotencyKey,
+        providerTaskId,
+        status: 'succeeded',
+        outputs,
+      };
+    } catch (error) {
+      if (error instanceof NormalizedProviderError) throw error;
+      if (error instanceof DOMException && error.name === 'AbortError')
+        throw new NormalizedProviderError('TIMEOUT', 'Provider request timed out', true);
+      throw new NormalizedProviderError('NETWORK_ERROR', 'Unable to reach image provider', true);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async generateVideo(): Promise<ProviderTaskResult> {
+    throw new NormalizedProviderError('UNSUPPORTED_MODEL', 'Video is not supported', false, 400);
+  }
+  async getTaskStatus(): Promise<ProviderTaskSnapshot> {
+    throw new NormalizedProviderError(
+      'INVALID_REQUEST',
+      'DashScope Qwen Image Edit is synchronous',
+      false,
+      400,
+    );
+  }
+  async cancelTask(): Promise<void> {
+    throw new NormalizedProviderError(
+      'INVALID_REQUEST',
+      'Completed synchronous generations cannot be cancelled',
+      false,
+      400,
+    );
+  }
+  async estimateCost(input: GenerationInput): Promise<CostEstimate> {
+    return { credits: input.outputCount, pricingVersion: 'dashscope-configured-v1' };
+  }
+}
+
 function ensureTrailingSlash(value: string) {
   return value.endsWith('/') ? value : `${value}/`;
 }
 
 function sizeForAspectRatio(aspectRatio: AspectRatio) {
   return aspectRatio === '1:1' ? '1024x1024' : '1024x1024';
+}
+
+function normalizeDashScopeSize(size: string) {
+  return size.replace('x', '*');
 }
 
 async function readJson(response: Response) {
@@ -406,4 +595,41 @@ function mapHttpError(status: number, body: OpenAIImageResponse) {
       status,
     );
   return new NormalizedProviderError('UNKNOWN', providerMessage, false, status);
+}
+
+function mapDashScopeError(status: number, body: DashScopeImageEditResponse) {
+  const errorStatus = status >= 400 ? status : 400;
+  const code = body.code?.toLowerCase() ?? '';
+  if (status === 401 || status === 403 || code.includes('apikey'))
+    return new NormalizedProviderError(
+      'AUTH_FAILED',
+      'Provider authentication failed',
+      false,
+      status === 401 || status === 403 ? status : 401,
+    );
+  if (status === 429 || code.includes('throttl') || code.includes('ratelimit'))
+    return new NormalizedProviderError(
+      'PROVIDER_RATE_LIMITED',
+      'Provider rate limit reached',
+      true,
+      status === 429 ? status : 429,
+    );
+  if (status >= 500)
+    return new NormalizedProviderError(
+      'PROVIDER_UNAVAILABLE',
+      'Image provider is temporarily unavailable',
+      true,
+      status,
+    );
+  const mappedCode = code.includes('model')
+    ? 'UNSUPPORTED_MODEL'
+    : code.includes('content') || code.includes('datainspection')
+      ? 'CONTENT_REJECTED'
+      : 'INVALID_REQUEST';
+  return new NormalizedProviderError(
+    mappedCode,
+    body.message ?? `Provider error ${status}`,
+    false,
+    errorStatus,
+  );
 }

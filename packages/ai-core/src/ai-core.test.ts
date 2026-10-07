@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AntDigitalProvider,
+  DashScopeImageEditProvider,
   MockProvider,
   NormalizedProviderError,
   ProviderRegistry,
@@ -95,10 +96,94 @@ describe('AntDigitalProvider', () => {
         ...input,
         mode: 'image_to_image',
         capability: 'image_to_image',
-        referenceImages: [{ uri: 'https://storage.example/reference.png', mimeType: 'image/png' }],
+        referenceImages: [
+          { type: 'url', value: 'https://storage.example/reference.png', mimeType: 'image/png' },
+        ],
       }),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY', retryable: false });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe('DashScopeImageEditProvider', () => {
+  const input = {
+    capability: 'image_edit' as const,
+    mode: 'image_edit' as const,
+    modelId: 'qwen-image-edit-plus',
+    prompt: 'Place the product in a premium studio scene',
+    referenceImages: [
+      { type: 'base64' as const, value: 'data:image/png;base64,AQID', mimeType: 'image/png' },
+    ],
+    size: '1024x1024',
+    quality: 'standard' as const,
+    aspectRatio: '1:1' as const,
+    outputCount: 1,
+    idempotencyKey: 'edit-1',
+  };
+
+  it('maps the official multimodal image edit request and response', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: {
+            choices: [
+              { message: { content: [{ image: 'https://results.example/edited.png' }] } },
+            ],
+          },
+          usage: { image_count: 1, width: 1024, height: 1024 },
+          request_id: 'dashscope-request-1',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const provider = createDashScopeProvider(fetcher);
+    const result = await provider.generateImage(input);
+    const [url, request] = fetcher.mock.calls[0]!;
+    expect(String(url)).toBe(
+      'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+    );
+    expect(JSON.parse(String(request?.body))).toEqual({
+      model: 'qwen-image-edit-plus',
+      input: {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { image: 'data:image/png;base64,AQID' },
+              { text: 'Place the product in a premium studio scene' },
+            ],
+          },
+        ],
+      },
+      parameters: { n: 1, prompt_extend: true, watermark: false, size: '1024*1024' },
+    });
+    expect(result).toMatchObject({
+      providerTaskId: 'dashscope-request-1',
+      status: 'succeeded',
+      outputs: [{ uri: 'https://results.example/edited.png', mediaType: 'image/png' }],
+    });
+  });
+
+  it('rejects requests without a reference before network access', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const provider = createDashScopeProvider(fetcher);
+    await expect(
+      provider.generateImage({ ...input, referenceImages: [] }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', retryable: false });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('normalizes authentication errors without exposing credentials', async () => {
+    const provider = createDashScopeProvider(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ code: 'InvalidApiKey', message: 'Invalid API-key' }), {
+          status: 401,
+        }),
+      ),
+    );
+    const error = await provider.generateImage(input).catch((value: unknown) => value);
+    expect(error).toMatchObject({ code: 'AUTH_FAILED', retryable: false });
+    expect(String(error)).not.toContain('dashscope-test-key');
   });
 });
 
@@ -108,6 +193,16 @@ function createProvider(fetcher: typeof fetch) {
     baseUrl: 'https://maas-api.antdigital.com/v1',
     apiKey: 'test-key',
     model: 'qwen-image-max',
+    timeoutMs: 1000,
+    fetch: fetcher,
+  });
+}
+
+function createDashScopeProvider(fetcher: typeof fetch) {
+  return new DashScopeImageEditProvider({
+    baseUrl: 'https://dashscope.aliyuncs.com/api/v1',
+    apiKey: 'dashscope-test-key',
+    model: 'qwen-image-edit-plus',
     timeoutMs: 1000,
     fetch: fetcher,
   });

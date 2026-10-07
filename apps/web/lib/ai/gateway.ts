@@ -5,6 +5,7 @@ import type {
   AIGatewayErrorCode,
   CloudAITaskResult,
   ImageGenerationRequest,
+  ReferenceAssetInput,
   User,
 } from '@weavia/shared';
 
@@ -12,7 +13,7 @@ export interface ProviderConfigRecord {
   id: string;
   code: string;
   name: string;
-  type: 'openai-compatible';
+  type: 'openai-compatible' | 'dashscope-multimodal';
   baseUrl: string;
   enabled: boolean;
   configured: boolean;
@@ -118,7 +119,7 @@ export class GatewayError extends Error {
 
 export class ProviderRouter {
   constructor(private readonly catalog: AICatalog) {}
-  route(logicalKey: string) {
+  route(logicalKey: string, mode: ImageGenerationRequest['mode'] = 'text_to_image') {
     const logical = this.catalog.logicalModels.find(
       (item) => item.key === logicalKey && item.enabled,
     );
@@ -126,10 +127,13 @@ export class ProviderRouter {
     const candidates = this.catalog.bindings
       .filter((binding) => binding.logicalModelId === logical.id && binding.enabled)
       .sort((left, right) => left.priority - right.priority);
+    let hasCapableModel = false;
     for (const binding of candidates) {
       const model = this.catalog.providerModels.find(
         (item) => item.id === binding.providerModelId && item.enabled,
       );
+      if (!model?.capabilities.includes(mode)) continue;
+      hasCapableModel = true;
       const provider = model
         ? this.catalog.providers.find(
             (item) => item.id === model.providerId && item.enabled && item.configured,
@@ -137,6 +141,8 @@ export class ProviderRouter {
         : undefined;
       if (provider && model) return { logical, provider, model, binding };
     }
+    if (!hasCapableModel)
+      throw new GatewayError('UNSUPPORTED_CAPABILITY', '当前模型不支持所选生成方式', 400);
     throw new GatewayError('PROVIDER_UNAVAILABLE', '专业生成服务尚未就绪', 503);
   }
 }
@@ -160,16 +166,48 @@ export interface GatewayOptions {
   realAIEnabled: boolean;
 }
 
+export interface ReferenceImageTransport {
+  resolve(
+    userId: string,
+    asset: ReferenceAssetInput,
+  ): Promise<NonNullable<GenerationInput['referenceImages']>[number]>;
+}
+
+export class ObjectStorageReferenceImageTransport implements ReferenceImageTransport {
+  constructor(private readonly storage: ObjectStorage) {}
+
+  async resolve(userId: string, asset: ReferenceAssetInput) {
+    if (!asset.objectKey.startsWith(`references/${userId}/`))
+      throw new GatewayError('INVALID_REQUEST', '参考图不属于当前用户', 403);
+    const downloadUrl = await this.storage.createDownloadUrl(asset.objectKey, 600);
+    if (downloadUrl.startsWith('https://') || downloadUrl.startsWith('http://'))
+      return { type: 'url' as const, value: downloadUrl, mimeType: asset.mimeType };
+
+    const object = await this.storage.read(asset.objectKey);
+    if (object.contentType !== asset.mimeType)
+      throw new GatewayError('INVALID_REQUEST', '参考图 MIME 类型不一致', 400);
+    return {
+      type: 'base64' as const,
+      value: `data:${object.contentType};base64,${Buffer.from(object.body).toString('base64')}`,
+      mimeType: object.contentType,
+    };
+  }
+}
+
 export class AIGateway {
   private readonly router: ProviderRouter;
+  private readonly referenceTransport: ReferenceImageTransport | undefined;
   constructor(
     private readonly repository: InMemoryAIRepository,
     private readonly providers: Map<string, AIProvider>,
     private readonly options: GatewayOptions,
     private readonly billing: BillingHook = new NoopBillingHook(),
-    private readonly storage?: ObjectStorage,
+    storage?: ObjectStorage,
   ) {
     this.router = new ProviderRouter(repository.catalog);
+    this.referenceTransport = storage
+      ? new ObjectStorageReferenceImageTransport(storage)
+      : undefined;
   }
 
   async generateImage(user: User, request: ImageGenerationRequest) {
@@ -181,10 +219,10 @@ export class AIGateway {
     if (this.repository.countActive(user.id) >= this.options.maxConcurrentTasksPerUser)
       throw new GatewayError('CONCURRENCY_LIMIT', '当前已有生成任务，请稍后再试', 409);
 
-    const route = this.router.route(request.logicalModel);
+    const mode = request.mode ?? 'text_to_image';
+    const route = this.router.route(request.logicalModel, mode);
     const provider = this.providers.get(route.provider.code);
     if (!provider) throw new GatewayError('PROVIDER_UNAVAILABLE', 'Provider 未配置', 503);
-    const mode = request.mode ?? 'text_to_image';
     const capability = mode === 'text_to_image' ? 'image_generation' : mode;
     if (!route.model.capabilities.includes(mode) || !provider.capabilities.has(capability))
       throw new GatewayError('UNSUPPORTED_CAPABILITY', '当前模型不支持参考图生成', 400);
@@ -287,15 +325,11 @@ export class AIGateway {
 
   private async resolveReferences(userId: string, request: ImageGenerationRequest) {
     if (!request.referenceAssets?.length) return [];
-    if (!this.storage) throw new GatewayError('INVALID_REQUEST', '参考图存储尚未配置', 503);
-    const references: Array<{ uri: string; mimeType: string }> = [];
+    if (!this.referenceTransport)
+      throw new GatewayError('INVALID_REQUEST', '参考图存储尚未配置', 503);
+    const references: GenerationInput['referenceImages'] = [];
     for (const asset of request.referenceAssets) {
-      if (!asset.objectKey.startsWith(`references/${userId}/`))
-        throw new GatewayError('INVALID_REQUEST', '参考图不属于当前用户', 403);
-      references.push({
-        uri: await this.storage.createDownloadUrl(asset.objectKey, 600),
-        mimeType: asset.mimeType,
-      });
+      references.push(await this.referenceTransport.resolve(userId, asset));
     }
     return references;
   }
@@ -311,8 +345,8 @@ function validateRequest(request: ImageGenerationRequest) {
   const mode = request.mode ?? 'text_to_image';
   if (mode !== 'text_to_image' && !request.referenceAssets?.length)
     throw new GatewayError('INVALID_REQUEST', '参考图生成必须选择参考素材', 400);
-  if ((request.referenceAssets?.length ?? 0) > 4)
-    throw new GatewayError('INVALID_REQUEST', '最多支持 4 张参考图', 400);
+  if ((request.referenceAssets?.length ?? 0) > 3)
+    throw new GatewayError('INVALID_REQUEST', '最多支持 3 张参考图', 400);
 }
 
 function normalizeGatewayError(error: unknown): {

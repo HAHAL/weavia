@@ -7,8 +7,14 @@ describe('AI admin configuration', () => {
     const snapshot = sanitizedAdminSnapshot();
     expect(snapshot.providers[0]).toMatchObject({ code: 'antdigital' });
     expect(snapshot.models[0]).toMatchObject({ modelId: 'qwen-image-max' });
+    expect(snapshot.providers[1]).toMatchObject({ code: 'dashscope' });
+    expect(snapshot.models[1]).toMatchObject({
+      modelId: 'qwen-image-edit-plus',
+      capabilities: ['image_to_image', 'image_edit'],
+    });
     expect(snapshot.logicalModels[0]).toMatchObject({ key: 'weavia-image-pro' });
     expect(JSON.stringify(snapshot)).not.toContain('ANTDIGITAL_API_KEY');
+    expect(JSON.stringify(snapshot)).not.toContain('DASHSCOPE_API_KEY');
     expect(snapshot.providers[0]).not.toHaveProperty('apiKey');
   });
 

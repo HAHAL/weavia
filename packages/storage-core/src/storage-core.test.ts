@@ -11,6 +11,10 @@ describe('LocalMockStorage', () => {
     });
     await storage.upload(ticket.uploadUrl, new Uint8Array([1, 2, 3]), 'image/png');
     expect(storage.getMetadata(ticket.objectKey)).toMatchObject({ size: 3 });
+    expect(await storage.read(ticket.objectKey)).toMatchObject({
+      contentType: 'image/png',
+      body: new Uint8Array([1, 2, 3]),
+    });
     expect(await storage.createDownloadUrl(ticket.objectKey)).toContain('localmock://download/');
     await storage.delete(ticket.objectKey);
     expect(storage.getMetadata(ticket.objectKey)).toBeUndefined();

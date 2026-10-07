@@ -176,7 +176,9 @@ export async function runMockModelWorkflow(projectId: string, asset: LocalAsset)
     capability: 'image_edit',
     mode: 'image_edit',
     modelId: 'mock-image-v1',
-    referenceImages: [{ uri: asset.relativePath, mimeType: asset.mimeType }],
+    referenceImages: [
+      { type: 'url', value: `mock-local://${asset.relativePath}`, mimeType: asset.mimeType },
+    ],
     quality: 'standard',
     aspectRatio: '3:4',
     outputCount: 1,
