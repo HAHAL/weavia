@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "deep-link:default",
+    "dialog:allow-open",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "http://localhost:3000/*" }, { "url": "https://*.weavia.com/*" }]

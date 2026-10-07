@@ -135,6 +135,78 @@ export interface AuthSessionResult extends AuthTokens {
   device: Device;
 }
 
+export type LocalProjectStatus = 'active' | 'archived';
+export interface LocalProject {
+  id: EntityId;
+  name: string;
+  description: string;
+  status: LocalProjectStatus;
+  localRootPath: string;
+  thumbnailAssetId?: EntityId;
+  projectVersion: number;
+  assetCount: number;
+  taskCount: number;
+  resultCount: number;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+  lastOpenedAt: IsoDateTime;
+}
+
+export type LocalAssetType = 'image' | 'video';
+export type LocalAssetSource = 'imported' | 'generated';
+export interface LocalAsset {
+  id: EntityId;
+  projectId: EntityId;
+  type: LocalAssetType;
+  source: LocalAssetSource;
+  fileName: string;
+  relativePath: string;
+  mimeType: string;
+  fileSize: number;
+  width?: number;
+  height?: number;
+  duration?: number;
+  hash: string;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+}
+
+export interface LocalTaskRecord {
+  id: EntityId;
+  projectId: EntityId;
+  workflow: 'ai_model' | 'ai_commercial';
+  status:
+    | 'pending'
+    | 'queued'
+    | 'uploading'
+    | 'running'
+    | 'downloading'
+    | 'reconciling'
+    | 'success'
+    | 'failed'
+    | 'cancelled';
+  input: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  error?: { code: string; message: string };
+  progress: number;
+  createdAt: IsoDateTime;
+  startedAt?: IsoDateTime;
+  completedAt?: IsoDateTime;
+  updatedAt: IsoDateTime;
+}
+
+export interface GeneratedResult {
+  id: EntityId;
+  projectId: EntityId;
+  taskId: EntityId;
+  assetId: EntityId;
+  type: LocalAssetType;
+  relativePath: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: IsoDateTime;
+}
+
 export type AICapability =
   | 'image_generation'
   | 'image_edit'

@@ -9,6 +9,7 @@ import { PlaceholderPage } from '../pages/PlaceholderPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { AccountPage } from '../pages/AccountPage';
 import { AuthBootstrap } from '../components/AuthBootstrap';
+import { ProjectWorkspacePage } from '../pages/ProjectWorkspacePage';
 export function App() {
   return (
     <ErrorBoundary>
@@ -17,8 +18,11 @@ export function App() {
         <Route element={<AppShell />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/create/model" element={<CreationPage kind="model" />} />
-          <Route path="/create/commercial" element={<CreationPage kind="commercial" />} />
+          <Route path="/projects/:projectId" element={<ProjectWorkspacePage />} />
+          <Route path="/projects/:projectId/create/model" element={<CreationPage kind="model" />} />
+          <Route path="/projects/:projectId/tasks" element={<TasksPage />} />
+          <Route path="/create/model" element={<Navigate to="/projects" replace />} />
+          <Route path="/create/commercial" element={<Navigate to="/projects" replace />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route
             path="/assets"

@@ -1,13 +1,13 @@
 # WEAVIA / 织维
 
-WEAVIA 是面向电商创作者和团队的 Local-First AI 商品视觉生产工具。此仓库是 V1.0 Phase 0 的正式工程骨架：桌面端负责本地项目与创作，云端应用负责账号和商业能力，所有生成能力通过统一 Provider Layer 和 Task Engine 接入。
+WEAVIA 是面向电商创作者和团队的 Local-First AI 商品视觉生产工具。桌面端负责本地项目、素材、任务历史与生成结果，云端应用负责账号和商业能力，所有生成能力通过统一 Provider Layer 和 Task Engine 接入。
 
 ## 技术栈
 
 - pnpm workspace + Turborepo + TypeScript strict
 - Desktop：Tauri 2、React、Vite、React Router、Zustand
 - Web / Admin：Next.js App Router、React
-- 数据：PostgreSQL、Drizzle ORM
+- 数据：Cloud PostgreSQL/Drizzle；Desktop SQLite/rusqlite
 - 测试：Vitest
 
 ## 目录
@@ -55,6 +55,8 @@ pnpm --filter @weavia/desktop tauri:dev # 原生窗口
 ```
 
 Phase 1A 的 Demo 登录闭环需要 Web 与原生 Desktop 同时运行。Desktop 会打开系统浏览器，Web 使用 `WEAVIA Demo` 开发账户签发一次性 Authorization Code，再通过 `weavia://auth/callback` 返回客户端。Access/Refresh Token 不进入 URL，桌面凭据由系统 Keychain/Credential Store 保存。
+
+Phase 1B 的原生 Desktop 会在标准 App Data 下创建 SQLite 与项目目录。项目页可导入 PNG/JPG/WEBP，并通过 MockProvider 生成真实本地结果文件；完全退出再启动后，项目、素材、任务和结果仍会存在。
 
 ## 数据库
 

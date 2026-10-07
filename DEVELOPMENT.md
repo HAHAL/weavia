@@ -25,6 +25,26 @@ pnpm build
 
 本轮不要求生产数据库，不提供默认密码，不在构建时联网。
 
+## Desktop 本地 SQLite 与项目文件
+
+Cloud PostgreSQL 与 Desktop SQLite 不共享连接或 migration。原生 Desktop 首次启动时在 Tauri 标准 App Data 路径创建 `WEAVIA/weavia.db`，并执行 `schema_migrations` 中尚未应用的版本。macOS 开发环境通常位于：
+
+```text
+~/Library/Application Support/com.weavia.desktop/WEAVIA/weavia.db
+```
+
+设置页会显示运行时解析出的确切路径。项目文件位于同目录的 `projects/{projectId}/`。不要把数据库、导入素材、生成结果或缓存复制进仓库；`.gitignore` 已排除 SQLite/WAL/SHM 与构建目录。
+
+Rust 分层测试使用 `tempfile` 创建独立 App Data，覆盖 migration、Project CRUD/重启、Asset metadata/hash/去重/失败一致性、Task persistence/recovery、真实 Mock Result、级联删除与 Settings：
+
+```bash
+cd apps/desktop/src-tauri
+cargo test
+cargo check
+```
+
+真实验证需启动 Tauri，创建开发项目，导入 PNG/JPG/WEBP，运行 AI 模特 Mock Workflow，然后完全退出并重新启动应用，确认 Project、Asset、Task History 和 Generated Result 仍可读取。Mock Workflow 不请求真实 Provider，也不消耗 Credits。
+
 ## 代码约定
 
 - TypeScript strict，不使用 `any` 或 `@ts-ignore` 绕过错误。

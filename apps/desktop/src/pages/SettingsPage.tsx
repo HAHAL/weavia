@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Badge, Card, PageHeader } from '@weavia/ui';
+import { Badge, Button, Card, PageHeader } from '@weavia/ui';
+import { localData, type LocalDataInfo } from '../services/local-data';
 interface AppInfo {
   name: string;
   version: string;
@@ -12,9 +13,31 @@ export function SettingsPage() {
     version: '0.1.0',
     platform: 'Browser preview',
   });
+  const [storage, setStorage] = useState<LocalDataInfo>();
+  const [defaultProjectPath, setDefaultProjectPath] = useState('');
+  const [density, setDensity] = useState('comfortable');
+  const [saved, setSaved] = useState(false);
   useEffect(() => {
-    if ('__TAURI_INTERNALS__' in window) void invoke<AppInfo>('get_app_info').then(setInfo);
+    if ('__TAURI_INTERNALS__' in window) {
+      void invoke<AppInfo>('get_app_info').then(setInfo);
+      void localData.info().then((next) => {
+        setStorage(next);
+        void localData
+          .getSetting<string>('defaultProjectPath')
+          .then((value) => setDefaultProjectPath(value ?? `${next.rootPath}/projects`));
+      });
+      void localData
+        .getSetting<{ density: string }>('ui')
+        .then((value) => setDensity(value?.density ?? 'comfortable'));
+    }
   }, []);
+  async function saveLocalSettings() {
+    await Promise.all([
+      localData.setSetting('defaultProjectPath', defaultProjectPath),
+      localData.setSetting('ui', { density }),
+    ]);
+    setSaved(true);
+  }
   return (
     <>
       <PageHeader
@@ -42,18 +65,52 @@ export function SettingsPage() {
         </Card>
         <Card>
           <h2>本地项目</h2>
-          <p>项目根目录将在首次创建项目时由用户选择。</p>
+          <p>{storage?.rootPath ?? '使用系统标准 App Data 目录'}</p>
+          <dl>
+            <div>
+              <dt>SQLite</dt>
+              <dd>{storage ? `Schema v${storage.schemaVersion}` : 'Desktop only'}</dd>
+            </div>
+          </dl>
+          <label className="local-setting-field">
+            默认项目路径
+            <input
+              value={defaultProjectPath}
+              onChange={(event) => {
+                setDefaultProjectPath(event.target.value);
+                setSaved(false);
+              }}
+              disabled={!storage}
+            />
+          </label>
+          <label className="local-setting-field">
+            界面密度
+            <select
+              value={density}
+              onChange={(event) => {
+                setDensity(event.target.value);
+                setSaved(false);
+              }}
+              disabled={!storage}
+            >
+              <option value="comfortable">舒适</option>
+              <option value="compact">紧凑</option>
+            </select>
+          </label>
+          <Button onClick={() => void saveLocalSettings()} disabled={!storage}>
+            {saved ? '已保存' : '保存本地设置'}
+          </Button>
           <Badge tone="success">Local First</Badge>
         </Card>
         <Card>
           <h2>AI Provider</h2>
-          <p>真实 Provider 尚未接入。密钥未来写入 Keychain 或 Credential Manager。</p>
+          <p>本阶段仅使用 MockProvider 生成本地真实结果文件。</p>
           <Badge>Mock only</Badge>
         </Card>
         <Card>
           <h2>账户授权</h2>
-          <p>浏览器登录、PKCE 与 Deep Link 将在 Phase 1 接入。</p>
-          <Badge>未登录</Badge>
+          <p>浏览器登录、Deep Link 与 Keychain 继续沿用 Phase 1A。</p>
+          <Badge tone="success">Phase 1A</Badge>
         </Card>
       </div>
     </>
