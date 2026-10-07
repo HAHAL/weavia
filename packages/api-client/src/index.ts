@@ -4,6 +4,8 @@ import type {
   DesktopLoginSession,
   DeviceInfo,
   User,
+  CloudAITaskResult,
+  ImageGenerationRequest,
 } from '@weavia/shared';
 
 export interface ApiErrorBody {
@@ -97,6 +99,21 @@ export class AuthApiClient implements AuthApi {
   }
   async me() {
     return (await this.client.request<User>('auth/me')).data;
+  }
+}
+
+export class AIApiClient {
+  constructor(private readonly client: ApiClient) {}
+  async generateImage(request: ImageGenerationRequest) {
+    return (
+      await this.client.request<CloudAITaskResult>('ai/tasks', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+    ).data;
+  }
+  async getTask(taskId: string) {
+    return (await this.client.request<CloudAITaskResult>(`ai/tasks/${taskId}`)).data;
   }
 }
 

@@ -20,6 +20,10 @@ export function App() {
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectWorkspacePage />} />
           <Route path="/projects/:projectId/create/model" element={<CreationPage kind="model" />} />
+          <Route
+            path="/projects/:projectId/create/commercial"
+            element={<CreationPage kind="commercial" />}
+          />
           <Route path="/projects/:projectId/tasks" element={<TasksPage />} />
           <Route path="/create/model" element={<Navigate to="/projects" replace />} />
           <Route path="/create/commercial" element={<Navigate to="/projects" replace />} />

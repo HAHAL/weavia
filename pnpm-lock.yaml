@@ -148,6 +148,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@weavia/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       '@weavia/auth-core':
         specifier: workspace:*
         version: link:../../packages/auth-core

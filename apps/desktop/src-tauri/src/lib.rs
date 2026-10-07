@@ -211,6 +211,21 @@ fn execute_local_mock_task(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+async fn save_remote_generated_result(
+    data: tauri::State<'_, LocalData>,
+    task_id: String,
+    remote_source: String,
+    expected_mime_type: String,
+) -> Result<GeneratedResult, String> {
+    let local_data = data.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        local_data.save_remote_generated_result(&task_id, &remote_source, &expected_mime_type)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command(rename_all = "camelCase")]
 fn list_local_results(
     data: tauri::State<'_, LocalData>,
     project_id: String,
@@ -267,6 +282,7 @@ pub fn run() {
             get_local_task,
             list_local_tasks,
             execute_local_mock_task,
+            save_remote_generated_result,
             list_local_results,
             set_local_setting,
             get_local_setting

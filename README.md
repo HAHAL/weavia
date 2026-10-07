@@ -58,6 +58,8 @@ Phase 1A 的 Demo 登录闭环需要 Web 与原生 Desktop 同时运行。Deskto
 
 Phase 1B 的原生 Desktop 会在标准 App Data 下创建 SQLite 与项目目录。项目页可导入 PNG/JPG/WEBP，并通过 MockProvider 生成真实本地结果文件；完全退出再启动后，项目、素材、任务和结果仍会存在。
 
+Phase 2A 增加 Cloud AI Gateway、Ant Digital MaaS Provider、`weavia-image-pro` 逻辑模型路由、幂等/并发/重试/Usage/Cost/Billing Hook，以及 Admin Providers/Models/Routing/Usage 页面。真实调用默认关闭；Server 必须同时配置 `ENABLE_REAL_AI=true` 与 `ANTDIGITAL_API_KEY`，Desktop 永远不会获得 Provider Key。
+
 ## 数据库
 
 复制环境变量并配置 `DATABASE_URL` 后执行：
@@ -71,7 +73,7 @@ Schema 已覆盖用户、账户、会话、会员、套餐、Credits、设备、
 
 ## 扩展 Provider
 
-在 `packages/ai-core/src` 实现 `AIProvider`，声明能力与模型，再注册到 `ProviderRegistry`。业务层只请求能力，不依赖云厂商 SDK。密钥不得进入源码、日志或浏览器环境；桌面用户密钥未来写入系统安全存储。
+在 `packages/ai-core/src` 实现 `AIProvider`，声明能力与模型，再注册到 `ProviderRegistry`。业务层只请求能力，不依赖云厂商 SDK。Provider 密钥不得进入源码、日志、浏览器或 Desktop，仅由 Server Secret 环境或未来 Secret Manager 管理。
 
 ## 扩展任务
 

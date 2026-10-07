@@ -77,3 +77,37 @@ Session + Device ← code exchange ← weavia://auth/callback?code&state
 ## 状态模型
 
 统一任务状态支持 `pending → queued → uploading → running → downloading → success`，以及 `failed`、`cancelled`、`reconciling`。状态机拒绝非法跃迁；Provider 状态先归一化再进入业务层。
+
+## Cloud AI Gateway（Phase 2A）
+
+```text
+Desktop (WEAVIA Access Token + logicalModel)
+  → Web Cloud API Auth Middleware
+  → AIGateway
+      ├─ Request Validation / Idempotency / Concurrency Guard
+      ├─ ProviderRouter: weavia-image-pro
+      │    → Ant Digital MaaS / qwen-image-3.0-pro
+      ├─ bounded Retry / Timeout / Error Normalization
+      ├─ Provider Usage / Cost Metadata
+      └─ NoopBillingHook
+  → Desktop Result Delivery
+  → SQLite Asset + Result + Task success
+```
+
+- Desktop 只提交 `weavia-image-pro`，不能指定 Provider 或昂贵物理模型。`model_bindings` 按 `priority` 选择第一个 enabled/configured Provider Model。
+- `AntDigitalProvider` 基于可复用 `OpenAICompatibleImageProvider`，调用 `https://maas-api.antdigital.com/v1/images/generations`，首个物理模型为 `qwen-image-3.0-pro`。
+- 当前只声明已确认的 `text_to_image`。Ant Digital 对该模型的参考图字段尚未从其公开官方文档确认，因此没有猜测开启 `image_to_image`/`image_edit`。
+- `ANTDIGITAL_API_KEY` 只存在于 Cloud Server 环境。Provider、Health、Admin、错误响应和结构化日志只暴露 configured/readiness，不返回 Secret、Access Token、Base64 或内部堆栈。
+- 默认 `ENABLE_REAL_AI=false`；普通单测与 CI 使用 Mock HTTP。真实调用还必须同时存在 Server Key，单用户默认并发 1，Provider 尝试上限 2。
+- 幂等范围是 `authenticated user + idempotencyKey`。网络重试返回原 Cloud Task，不重复触发付费生成。
+- Retry 仅用于可重试的 network/timeout/429/5xx，invalid request、auth、content rejection 和 unsupported model 不自动重试。
+- Cloud Schema 新增 `provider_models`、`logical_models`、`model_bindings`、`provider_usage`；价格是可配置 Cost Metadata，缺少真实 Provider cost 时不编造 `actualCost`。
+- `BillingHook` 生命周期为 `beforeTask → onProviderAccepted → onSuccess/onFailure`。Phase 2A 使用 `NoopBillingHook`，Phase 3 可替换为 Credits Freeze/Consume/Release。
+
+### Asset Transport 与 Result Delivery
+
+Phase 2A 的 Control Plane 仍通过 WEAVIA API。参考图传输预留 `inputAssets`，开发内联上限 5 MB；正式大图/视频必须改用 Signed URL 的 Temporary Object Storage，不能长期穿过 API Server。
+
+Provider URL 或 Base64 结果不会长期写入 Cloud Database。Desktop Result Delivery 只允许 HTTPS（或受控 Data URL），限制 redirect、120 秒 timeout、20 MB、MIME 和真实图片格式，落盘后重新计算 SHA-256/尺寸/大小，再在同一 SQLite transaction 注册 generated Asset、Result 并完成 Task。下载失败进入 `reconciling`，保留 remote delivery 信息；下次打开工作流会自动重试。成功结果进入 `local_saved`。
+
+Admin 的 `/providers`、`/models`、`/routing`、`/usage` 从 Cloud API 读取运行时 Catalog 与 Usage，不包含硬编码 UI Mock 或明文 Secret。配置检查不调用付费图片接口。

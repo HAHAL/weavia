@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ImagePlus, Upload, WandSparkles } from 'lucide-react';
 import { Badge, Button } from '@weavia/ui';
 import { Link, useParams } from 'react-router-dom';
 import type { GeneratedResult, LocalAsset, LocalTaskRecord } from '@weavia/shared';
 import { AssetThumbnail } from '../components/AssetThumbnail';
 import { localData, runMockModelWorkflow } from '../services/local-data';
+import {
+  resumePendingDeliveries,
+  runCloudImageWorkflow,
+  type CloudGenerationStage,
+} from '../services/cloud-ai';
 
 const modelOptions = ['温雅', '利落', '自然'];
 export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
@@ -15,19 +20,27 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
   const [result, setResult] = useState<GeneratedResult>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [mode, setMode] = useState<'mock' | 'cloud'>('mock');
+  const [stage, setStage] = useState<CloudGenerationStage>();
   const imported = assets.filter((asset) => asset.source === 'imported');
   const chosen = imported.find((asset) => asset.id === selected);
-  const load = () =>
-    void Promise.all([localData.listAssets(projectId), localData.listTasks(projectId)]).then(
-      ([nextAssets, nextTasks]) => {
-        setAssets(nextAssets);
-        setTasks(nextTasks);
-        setSelected(
-          (current) => current ?? nextAssets.find((asset) => asset.source === 'imported')?.id,
-        );
-      },
-    );
-  useEffect(load, [projectId]);
+  const load = useCallback(
+    () =>
+      void Promise.all([localData.listAssets(projectId), localData.listTasks(projectId)]).then(
+        ([nextAssets, nextTasks]) => {
+          setAssets(nextAssets);
+          setTasks(nextTasks);
+          setSelected(
+            (current) => current ?? nextAssets.find((asset) => asset.source === 'imported')?.id,
+          );
+        },
+      ),
+    [projectId],
+  );
+  useEffect(() => {
+    load();
+    void resumePendingDeliveries(projectId).then(load);
+  }, [load, projectId]);
   async function importAsset() {
     try {
       const asset = await localData.chooseAndImportAsset(projectId);
@@ -43,23 +56,24 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
     setError(undefined);
     const polling = setInterval(() => void localData.listTasks(projectId).then(setTasks), 25);
     try {
-      setResult(await runMockModelWorkflow(projectId, chosen));
+      setResult(
+        mode === 'cloud'
+          ? await runCloudImageWorkflow(
+              projectId,
+              chosen,
+              kind === 'model' ? 'ai_model' : 'ai_commercial',
+              setStage,
+            )
+          : await runMockModelWorkflow(projectId, chosen),
+      );
       load();
     } catch (value) {
-      setError(String(value));
+      setError(friendlyError(value));
     } finally {
       clearInterval(polling);
       setBusy(false);
     }
   }
-  if (kind === 'commercial')
-    return (
-      <div className="workspace-empty">
-        <h2>AI 商拍将在后续阶段接入</h2>
-        <p>Phase 1B 只实现 AI 模特 Mock Workflow。</p>
-        <Link to={`/projects/${projectId}`}>返回项目</Link>
-      </div>
-    );
   const active = tasks[0];
   return (
     <div className="studio">
@@ -101,8 +115,8 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
             <span>
               <ImagePlus />
             </span>
-            <h1>添加一件商品，开始模特创作</h1>
-            <p>选择本地商品图并运行 MockProvider。</p>
+            <h1>添加一件商品，开始{kind === 'model' ? '模特' : '商拍'}创作</h1>
+            <p>选择本地商品图并创建持久化生成任务。</p>
             <Button onClick={() => void importAsset()}>
               <Upload size={15} />
               添加商品图片
@@ -112,7 +126,7 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
         )}
         {busy && (
           <div className="generation-progress">
-            <strong>Mock AI 正在生成</strong>
+            <strong>{mode === 'cloud' ? stageLabel(stage) : 'Mock AI 正在生成'}</strong>
             <progress max="100" value={active?.progress ?? 10} />
             <span>{active?.progress ?? 10}%</span>
           </div>
@@ -164,17 +178,54 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
           </div>
         </div>
         <footer className="generate-footer">
+          <div className="segments generation-mode">
+            <button className={mode === 'mock' ? 'active' : ''} onClick={() => setMode('mock')}>
+              Local Mock
+            </button>
+            <button className={mode === 'cloud' ? 'active' : ''} onClick={() => setMode('cloud')}>
+              WEAVIA 专业 <Badge tone="accent">DEV</Badge>
+            </button>
+          </div>
           <div>
             <span>执行模式</span>
-            <strong>Local Mock</strong>
+            <strong>{mode === 'cloud' ? '专业生成' : 'Local Mock'}</strong>
           </div>
           <Button disabled={!chosen || busy} onClick={() => void generate()}>
             <WandSparkles size={15} />
             {busy ? '生成中…' : '开始生成'}
           </Button>
-          <small>不会调用真实 AI 或消耗 Credits</small>
+          <small>
+            {mode === 'cloud'
+              ? '通过 WEAVIA Cloud 安全调用；一次生成 1 张'
+              : '不会调用真实 AI 或消耗 Credits'}
+          </small>
         </footer>
       </aside>
     </div>
   );
+}
+
+function stageLabel(stage?: CloudGenerationStage) {
+  return {
+    preparing: '准备素材',
+    submitting: '提交任务',
+    generating: 'AI 生成中',
+    downloading: '下载结果',
+    saving: '保存到本地',
+    complete: '完成',
+  }[stage ?? 'preparing'];
+}
+
+function friendlyError(value: unknown) {
+  const code = typeof value === 'object' && value && 'code' in value ? String(value.code) : '';
+  const messages: Record<string, string> = {
+    AUTH_FAILED: '登录已失效，请重新登录 WEAVIA。',
+    INVALID_TOKEN: '请先登录 WEAVIA 后再使用专业生成。',
+    CONCURRENCY_LIMIT: '已有专业生成任务正在运行，请稍后再试。',
+    REAL_AI_DISABLED: '专业生成尚未启用，请联系开发管理员配置服务。',
+    PROVIDER_UNAVAILABLE: '专业生成服务尚未就绪。',
+    PROVIDER_RATE_LIMITED: '生成服务繁忙，请稍后再试。',
+    CONTENT_REJECTED: '当前创作内容未通过模型安全检查。',
+  };
+  return messages[code] ?? (value instanceof Error ? value.message : String(value));
 }
