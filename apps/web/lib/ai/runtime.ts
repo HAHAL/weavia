@@ -1,5 +1,6 @@
 import { AntDigitalProvider } from '@weavia/ai-core';
 import { AIGateway, InMemoryAIRepository, type AICatalog } from './gateway';
+import { objectStorage } from '../storage/runtime';
 
 const providerId = '00000000-0000-4000-8000-000000000101';
 const providerModelId = '00000000-0000-4000-8000-000000000102';
@@ -79,11 +80,17 @@ if (configured) {
   );
 }
 
-export const aiGateway = (globalAI.__weaviaAIGateway ??= new AIGateway(aiRepository, providers, {
-  maxConcurrentTasksPerUser: Number(process.env.AI_MAX_CONCURRENT_TASKS_PER_USER ?? 1),
-  maxProviderAttempts: Number(process.env.AI_MAX_PROVIDER_ATTEMPTS ?? 2),
-  realAIEnabled,
-}));
+export const aiGateway = (globalAI.__weaviaAIGateway ??= new AIGateway(
+  aiRepository,
+  providers,
+  {
+    maxConcurrentTasksPerUser: Number(process.env.AI_MAX_CONCURRENT_TASKS_PER_USER ?? 1),
+    maxProviderAttempts: Number(process.env.AI_MAX_PROVIDER_ATTEMPTS ?? 2),
+    realAIEnabled,
+  },
+  undefined,
+  objectStorage,
+));
 
 export function sanitizedAdminSnapshot() {
   const usage = aiRepository.listUsage();

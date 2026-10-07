@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, ImagePlus, Upload, WandSparkles } from 'lucide-react';
+import { ArrowLeft, ImagePlus, Star, Upload, WandSparkles } from 'lucide-react';
 import { Badge, Button } from '@weavia/ui';
 import { Link, useParams } from 'react-router-dom';
 import type { GeneratedResult, LocalAsset, LocalTaskRecord } from '@weavia/shared';
@@ -31,7 +31,10 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
           setAssets(nextAssets);
           setTasks(nextTasks);
           setSelected(
-            (current) => current ?? nextAssets.find((asset) => asset.source === 'imported')?.id,
+            (current) =>
+              current ??
+              nextAssets.find((asset) => asset.role === 'REFERENCE_IMAGE')?.id ??
+              nextAssets.find((asset) => asset.source === 'imported')?.id,
           );
         },
       ),
@@ -74,6 +77,15 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
       setBusy(false);
     }
   }
+  async function setReference(assetId: string) {
+    try {
+      await localData.setAssetRole(assetId, 'REFERENCE_IMAGE');
+      setSelected(assetId);
+      load();
+    } catch (value) {
+      setError(String(value));
+    }
+  }
   const active = tasks[0];
   return (
     <div className="studio">
@@ -94,8 +106,16 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
               className={asset.id === selected ? 'selected' : ''}
               key={asset.id}
               onClick={() => setSelected(asset.id)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                void setReference(asset.id);
+              }}
+              title="右键设为商品参考图"
             >
               <AssetThumbnail asset={asset} />
+              {asset.role === 'REFERENCE_IMAGE' && (
+                <strong className="reference-label">⭐ 商品参考图</strong>
+              )}
               <span>
                 {asset.width} × {asset.height}
               </span>
@@ -108,7 +128,13 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
         {chosen ? (
           <div className="selected-canvas">
             <AssetThumbnail asset={chosen} alt="已选商品" />
-            <span>已选商品素材</span>
+            <span>{chosen.role === 'REFERENCE_IMAGE' ? '⭐ 商品参考图' : '已选商品素材'}</span>
+            {chosen.role !== 'REFERENCE_IMAGE' && (
+              <Button className="set-reference-action" onClick={() => void setReference(chosen.id)}>
+                <Star size={14} />
+                设为商品参考图
+              </Button>
+            )}
           </div>
         ) : (
           <div className="canvas-empty">
@@ -142,6 +168,12 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
       <aside className="parameters">
         <div className="parameters-scroll">
           <p className="panel-label">创作参数</p>
+          <div className="reference-summary">
+            <span>商品</span>
+            <strong>{chosen?.fileName ?? '未选择'}</strong>
+            <span>参考图</span>
+            <strong>{chosen?.role === 'REFERENCE_IMAGE' ? '已选择' : '未设置'}</strong>
+          </div>
           <div className="field">
             <label>选择模特</label>
             <div className="option-grid">
@@ -190,7 +222,10 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
             <span>执行模式</span>
             <strong>{mode === 'cloud' ? '专业生成' : 'Local Mock'}</strong>
           </div>
-          <Button disabled={!chosen || busy} onClick={() => void generate()}>
+          <Button
+            disabled={!chosen || busy || (mode === 'cloud' && chosen.role !== 'REFERENCE_IMAGE')}
+            onClick={() => void generate()}
+          >
             <WandSparkles size={15} />
             {busy ? '生成中…' : '开始生成'}
           </Button>
@@ -226,6 +261,7 @@ function friendlyError(value: unknown) {
     PROVIDER_UNAVAILABLE: '专业生成服务尚未就绪。',
     PROVIDER_RATE_LIMITED: '生成服务繁忙，请稍后再试。',
     CONTENT_REJECTED: '当前创作内容未通过模型安全检查。',
+    UNSUPPORTED_CAPABILITY: '当前真实模型尚未开放已验证的参考图生成接口。',
   };
   return messages[code] ?? (value instanceof Error ? value.message : String(value));
 }

@@ -5,6 +5,7 @@ import '@weavia/ui/styles.css';
 import './styles.css';
 import './auth.css';
 import './local-data.css';
+import './reference-image.css';
 import { App } from './app/App';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

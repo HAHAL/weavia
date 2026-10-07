@@ -1,6 +1,11 @@
-import type { CloudAIOutput, LocalAsset } from '@weavia/shared';
+import type {
+  AssetPresignResult,
+  CloudAIOutput,
+  LocalAsset,
+  ReferenceAssetInput,
+} from '@weavia/shared';
 
-const MAX_DEV_INPUT_BYTES = 5 * 1024 * 1024;
+const MAX_REFERENCE_BYTES = 5 * 1024 * 1024;
 
 export interface PreparedAssetInput {
   assetId: string;
@@ -9,27 +14,38 @@ export interface PreparedAssetInput {
   localRelativePath: string;
 }
 
+export interface ReferenceTransportDependencies {
+  readDataUrl(assetId: string): Promise<string>;
+  presign(input: {
+    assetId: string;
+    contentType: string;
+    size: number;
+  }): Promise<AssetPresignResult>;
+  upload(uploadUrl: string, body: Blob, contentType: string): Promise<void>;
+  markUpload(
+    assetId: string,
+    status: LocalAsset['uploadStatus'],
+    remoteReferenceId?: string,
+    expiresAt?: string,
+  ): Promise<unknown>;
+}
+
 export interface AssetTransport {
   prepareInput(asset: LocalAsset): Promise<PreparedAssetInput>;
-  resolveProviderInput(input: PreparedAssetInput): Promise<undefined>;
+  resolveProviderInput(input: PreparedAssetInput): Promise<ReferenceAssetInput>;
   resolveResult(output: CloudAIOutput): Promise<string>;
   cleanup(input: PreparedAssetInput): Promise<void>;
 }
 
-/**
- * Phase 2A development transport. It validates and associates the selected local
- * asset with the workflow, but deliberately does not upload it: Ant Digital's
- * image-input contract has not yet been verified. The provider request remains
- * text-to-image until that contract is confirmed.
- */
-export class DevLocalAssetTransport implements AssetTransport {
+export class ReferenceAssetTransport implements AssetTransport {
+  constructor(private readonly dependencies: ReferenceTransportDependencies) {}
+
   async prepareInput(asset: LocalAsset): Promise<PreparedAssetInput> {
-    if (asset.type !== 'image' || !asset.mimeType.startsWith('image/')) {
+    if (asset.role !== 'REFERENCE_IMAGE') throw new Error('请先将商品素材设为参考图');
+    if (asset.type !== 'image' || !asset.mimeType.startsWith('image/'))
       throw new Error('专业图片生成仅支持图片素材');
-    }
-    if (asset.fileSize <= 0 || asset.fileSize > MAX_DEV_INPUT_BYTES) {
-      throw new Error('开发模式输入图片必须小于或等于 5 MB');
-    }
+    if (asset.fileSize <= 0 || asset.fileSize > MAX_REFERENCE_BYTES)
+      throw new Error('参考图必须小于或等于 5 MB');
     return {
       assetId: asset.id,
       mimeType: asset.mimeType,
@@ -38,9 +54,32 @@ export class DevLocalAssetTransport implements AssetTransport {
     };
   }
 
-  async resolveProviderInput(input: PreparedAssetInput): Promise<undefined> {
-    void input;
-    return undefined;
+  async resolveProviderInput(input: PreparedAssetInput): Promise<ReferenceAssetInput> {
+    await this.dependencies.markUpload(input.assetId, 'PENDING');
+    try {
+      const [dataUrl, ticket] = await Promise.all([
+        this.dependencies.readDataUrl(input.assetId),
+        this.dependencies.presign({
+          assetId: input.assetId,
+          contentType: input.mimeType,
+          size: input.fileSize,
+        }),
+      ]);
+      const body = await fetch(dataUrl).then((response) => response.blob());
+      if (body.size !== input.fileSize || body.type !== input.mimeType)
+        throw new Error('本地参考图内容与素材元数据不一致');
+      await this.dependencies.upload(ticket.uploadUrl, body, input.mimeType);
+      await this.dependencies.markUpload(
+        input.assetId,
+        'UPLOADED',
+        ticket.objectKey,
+        ticket.expiresAt,
+      );
+      return { assetId: input.assetId, objectKey: ticket.objectKey, mimeType: input.mimeType };
+    } catch (error) {
+      await this.dependencies.markUpload(input.assetId, 'FAILED');
+      throw error;
+    }
   }
 
   async resolveResult(output: CloudAIOutput): Promise<string> {
@@ -53,5 +92,3 @@ export class DevLocalAssetTransport implements AssetTransport {
     void input;
   }
 }
-
-export const devLocalAssetTransport = new DevLocalAssetTransport();

@@ -168,6 +168,31 @@ fn list_local_assets(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+fn set_local_asset_role(
+    data: tauri::State<'_, LocalData>,
+    asset_id: String,
+    role: String,
+) -> Result<LocalAsset, String> {
+    data.set_asset_role(&asset_id, &role)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn update_local_asset_upload(
+    data: tauri::State<'_, LocalData>,
+    asset_id: String,
+    status: String,
+    remote_reference_id: Option<String>,
+    expires_at: Option<String>,
+) -> Result<LocalAsset, String> {
+    data.update_asset_upload(
+        &asset_id,
+        &status,
+        remote_reference_id.as_deref(),
+        expires_at.as_deref(),
+    )
+}
+
+#[tauri::command(rename_all = "camelCase")]
 fn get_local_asset_data_url(
     data: tauri::State<'_, LocalData>,
     asset_id: String,
@@ -276,6 +301,8 @@ pub fn run() {
             delete_local_project,
             import_local_asset,
             list_local_assets,
+            set_local_asset_role,
+            update_local_asset_upload,
             get_local_asset_data_url,
             create_local_task,
             update_local_task,

@@ -21,6 +21,14 @@ CREATE TABLE results (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES p
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX assets_project_idx ON assets(project_id); CREATE INDEX tasks_project_idx ON tasks(project_id); CREATE INDEX results_project_idx ON results(project_id);
 "#;
+const MIGRATION_2: &str = r#"
+ALTER TABLE assets ADD COLUMN asset_role TEXT NOT NULL DEFAULT 'INPUT';
+ALTER TABLE assets ADD COLUMN upload_status TEXT NOT NULL DEFAULT 'LOCAL';
+ALTER TABLE assets ADD COLUMN remote_reference_id TEXT;
+ALTER TABLE assets ADD COLUMN expires_at TEXT;
+UPDATE assets SET asset_role='GENERATED_RESULT' WHERE source='generated';
+CREATE INDEX assets_project_role_idx ON assets(project_id, asset_role);
+"#;
 
 #[derive(Clone)]
 pub struct LocalData {
@@ -62,6 +70,10 @@ pub struct LocalAsset {
     pub height: Option<i64>,
     pub duration: Option<f64>,
     pub hash: String,
+    pub role: String,
+    pub upload_status: String,
+    pub remote_reference_id: Option<String>,
+    pub expires_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -159,7 +171,18 @@ impl LocalData {
                 .map_err(err)?;
             transaction.commit().map_err(err)?;
         }
-        Ok(1)
+        if version < 2 {
+            let transaction = connection.transaction().map_err(err)?;
+            transaction.execute_batch(MIGRATION_2).map_err(err)?;
+            transaction
+                .execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES(2, ?1)",
+                    [now()],
+                )
+                .map_err(err)?;
+            transaction.commit().map_err(err)?;
+        }
+        Ok(2)
     }
 
     pub fn info(&self) -> Result<LocalDataInfo, String> {
@@ -325,13 +348,52 @@ impl LocalData {
         project_id: &str,
         hash: &str,
     ) -> Result<Option<LocalAsset>, String> {
-        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,created_at,updated_at FROM assets WHERE project_id=?1 AND hash=?2 AND source='imported'", params![project_id,hash], asset_from_row).optional().map_err(err)
+        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,asset_role,upload_status,remote_reference_id,expires_at,created_at,updated_at FROM assets WHERE project_id=?1 AND hash=?2 AND source='imported'", params![project_id,hash], asset_from_row).optional().map_err(err)
     }
     pub fn get_asset(&self, id: &str) -> Result<Option<LocalAsset>, String> {
-        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,created_at,updated_at FROM assets WHERE id=?1", [id], asset_from_row).optional().map_err(err)
+        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,asset_role,upload_status,remote_reference_id,expires_at,created_at,updated_at FROM assets WHERE id=?1", [id], asset_from_row).optional().map_err(err)
     }
     pub fn list_assets(&self, project_id: &str) -> Result<Vec<LocalAsset>, String> {
-        query_assets(&self.connection()?, "SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,created_at,updated_at FROM assets WHERE project_id=?1 ORDER BY created_at DESC", project_id)
+        query_assets(&self.connection()?, "SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,asset_role,upload_status,remote_reference_id,expires_at,created_at,updated_at FROM assets WHERE project_id=?1 ORDER BY created_at DESC", project_id)
+    }
+
+    pub fn set_asset_role(&self, asset_id: &str, role: &str) -> Result<LocalAsset, String> {
+        if !matches!(role, "INPUT" | "REFERENCE_IMAGE" | "GENERATED_RESULT") {
+            return Err("素材角色无效".into());
+        }
+        let asset = self
+            .get_asset(asset_id)?
+            .ok_or_else(|| "素材不存在".to_string())?;
+        if asset.source == "generated" && role != "GENERATED_RESULT" {
+            return Err("生成结果不能设为参考图".into());
+        }
+        self.connection()?
+            .execute(
+                "UPDATE assets SET asset_role=?2,updated_at=?3 WHERE id=?1",
+                params![asset_id, role, now()],
+            )
+            .map_err(err)?;
+        self.get_asset(asset_id)?.ok_or_else(|| "素材不存在".into())
+    }
+
+    pub fn update_asset_upload(
+        &self,
+        asset_id: &str,
+        status: &str,
+        remote_reference_id: Option<&str>,
+        expires_at: Option<&str>,
+    ) -> Result<LocalAsset, String> {
+        if !matches!(
+            status,
+            "LOCAL" | "PENDING" | "UPLOADED" | "FAILED" | "EXPIRED"
+        ) {
+            return Err("上传状态无效".into());
+        }
+        self.connection()?.execute(
+            "UPDATE assets SET upload_status=?2,remote_reference_id=?3,expires_at=?4,updated_at=?5 WHERE id=?1",
+            params![asset_id, status, remote_reference_id, expires_at, now()],
+        ).map_err(err)?;
+        self.get_asset(asset_id)?.ok_or_else(|| "素材不存在".into())
     }
 
     pub fn create_task(&self, task: &LocalTask) -> Result<(), String> {
@@ -703,8 +765,12 @@ fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalAsset> {
         height: row.get(9)?,
         duration: row.get(10)?,
         hash: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        role: row.get(12)?,
+        upload_status: row.get(13)?,
+        remote_reference_id: row.get(14)?,
+        expires_at: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
 fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalTask> {
@@ -769,7 +835,7 @@ fn register_generated(
     result_id: &str,
     task_id: &str,
 ) -> Result<(), String> {
-    transaction.execute("INSERT INTO assets(id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,hash,created_at,updated_at) VALUES(?1,?2,'image','generated',?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![asset_id,project_id,file_name,relative,mime,size,width,height,hash,timestamp]).map_err(err)?;
+    transaction.execute("INSERT INTO assets(id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,hash,asset_role,created_at,updated_at) VALUES(?1,?2,'image','generated',?3,?4,?5,?6,?7,?8,?9,'GENERATED_RESULT',?10,?10)",params![asset_id,project_id,file_name,relative,mime,size,width,height,hash,timestamp]).map_err(err)?;
     transaction.execute("INSERT INTO results(id,project_id,task_id,asset_id,type,relative_path,mime_type,file_size,created_at) VALUES(?1,?2,?3,?4,'image',?5,?6,?7,?8)",params![result_id,project_id,task_id,asset_id,relative,mime,size,timestamp]).map_err(err)?;
     Ok(())
 }
@@ -809,7 +875,7 @@ mod tests {
     #[test]
     fn migration_and_restart() {
         let (dir, data) = setup();
-        assert_eq!(data.info().unwrap().schema_version, 1);
+        assert_eq!(data.info().unwrap().schema_version, 2);
         drop(data);
         assert_eq!(
             LocalData::new(dir.path().join("WEAVIA"))
@@ -853,6 +919,7 @@ mod tests {
         let path = dir.path().join("input.png");
         fixture(&path);
         let first = data.import_asset(&project.id, &path).unwrap();
+        assert_eq!(first.role, "INPUT");
         assert_eq!((first.width, first.height), (Some(3), Some(2)));
         assert_eq!(
             first.hash,
@@ -867,6 +934,49 @@ mod tests {
         fs::write(&bad, b"invalid").unwrap();
         assert!(data.import_asset(&project.id, &bad).is_err());
         assert_eq!(data.list_assets(&project.id).unwrap().len(), 1);
+    }
+    #[test]
+    fn reference_asset_role_and_upload_metadata_persist() {
+        let (dir, data) = setup();
+        let project = data.create_project("Reference", "").unwrap();
+        let path = dir.path().join("reference.png");
+        fixture(&path);
+        let asset = data.import_asset(&project.id, &path).unwrap();
+        let asset = data.set_asset_role(&asset.id, "REFERENCE_IMAGE").unwrap();
+        assert_eq!(asset.role, "REFERENCE_IMAGE");
+        let asset = data
+            .update_asset_upload(
+                &asset.id,
+                "UPLOADED",
+                Some("references/user/asset.png"),
+                Some("2026-10-07T00:10:00Z"),
+            )
+            .unwrap();
+        assert_eq!(asset.upload_status, "UPLOADED");
+        let mut reference_task = task(&project.id, "queued", Some(&asset.id));
+        reference_task.workflow = "ai_commercial".into();
+        reference_task.input = serde_json::json!({
+            "workflow":"product_image_generation",
+            "referenceAssets":[asset.id.clone()],
+            "logicalModel":"weavia-image-pro"
+        });
+        data.create_task(&reference_task).unwrap();
+        drop(data);
+        let restarted = LocalData::new(dir.path().join("WEAVIA")).unwrap();
+        let persisted = restarted.get_asset(&asset.id).unwrap().unwrap();
+        assert_eq!(persisted.role, "REFERENCE_IMAGE");
+        assert_eq!(
+            persisted.remote_reference_id.as_deref(),
+            Some("references/user/asset.png")
+        );
+        assert_eq!(
+            restarted
+                .get_task(&reference_task.id)
+                .unwrap()
+                .unwrap()
+                .input["referenceAssets"][0],
+            asset.id
+        );
     }
     #[test]
     fn task_result_persistence_and_recovery() {

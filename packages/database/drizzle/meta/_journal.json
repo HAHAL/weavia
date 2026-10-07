@@ -15,6 +15,13 @@
       "when": 1791359017857,
       "tag": "0001_nice_wolverine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791384409798,
+      "tag": "0002_last_ben_grimm",
+      "breakpoints": true
     }
   ]
 }

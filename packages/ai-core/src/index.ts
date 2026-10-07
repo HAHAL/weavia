@@ -1,4 +1,10 @@
-import type { AICapability, AspectRatio, CostEstimate, Quality } from '@weavia/shared';
+import type {
+  AICapability,
+  AspectRatio,
+  CostEstimate,
+  ImageGenerationMode,
+  Quality,
+} from '@weavia/shared';
 
 export type ProviderId =
   'mock' | 'alibaba' | 'volcengine' | 'tencent' | 'azure' | 'aws' | 'openai' | (string & {});
@@ -24,7 +30,8 @@ export interface GenerationInput {
   capability: AICapability;
   modelId: string;
   prompt?: string;
-  imageUris?: string[];
+  mode: ImageGenerationMode;
+  referenceImages?: Array<{ uri: string; mimeType: string }>;
   quality: Quality;
   aspectRatio: AspectRatio;
   outputCount: number;
@@ -93,6 +100,7 @@ export class MockProvider implements AIProvider {
   readonly id = 'mock';
   readonly capabilities = new Set<AICapability>([
     'image_generation',
+    'image_to_image',
     'image_edit',
     'image_to_video',
   ]);
@@ -159,6 +167,7 @@ export type NormalizedProviderErrorCode =
   | 'PROVIDER_RATE_LIMITED'
   | 'INVALID_REQUEST'
   | 'UNSUPPORTED_MODEL'
+  | 'UNSUPPORTED_CAPABILITY'
   | 'CONTENT_REJECTED'
   | 'TIMEOUT'
   | 'NETWORK_ERROR'
@@ -294,6 +303,13 @@ export class AntDigitalProvider extends OpenAICompatibleImageProvider implements
   }
 
   async generateImage(input: GenerationInput): Promise<ProviderTaskResult> {
+    if (input.mode !== 'text_to_image' || (input.referenceImages?.length ?? 0) > 0)
+      throw new NormalizedProviderError(
+        'UNSUPPORTED_CAPABILITY',
+        'qwen-image-max 的参考图接口尚无已验证官方契约',
+        false,
+        400,
+      );
     if (!input.prompt?.trim())
       throw new NormalizedProviderError('INVALID_REQUEST', 'Prompt is required', false, 400);
     const result = await this.requestImage({

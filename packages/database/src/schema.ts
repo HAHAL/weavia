@@ -42,6 +42,7 @@ export const taskStatus = pgEnum('task_status', [
 export const taskType = pgEnum('task_type', [
   'ai_model',
   'ai_commercial',
+  'product_image_generation',
   'image_generation',
   'image_edit',
   'image_to_video',
@@ -52,6 +53,14 @@ export const orderStatus = pgEnum('order_status', [
   'failed',
   'cancelled',
   'refunded',
+]);
+export const assetRole = pgEnum('asset_role', ['INPUT', 'REFERENCE_IMAGE', 'GENERATED_RESULT']);
+export const assetUploadStatus = pgEnum('asset_upload_status', [
+  'LOCAL',
+  'PENDING',
+  'UPLOADED',
+  'FAILED',
+  'EXPIRED',
 ]);
 
 const timestamps = {
@@ -284,6 +293,29 @@ export const modelBindings = pgTable(
   (t) => [
     uniqueIndex('model_bindings_logical_provider_unique').on(t.logicalModelId, t.providerModelId),
     index('model_bindings_priority_idx').on(t.logicalModelId, t.priority),
+  ],
+);
+export const assets = pgTable(
+  'assets',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    projectId: text('project_id').notNull(),
+    role: assetRole('asset_role').default('INPUT').notNull(),
+    uploadStatus: assetUploadStatus('upload_status').default('LOCAL').notNull(),
+    mimeType: text('mime_type').notNull(),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    objectKey: text('object_key'),
+    remoteReferenceId: text('remote_reference_id'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    metadata: jsonb('metadata').default({}).notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    index('assets_user_project_idx').on(t.userId, t.projectId),
+    index('assets_project_role_idx').on(t.projectId, t.role),
   ],
 );
 export const tasks = pgTable(

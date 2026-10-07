@@ -37,6 +37,14 @@ export function ProjectWorkspacePage() {
       setError(String(value));
     }
   }
+  async function setReference(assetId: string) {
+    try {
+      await localData.setAssetRole(assetId, 'REFERENCE_IMAGE');
+      load();
+    } catch (value) {
+      setError(String(value));
+    }
+  }
   if (!project) return <p className="local-loading">{error ?? '正在打开项目…'}</p>;
   return (
     <div className="workspace-page">
@@ -74,11 +82,24 @@ export function ProjectWorkspacePage() {
         {assets.length ? (
           <div className="asset-grid">
             {assets.map((asset) => (
-              <article key={asset.id}>
+              <article
+                key={asset.id}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  if (asset.source === 'imported') void setReference(asset.id);
+                }}
+                title={asset.source === 'imported' ? '右键设为商品参考图' : undefined}
+              >
                 <div className="asset-preview">
                   <AssetThumbnail asset={asset} />
                 </div>
-                <strong>{asset.source === 'generated' ? '生成结果' : '导入素材'}</strong>
+                <strong>
+                  {asset.role === 'REFERENCE_IMAGE'
+                    ? '⭐ 商品参考图'
+                    : asset.source === 'generated'
+                      ? '生成结果'
+                      : '导入素材'}
+                </strong>
                 <small>
                   {asset.width} × {asset.height} · {(asset.fileSize / 1024).toFixed(1)} KB
                 </small>
@@ -115,9 +136,7 @@ export function ProjectWorkspacePage() {
             })}
           </div>
         ) : (
-          <p className="workspace-empty">
-            运行 AI 工作流后，生成文件会保存在 generated/images/。
-          </p>
+          <p className="workspace-empty">运行 AI 工作流后，生成文件会保存在 generated/images/。</p>
         )}
       </section>
     </div>

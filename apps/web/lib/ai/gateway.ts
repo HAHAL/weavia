@@ -1,5 +1,6 @@
 import type { AIProvider, GenerationInput } from '@weavia/ai-core';
 import { NormalizedProviderError } from '@weavia/ai-core';
+import type { ObjectStorage } from '@weavia/storage-core';
 import type {
   AIGatewayErrorCode,
   CloudAITaskResult,
@@ -166,6 +167,7 @@ export class AIGateway {
     private readonly providers: Map<string, AIProvider>,
     private readonly options: GatewayOptions,
     private readonly billing: BillingHook = new NoopBillingHook(),
+    private readonly storage?: ObjectStorage,
   ) {
     this.router = new ProviderRouter(repository.catalog);
   }
@@ -182,6 +184,11 @@ export class AIGateway {
     const route = this.router.route(request.logicalModel);
     const provider = this.providers.get(route.provider.code);
     if (!provider) throw new GatewayError('PROVIDER_UNAVAILABLE', 'Provider 未配置', 503);
+    const mode = request.mode ?? 'text_to_image';
+    const capability = mode === 'text_to_image' ? 'image_generation' : mode;
+    if (!route.model.capabilities.includes(mode) || !provider.capabilities.has(capability))
+      throw new GatewayError('UNSUPPORTED_CAPABILITY', '当前模型不支持参考图生成', 400);
+    const referenceImages = await this.resolveReferences(user.id, request);
     const timestamp = new Date().toISOString();
     const task: CloudAITaskResult = {
       id: crypto.randomUUID(),
@@ -201,9 +208,11 @@ export class AIGateway {
     this.repository.saveTask(task);
 
     const providerInput: GenerationInput = {
-      capability: 'image_generation',
+      capability,
       modelId: route.model.modelId,
       prompt: request.prompt,
+      mode,
+      ...(referenceImages.length ? { referenceImages } : {}),
       quality: request.quality,
       aspectRatio: '1:1',
       outputCount: 1,
@@ -275,6 +284,21 @@ export class AIGateway {
     await this.billing.onFailure(task);
     throw new GatewayError(normalized.code, normalized.message, normalized.status);
   }
+
+  private async resolveReferences(userId: string, request: ImageGenerationRequest) {
+    if (!request.referenceAssets?.length) return [];
+    if (!this.storage) throw new GatewayError('INVALID_REQUEST', '参考图存储尚未配置', 503);
+    const references: Array<{ uri: string; mimeType: string }> = [];
+    for (const asset of request.referenceAssets) {
+      if (!asset.objectKey.startsWith(`references/${userId}/`))
+        throw new GatewayError('INVALID_REQUEST', '参考图不属于当前用户', 403);
+      references.push({
+        uri: await this.storage.createDownloadUrl(asset.objectKey, 600),
+        mimeType: asset.mimeType,
+      });
+    }
+    return references;
+  }
 }
 
 function validateRequest(request: ImageGenerationRequest) {
@@ -284,13 +308,11 @@ function validateRequest(request: ImageGenerationRequest) {
     throw new GatewayError('INVALID_REQUEST', '项目、素材和提示词不能为空', 400);
   if (request.numberOfImages !== 1 || request.size !== '1024x1024')
     throw new GatewayError('INVALID_REQUEST', '当前仅允许生成一张 1024x1024 图片', 400);
-  if (request.inputAssets?.some((asset) => encodedBytes(asset.dataUrl) > 5 * 1024 * 1024))
-    throw new GatewayError('INVALID_REQUEST', '开发模式参考图不能超过 5 MB', 400);
-}
-
-function encodedBytes(dataUrl: string) {
-  const payload = dataUrl.split(',', 2)[1] ?? '';
-  return Math.floor((payload.length * 3) / 4);
+  const mode = request.mode ?? 'text_to_image';
+  if (mode !== 'text_to_image' && !request.referenceAssets?.length)
+    throw new GatewayError('INVALID_REQUEST', '参考图生成必须选择参考素材', 400);
+  if ((request.referenceAssets?.length ?? 0) > 4)
+    throw new GatewayError('INVALID_REQUEST', '最多支持 4 张参考图', 400);
 }
 
 function normalizeGatewayError(error: unknown): {

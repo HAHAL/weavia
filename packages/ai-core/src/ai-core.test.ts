@@ -13,6 +13,7 @@ describe('MockProvider', () => {
     const provider = registry.get('mock');
     const input = {
       capability: 'image_generation' as const,
+      mode: 'text_to_image' as const,
       modelId: 'mock-image-v1',
       quality: 'standard' as const,
       aspectRatio: '3:4' as const,
@@ -29,6 +30,7 @@ describe('MockProvider', () => {
 describe('AntDigitalProvider', () => {
   const input = {
     capability: 'image_generation' as const,
+    mode: 'text_to_image' as const,
     modelId: 'qwen-image-max',
     prompt: 'A studio product photograph',
     quality: 'standard' as const,
@@ -83,6 +85,20 @@ describe('AntDigitalProvider', () => {
     const error = await provider.generateImage(input).catch((value: unknown) => value);
     expect(error).toBeInstanceOf(NormalizedProviderError);
     expect(String(error)).not.toContain('test-key');
+  });
+
+  it('rejects reference images before making an unverified provider request', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const provider = createProvider(fetcher);
+    await expect(
+      provider.generateImage({
+        ...input,
+        mode: 'image_to_image',
+        capability: 'image_to_image',
+        referenceImages: [{ uri: 'https://storage.example/reference.png', mimeType: 'image/png' }],
+      }),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY', retryable: false });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
 

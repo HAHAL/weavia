@@ -154,6 +154,8 @@ export interface LocalProject {
 
 export type LocalAssetType = 'image' | 'video';
 export type LocalAssetSource = 'imported' | 'generated';
+export type AssetRole = 'INPUT' | 'REFERENCE_IMAGE' | 'GENERATED_RESULT';
+export type AssetUploadStatus = 'LOCAL' | 'PENDING' | 'UPLOADED' | 'FAILED' | 'EXPIRED';
 export interface LocalAsset {
   id: EntityId;
   projectId: EntityId;
@@ -167,6 +169,10 @@ export interface LocalAsset {
   height?: number;
   duration?: number;
   hash: string;
+  role: AssetRole;
+  uploadStatus: AssetUploadStatus;
+  remoteReferenceId?: string;
+  expiresAt?: IsoDateTime;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
 }
@@ -208,7 +214,24 @@ export interface GeneratedResult {
 }
 
 export type LogicalModelKey = 'weavia-image-pro' | (string & {});
-export type AIWorkflow = 'ai_model' | 'ai_commercial';
+export type AIWorkflow = 'ai_model' | 'ai_commercial' | 'product_image_generation';
+export type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
+export interface ReferenceAssetInput {
+  assetId: EntityId;
+  objectKey: string;
+  mimeType: string;
+}
+export interface AssetPresignRequest {
+  assetId: EntityId;
+  contentType: string;
+  size: number;
+}
+export interface AssetPresignResult {
+  uploadUrl: string;
+  objectKey: string;
+  expiresAt: IsoDateTime;
+  requestId: string;
+}
 export type CloudAITaskStatus =
   'queued' | 'running' | 'generated' | 'download_pending' | 'local_saved' | 'failed';
 export type AIGatewayErrorCode =
@@ -225,6 +248,7 @@ export type AIGatewayErrorCode =
   | 'CONCURRENCY_LIMIT'
   | 'CANCELLED'
   | 'REAL_AI_DISABLED'
+  | 'UNSUPPORTED_CAPABILITY'
   | 'UNKNOWN';
 export interface ImageGenerationRequest {
   idempotencyKey: string;
@@ -233,7 +257,8 @@ export interface ImageGenerationRequest {
   workflow: AIWorkflow;
   logicalModel: LogicalModelKey;
   prompt: string;
-  inputAssets?: Array<{ mimeType: string; dataUrl: string }>;
+  mode: ImageGenerationMode;
+  referenceAssets?: ReferenceAssetInput[];
   size: '1024x1024';
   quality: Quality;
   numberOfImages: 1;
@@ -263,6 +288,7 @@ export interface CloudAITaskResult {
 
 export type AICapability =
   | 'image_generation'
+  | 'image_to_image'
   | 'image_edit'
   | 'image_to_video'
   | 'text_to_video'

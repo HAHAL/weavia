@@ -6,6 +6,8 @@ import type {
   User,
   CloudAITaskResult,
   ImageGenerationRequest,
+  AssetPresignRequest,
+  AssetPresignResult,
 } from '@weavia/shared';
 
 export interface ApiErrorBody {
@@ -114,6 +116,14 @@ export class AIApiClient {
   }
   async getTask(taskId: string) {
     return (await this.client.request<CloudAITaskResult>(`ai/tasks/${taskId}`)).data;
+  }
+  async presignAsset(request: AssetPresignRequest) {
+    return (
+      await this.client.request<AssetPresignResult>('assets/presign', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+    ).data;
   }
 }
 

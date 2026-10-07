@@ -8,7 +8,7 @@ import type {
   LocalTaskRecord,
 } from '@weavia/shared';
 import { secureTokenStore } from './auth-platform';
-import { devLocalAssetTransport } from './asset-transport';
+import { ReferenceAssetTransport } from './asset-transport';
 import { localData } from './local-data';
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/';
@@ -17,6 +17,20 @@ const aiApi = new AIApiClient(
     secureTokenStore.getAccessToken(),
   ),
 );
+const referenceAssetTransport = new ReferenceAssetTransport({
+  readDataUrl: (assetId) => localData.assetDataUrl(assetId),
+  presign: (input) => aiApi.presignAsset(input),
+  upload: async (uploadUrl, body, contentType) => {
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': contentType },
+      body,
+    });
+    if (!response.ok) throw new Error(`参考图上传失败 (${response.status})`);
+  },
+  markUpload: (assetId, status, remoteReferenceId, expiresAt) =>
+    localData.updateAssetUpload(assetId, status, remoteReferenceId, expiresAt),
+});
 
 export type CloudGenerationStage =
   'preparing' | 'submitting' | 'generating' | 'downloading' | 'saving' | 'complete';
@@ -29,8 +43,8 @@ export async function runCloudImageWorkflow(
 ) {
   if (!isTauri()) throw new Error('专业生成仅支持 WEAVIA Desktop');
   onStage('preparing');
-  const preparedInput = await devLocalAssetTransport.prepareInput(asset);
-  await devLocalAssetTransport.resolveProviderInput(preparedInput);
+  const preparedInput = await referenceAssetTransport.prepareInput(asset);
+  const referenceAsset = await referenceAssetTransport.resolveProviderInput(preparedInput);
   const id = crypto.randomUUID();
   const timestamp = new Date().toISOString();
   const task: LocalTaskRecord = {
@@ -40,6 +54,8 @@ export async function runCloudImageWorkflow(
     status: 'queued',
     input: {
       assetId: asset.id,
+      workflow: 'product_image_generation',
+      referenceAssets: [asset.id],
       logicalModel: 'weavia-image-pro',
       idempotencyKey: id,
       deliveryStatus: 'submitting',
@@ -54,12 +70,14 @@ export async function runCloudImageWorkflow(
     idempotencyKey: id,
     projectId,
     inputAssetId: asset.id,
-    workflow,
+    workflow: workflow === 'ai_commercial' ? 'product_image_generation' : workflow,
     logicalModel: 'weavia-image-pro',
     prompt:
       workflow === 'ai_model'
         ? '专业电商模特摄影，简洁高级的摄影棚灯光与自然姿态，画面突出商品，真实质感。'
         : '高端电商商品摄影，现代极简场景，专业布光，真实材质，适合品牌广告。',
+    mode: 'image_to_image',
+    referenceAssets: [referenceAsset],
     size: '1024x1024',
     quality: 'standard',
     numberOfImages: 1,
@@ -80,7 +98,7 @@ export async function runCloudImageWorkflow(
     await failLocalTask(task, error);
     throw error;
   }
-  const source = await devLocalAssetTransport.resolveResult(output);
+  const source = await referenceAssetTransport.resolveResult(output);
   onStage('downloading');
   task.status = 'downloading';
   task.progress = 80;
@@ -102,7 +120,7 @@ export async function runCloudImageWorkflow(
     onStage('complete');
     return result;
   } finally {
-    await devLocalAssetTransport.cleanup(preparedInput);
+    await referenceAssetTransport.cleanup(preparedInput);
   }
 }
 

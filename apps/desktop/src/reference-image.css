@@ -1,0 +1,22 @@
+.material-list .reference-label {
+  font-size: 8px;
+  color: var(--wv-accent);
+}
+.set-reference-action {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+}
+.reference-summary {
+  margin-bottom: 18px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 10px;
+  border: 1px solid var(--wv-border);
+  background: #fff;
+  font-size: 10px;
+}
+.reference-summary span {
+  color: var(--wv-muted);
+}

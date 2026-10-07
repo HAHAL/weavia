@@ -9,7 +9,12 @@ export type TaskStatus =
   | 'failed'
   | 'cancelled';
 export type TaskType =
-  'ai_model' | 'ai_commercial' | 'image_generation' | 'image_edit' | 'image_to_video';
+  | 'ai_model'
+  | 'ai_commercial'
+  | 'product_image_generation'
+  | 'image_generation'
+  | 'image_edit'
+  | 'image_to_video';
 export interface TaskError {
   code: string;
   message: string;
@@ -32,6 +37,13 @@ export interface Task<TInput = unknown, TOutput = unknown> {
   attempt: number;
   createdAt: string;
   updatedAt: string;
+}
+export interface ProductImageGenerationTaskInput {
+  projectId: string;
+  workflow: 'product_image_generation';
+  referenceAssets: string[];
+  logicalModel: 'weavia-image-pro' | (string & {});
+  prompt: string;
 }
 export interface TaskRepository {
   create<TInput>(task: Task<TInput>): Promise<void>;
