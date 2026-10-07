@@ -6,7 +6,7 @@ describe('AI admin configuration', () => {
   it('exposes provider, model and routing data without secret material', () => {
     const snapshot = sanitizedAdminSnapshot();
     expect(snapshot.providers[0]).toMatchObject({ code: 'antdigital' });
-    expect(snapshot.models[0]).toMatchObject({ modelId: 'qwen-image-3.0-pro' });
+    expect(snapshot.models[0]).toMatchObject({ modelId: 'qwen-image-max' });
     expect(snapshot.logicalModels[0]).toMatchObject({ key: 'weavia-image-pro' });
     expect(JSON.stringify(snapshot)).not.toContain('ANTDIGITAL_API_KEY');
     expect(snapshot.providers[0]).not.toHaveProperty('apiKey');

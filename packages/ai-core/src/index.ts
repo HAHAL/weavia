@@ -284,7 +284,7 @@ export class AntDigitalProvider extends OpenAICompatibleImageProvider implements
       {
         id: this.config.model,
         providerId: this.id,
-        displayName: 'Qwen Image 3.0 Pro',
+        displayName: 'Qwen Image Max',
         capabilities: ['image_generation'],
         supportedQualities: ['standard'],
         supportedAspectRatios: ['1:1'],

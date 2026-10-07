@@ -40,7 +40,7 @@ describe('AI Gateway', () => {
   it('routes a logical model without accepting a client provider choice', () => {
     const route = new ProviderRouter(catalog()).route('weavia-image-pro');
     expect(route.provider.code).toBe('antdigital');
-    expect(route.model.modelId).toBe('qwen-image-3.0-pro');
+    expect(route.model.modelId).toBe('qwen-image-max');
   });
 
   it.each(['provider', 'model', 'binding'] as const)(
@@ -175,8 +175,8 @@ function catalog(): AICatalog {
       {
         id: 'model-1',
         providerId: 'provider-1',
-        modelId: 'qwen-image-3.0-pro',
-        displayName: 'Qwen Image 3.0 Pro',
+        modelId: 'qwen-image-max',
+        displayName: 'Qwen Image Max',
         modality: 'image',
         capabilities: ['text_to_image'],
         enabled: true,

@@ -29,7 +29,7 @@ describe('MockProvider', () => {
 describe('AntDigitalProvider', () => {
   const input = {
     capability: 'image_generation' as const,
-    modelId: 'qwen-image-3.0-pro',
+    modelId: 'qwen-image-max',
     prompt: 'A studio product photograph',
     quality: 'standard' as const,
     aspectRatio: '1:1' as const,
@@ -48,7 +48,7 @@ describe('AntDigitalProvider', () => {
     const result = await provider.generateImage(input);
     const [, request] = fetcher.mock.calls[0]!;
     expect(JSON.parse(String(request?.body))).toEqual({
-      model: 'qwen-image-3.0-pro',
+      model: 'qwen-image-max',
       prompt: input.prompt,
       size: '1024x1024',
       n: 1,
@@ -91,7 +91,7 @@ function createProvider(fetcher: typeof fetch) {
     providerId: 'antdigital',
     baseUrl: 'https://maas-api.antdigital.com/v1',
     apiKey: 'test-key',
-    model: 'qwen-image-3.0-pro',
+    model: 'qwen-image-max',
     timeoutMs: 1000,
     fetch: fetcher,
   });

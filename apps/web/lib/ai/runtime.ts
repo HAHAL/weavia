@@ -26,8 +26,8 @@ export const defaultCatalog: AICatalog = {
     {
       id: providerModelId,
       providerId,
-      modelId: process.env.ANTDIGITAL_IMAGE_MODEL ?? 'qwen-image-3.0-pro',
-      displayName: 'Qwen Image 3.0 Pro',
+      modelId: process.env.ANTDIGITAL_IMAGE_MODEL ?? 'qwen-image-max',
+      displayName: 'Qwen Image Max',
       modality: 'image',
       capabilities: ['text_to_image'],
       enabled: true,
