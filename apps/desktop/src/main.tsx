@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import '@weavia/ui/styles.css';
 import './styles.css';
 import './auth.css';
+import './local-data.css';
 import { App } from './app/App';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
