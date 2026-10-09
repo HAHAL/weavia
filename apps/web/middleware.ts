@@ -14,7 +14,7 @@ export function middleware(request: NextRequest) {
     request.method === 'OPTIONS' ? new NextResponse(null, { status: 204 }) : NextResponse.next();
   if (allowedOrigin) {
     response.headers.set('Access-Control-Allow-Origin', allowedOrigin);
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     response.headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     response.headers.set('Vary', 'Origin');
   }
@@ -22,5 +22,10 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/auth/:path*', '/api/ai/:path*', '/api/admin/ai/:path*'],
+  matcher: [
+    '/api/auth/:path*',
+    '/api/ai/:path*',
+    '/api/assets/:path*',
+    '/api/admin/ai/:path*',
+  ],
 };

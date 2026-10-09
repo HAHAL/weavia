@@ -9,7 +9,7 @@ const items = [
   ['/credits', 'Credits 管理'],
   ['/devices', '设备管理'],
   ['/providers', 'AI Providers'],
-  ['/models', 'Models'],
+  ['/models', '模型管理'],
   ['/routing', 'Routing'],
   ['/usage', 'Usage'],
   ['/tasks', '任务记录'],
@@ -32,8 +32,8 @@ export default function AdminLayout({ children }: Readonly<{ children: React.Rea
               ))}
             </nav>
             <div className="operator">
-              <span>Phase 2A</span>
-              <small>AI Gateway 管理</small>
+              <span>Beta Sprint 1</span>
+              <small>AI Commerce 管理</small>
             </div>
           </aside>
           <main>

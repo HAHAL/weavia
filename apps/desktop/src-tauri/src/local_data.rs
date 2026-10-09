@@ -629,6 +629,29 @@ impl LocalData {
             .map_err(err)?;
         Ok(results)
     }
+    pub fn delete_result(&self, result_id: &str) -> Result<(), String> {
+        let result = self
+            .get_result(result_id)?
+            .ok_or_else(|| "生成结果不存在".to_string())?;
+        let project = self
+            .get_project(&result.project_id)?
+            .ok_or_else(|| "项目不存在".to_string())?;
+        let path = PathBuf::from(project.local_root_path).join(&result.relative_path);
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(err)?;
+        transaction
+            .execute("DELETE FROM results WHERE id=?1", [result_id])
+            .map_err(err)?;
+        transaction
+            .execute("DELETE FROM assets WHERE id=?1", [&result.asset_id])
+            .map_err(err)?;
+        transaction.commit().map_err(err)?;
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(err(error)),
+        }
+    }
     pub fn asset_data_url(&self, asset_id: &str) -> Result<String, String> {
         let asset = self
             .get_asset(asset_id)?
@@ -1160,6 +1183,12 @@ mod tests {
             "generated"
         );
         assert_eq!(data.get_task(&task.id).unwrap().unwrap().status, "success");
+        data.delete_result(&first.id).unwrap();
+        assert!(data.list_results(&project.id).unwrap().is_empty());
+        assert!(data.list_assets(&project.id).unwrap().is_empty());
+        assert!(!Path::new(&project.local_root_path)
+            .join(&first.relative_path)
+            .exists());
     }
 
     #[test]

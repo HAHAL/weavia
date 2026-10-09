@@ -295,6 +295,21 @@ export const modelBindings = pgTable(
     index('model_bindings_priority_idx').on(t.logicalModelId, t.priority),
   ],
 );
+export const promptTemplates = pgTable(
+  'prompt_templates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    category: text('category').notNull(),
+    scene: text('scene').notNull(),
+    style: text('style').notNull(),
+    prompt: text('prompt').notNull(),
+    negativePrompt: text('negative_prompt').default('').notNull(),
+    supportedModels: jsonb('supported_models').$type<string[]>().default([]).notNull(),
+    enabled: boolean('enabled').default(true).notNull(),
+    ...timestamps,
+  },
+  (t) => [index('prompt_templates_category_idx').on(t.category)],
+);
 export const assets = pgTable(
   'assets',
   {

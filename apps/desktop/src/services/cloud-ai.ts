@@ -1,11 +1,15 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { AIApiClient, ApiClient } from '@weavia/api-client';
 import type {
+  AIEstimateResult,
+  AIModelCatalogResult,
   CloudAITaskResult,
   GeneratedResult,
   ImageGenerationRequest,
   LocalAsset,
   LocalTaskRecord,
+  PromptTemplate,
+  Quality,
 } from '@weavia/shared';
 import { secureTokenStore } from './auth-platform';
 import { ReferenceAssetTransport } from './asset-transport';
@@ -35,11 +39,44 @@ const referenceAssetTransport = new ReferenceAssetTransport({
 export type CloudGenerationStage =
   'preparing' | 'submitting' | 'generating' | 'downloading' | 'saving' | 'complete';
 
+export interface CloudGenerationOptions {
+  model: string;
+  prompt: string;
+  quality: Quality;
+  credits: number;
+  advancedModelSelection: boolean;
+}
+
+export async function loadCloudGenerationOptions(): Promise<{
+  catalog: AIModelCatalogResult;
+  templates: PromptTemplate[];
+}> {
+  const [catalog, templates] = await Promise.all([
+    aiApi.getModelCatalog(),
+    aiApi.getPromptTemplates(),
+  ]);
+  return { catalog, templates };
+}
+
+export function estimateCloudGeneration(
+  workflow: 'ai_model' | 'ai_commercial',
+  model: string,
+  advancedSelection: boolean,
+): Promise<AIEstimateResult> {
+  return aiApi.estimate({
+    workflow: workflow === 'ai_commercial' ? 'product_image_generation' : workflow,
+    model,
+    imageCount: 1,
+    advancedSelection,
+  });
+}
+
 export async function runCloudImageWorkflow(
   projectId: string,
   asset: LocalAsset,
   workflow: 'ai_model' | 'ai_commercial',
   onStage: (stage: CloudGenerationStage) => void,
+  options: CloudGenerationOptions,
 ) {
   if (!isTauri()) throw new Error('专业生成仅支持 WEAVIA Desktop');
   onStage('preparing');
@@ -57,6 +94,8 @@ export async function runCloudImageWorkflow(
       workflow: 'product_image_generation',
       referenceAssets: [asset.id],
       logicalModel: 'weavia-image-pro',
+      model: options.model,
+      credits: options.credits,
       idempotencyKey: id,
       deliveryStatus: 'submitting',
     },
@@ -72,17 +111,19 @@ export async function runCloudImageWorkflow(
     inputAssetId: asset.id,
     workflow: workflow === 'ai_commercial' ? 'product_image_generation' : workflow,
     logicalModel: 'weavia-image-pro',
-    prompt:
-      workflow === 'ai_model'
-        ? '专业电商模特摄影，简洁高级的摄影棚灯光与自然姿态，画面突出商品，真实质感。'
-        : '高端电商商品摄影，现代极简场景，专业布光，真实材质，适合品牌广告。',
+    model: options.model,
+    prompt: options.prompt,
     mode: 'image_to_image',
     referenceAssets: [referenceAsset],
     size: '1024x1024',
-    quality: 'standard',
+    quality: options.quality,
     numberOfImages: 1,
     outputFormat: 'png',
-    metadata: { desktopTaskId: id },
+    metadata: {
+      desktopTaskId: id,
+      credits: options.credits,
+      advancedModelSelection: options.advancedModelSelection,
+    },
   };
   onStage('generating');
   let cloudTask: CloudAITaskResult;

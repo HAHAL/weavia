@@ -88,6 +88,10 @@ export const localData = {
     if (!isTauri()) return [];
     return invoke<GeneratedResult[]>('list_local_results', { projectId });
   },
+  async deleteResult(resultId: string) {
+    requireDesktop();
+    await invoke('delete_local_result', { resultId });
+  },
   async setSetting(key: string, value: unknown) {
     requireDesktop();
     await invoke('set_local_setting', { key, value });

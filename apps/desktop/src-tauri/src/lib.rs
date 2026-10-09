@@ -259,6 +259,11 @@ fn list_local_results(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+fn delete_local_result(data: tauri::State<'_, LocalData>, result_id: String) -> Result<(), String> {
+    data.delete_result(&result_id)
+}
+
+#[tauri::command(rename_all = "camelCase")]
 fn set_local_setting(
     data: tauri::State<'_, LocalData>,
     key: String,
@@ -311,6 +316,7 @@ pub fn run() {
             execute_local_mock_task,
             save_remote_generated_result,
             list_local_results,
+            delete_local_result,
             set_local_setting,
             get_local_setting
         ])

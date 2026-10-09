@@ -32,6 +32,9 @@ interface Snapshot {
     currency?: string;
     pricingUnit?: string;
     outputCost?: number;
+    creditsCost: number;
+    qualityLevel: string;
+    advanced: boolean;
   }>;
   logicalModels: Array<{
     id: string;
@@ -225,35 +228,33 @@ function Models({ data }: { data: Snapshot }) {
   return (
     <>
       <PageHeader
-        eyebrow="PHYSICAL MODELS"
-        title="Models"
-        description="Provider 物理模型与成本元数据。"
+        eyebrow="MODEL CATALOG"
+        title="模型管理"
+        description="模型能力、质量档位与 Credits 定价。Provider Secret 永不返回。"
       />
       <table className="data-table">
         <thead>
           <tr>
+            <th>Provider</th>
             <th>模型</th>
-            <th>Modality</th>
-            <th>Capabilities</th>
+            <th>能力</th>
             <th>状态</th>
-            <th>Pricing</th>
+            <th>Credits</th>
+            <th>质量档位</th>
           </tr>
         </thead>
         <tbody>
           {data.models.map((model) => (
             <tr key={model.id}>
+              <td>{data.providers.find((item) => item.id === model.providerId)?.name ?? '—'}</td>
               <td>
                 {model.displayName}
                 <small>{model.modelId}</small>
               </td>
-              <td>{model.modality}</td>
               <td>{model.capabilities.join(', ')}</td>
               <td>{model.enabled ? 'Enabled' : 'Disabled'}</td>
-              <td>
-                {model.outputCost === undefined
-                  ? '未配置'
-                  : `${model.outputCost} ${model.currency}/${model.pricingUnit}`}
-              </td>
+              <td>{model.creditsCost}</td>
+              <td>{model.qualityLevel}</td>
             </tr>
           ))}
         </tbody>

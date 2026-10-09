@@ -216,6 +216,40 @@ export interface GeneratedResult {
 export type LogicalModelKey = 'weavia-image-pro' | (string & {});
 export type AIWorkflow = 'ai_model' | 'ai_commercial' | 'product_image_generation';
 export type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
+export type GenerationQualityLevel = 'fast' | 'standard' | 'professional' | 'flagship';
+export interface AIModelCatalogItem {
+  id: string;
+  name: string;
+  capabilities: Array<'image_generation' | 'reference_image' | 'image_edit' | 'high_quality_image'>;
+  creditsCost: number;
+  enabled: boolean;
+  qualityLevel: GenerationQualityLevel;
+  advanced: boolean;
+}
+export interface AIModelCatalogResult {
+  models: AIModelCatalogItem[];
+  professionalAccess: boolean;
+}
+export interface AIEstimateRequest {
+  workflow: AIWorkflow;
+  model: string;
+  imageCount: number;
+  advancedSelection?: boolean;
+}
+export interface AIEstimateResult {
+  credits: number;
+  estimatedTime: number;
+  model: string;
+}
+export interface PromptTemplate {
+  id: string;
+  category: string;
+  scene: string;
+  style: string;
+  prompt: string;
+  negativePrompt: string;
+  supportedModels: string[];
+}
 export interface ReferenceAssetInput {
   assetId: EntityId;
   objectKey: string;
@@ -256,6 +290,7 @@ export interface ImageGenerationRequest {
   inputAssetId: EntityId;
   workflow: AIWorkflow;
   logicalModel: LogicalModelKey;
+  model?: string;
   prompt: string;
   mode: ImageGenerationMode;
   referenceAssets?: ReferenceAssetInput[];

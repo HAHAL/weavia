@@ -236,10 +236,12 @@ export class OpenAICompatibleImageProvider {
   }
 
   async requestImage(input: {
+    model: string;
     prompt: string;
     size: string;
     n: 1;
     promptExtend: boolean;
+    referenceImage?: ReferenceImageInput;
   }): Promise<CompatibleImageResult> {
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -254,11 +256,12 @@ export class OpenAICompatibleImageProvider {
             'content-type': 'application/json',
           },
           body: JSON.stringify({
-            model: this.config.model,
+            model: input.model,
             prompt: input.prompt,
             size: input.size,
             n: input.n,
             prompt_extend: input.promptExtend,
+            ...(input.referenceImage ? { image: input.referenceImage.value } : {}),
           }),
           signal: controller.signal,
         },
@@ -281,7 +284,7 @@ export class OpenAICompatibleImageProvider {
         response.headers.get('x-request-id') ?? body.request_id ?? body.id ?? undefined;
       return {
         provider: this.config.providerId,
-        model: this.config.model,
+        model: input.model,
         ...(providerRequestId ? { providerRequestId } : {}),
         status: 'succeeded',
         outputs,
@@ -301,7 +304,7 @@ export class OpenAICompatibleImageProvider {
 
 export class AntDigitalProvider extends OpenAICompatibleImageProvider implements AIProvider {
   readonly id = 'antdigital';
-  readonly capabilities = new Set<AICapability>(['image_generation']);
+  readonly capabilities = new Set<AICapability>(['image_generation', 'image_to_image']);
 
   async getModels(): Promise<ModelDefinition[]> {
     return [
@@ -318,20 +321,37 @@ export class AntDigitalProvider extends OpenAICompatibleImageProvider implements
   }
 
   async generateImage(input: GenerationInput): Promise<ProviderTaskResult> {
-    if (input.mode !== 'text_to_image' || (input.referenceImages?.length ?? 0) > 0)
+    const hasReference = (input.referenceImages?.length ?? 0) > 0;
+    if (input.mode === 'image_edit' || (input.mode === 'image_to_image' && !hasReference))
       throw new NormalizedProviderError(
         'UNSUPPORTED_CAPABILITY',
-        'qwen-image-max 的参考图接口尚无已验证官方契约',
+        '当前 Ant Digital 模型不支持所选参考图能力',
+        false,
+        400,
+      );
+    if (hasReference && input.modelId !== 'qwen-image-2.0')
+      throw new NormalizedProviderError(
+        'UNSUPPORTED_CAPABILITY',
+        '当前仅 qwen-image-2.0 开放参考图生成',
+        false,
+        400,
+      );
+    if ((input.referenceImages?.length ?? 0) > 1)
+      throw new NormalizedProviderError(
+        'INVALID_REQUEST',
+        'qwen-image-2.0 当前仅支持单张商品参考图',
         false,
         400,
       );
     if (!input.prompt?.trim())
       throw new NormalizedProviderError('INVALID_REQUEST', 'Prompt is required', false, 400);
     const result = await this.requestImage({
+      model: input.modelId,
       prompt: input.prompt,
       size: sizeForAspectRatio(input.aspectRatio),
       n: 1,
       promptExtend: true,
+      ...(input.referenceImages?.[0] ? { referenceImage: input.referenceImages[0] } : {}),
     });
     const providerTaskId = result.providerRequestId ?? `antdigital-${input.idempotencyKey}`;
     return {

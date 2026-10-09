@@ -1,6 +1,6 @@
 import type { CloudAIOutput, LocalAsset } from '@weavia/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { ReferenceAssetTransport } from './asset-transport';
+import { dataUrlToBlob, ReferenceAssetTransport } from './asset-transport';
 
 const asset: LocalAsset = {
   id: 'asset-1',
@@ -65,5 +65,11 @@ describe('ReferenceAssetTransport', () => {
       mimeType: 'image/png',
     };
     await expect(transport.resolveResult(output)).resolves.toBe(output.temporaryUrl);
+  });
+
+  it('decodes a local data URL without a WebView network fetch', async () => {
+    const blob = dataUrlToBlob('data:image/png;base64,AQID');
+    expect(blob.type).toBe('image/png');
+    expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([1, 2, 3]);
   });
 });

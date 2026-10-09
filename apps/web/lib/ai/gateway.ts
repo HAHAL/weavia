@@ -6,6 +6,7 @@ import type {
   CloudAITaskResult,
   ImageGenerationRequest,
   ReferenceAssetInput,
+  GenerationQualityLevel,
   User,
 } from '@weavia/shared';
 
@@ -33,6 +34,9 @@ export interface ProviderModelRecord {
   currency?: string;
   pricingUnit?: string;
   metadata: Record<string, unknown>;
+  creditsCost: number;
+  qualityLevel: GenerationQualityLevel;
+  advanced: boolean;
 }
 export interface LogicalModelRecord {
   id: string;
@@ -119,7 +123,11 @@ export class GatewayError extends Error {
 
 export class ProviderRouter {
   constructor(private readonly catalog: AICatalog) {}
-  route(logicalKey: string, mode: ImageGenerationRequest['mode'] = 'text_to_image') {
+  route(
+    logicalKey: string,
+    mode: ImageGenerationRequest['mode'] = 'text_to_image',
+    requestedModel?: string,
+  ) {
     const logical = this.catalog.logicalModels.find(
       (item) => item.key === logicalKey && item.enabled,
     );
@@ -132,6 +140,7 @@ export class ProviderRouter {
       const model = this.catalog.providerModels.find(
         (item) => item.id === binding.providerModelId && item.enabled,
       );
+      if (requestedModel && model?.modelId !== requestedModel) continue;
       if (!model?.capabilities.includes(mode)) continue;
       hasCapableModel = true;
       const provider = model
@@ -220,7 +229,13 @@ export class AIGateway {
       throw new GatewayError('CONCURRENCY_LIMIT', '当前已有生成任务，请稍后再试', 409);
 
     const mode = request.mode ?? 'text_to_image';
-    const route = this.router.route(request.logicalModel, mode);
+    const route = this.router.route(request.logicalModel, mode, request.model);
+    if (
+      request.metadata?.advancedModelSelection === true &&
+      route.model.advanced &&
+      !isProfessionalUser(user)
+    )
+      throw new GatewayError('UNSUPPORTED_MODEL', '当前账户未开放高级模型选择', 403);
     const provider = this.providers.get(route.provider.code);
     if (!provider) throw new GatewayError('PROVIDER_UNAVAILABLE', 'Provider 未配置', 503);
     const capability = mode === 'text_to_image' ? 'image_generation' : mode;
@@ -333,6 +348,10 @@ export class AIGateway {
     }
     return references;
   }
+}
+
+function isProfessionalUser(user: User) {
+  return user.email === 'demo@weavia.local';
 }
 
 function validateRequest(request: ImageGenerationRequest) {

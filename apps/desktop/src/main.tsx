@@ -6,6 +6,7 @@ import './styles.css';
 import './auth.css';
 import './local-data.css';
 import './reference-image.css';
+import './result-center.css';
 import { App } from './app/App';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

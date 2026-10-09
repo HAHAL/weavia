@@ -232,6 +232,9 @@ describe('AI Gateway', () => {
       capabilities: ['image_to_image', 'image_edit'],
       enabled: true,
       metadata: {},
+      creditsCost: 50,
+      qualityLevel: 'flagship',
+      advanced: true,
     });
     value.bindings.push({
       id: 'binding-edit',
@@ -290,6 +293,9 @@ function catalog(): AICatalog {
         currency: 'CNY',
         pricingUnit: 'image',
         metadata: {},
+        creditsCost: 30,
+        qualityLevel: 'professional',
+        advanced: true,
       },
     ],
     logicalModels: [

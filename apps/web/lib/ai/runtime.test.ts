@@ -8,7 +8,7 @@ describe('AI admin configuration', () => {
     expect(snapshot.providers[0]).toMatchObject({ code: 'antdigital' });
     expect(snapshot.models[0]).toMatchObject({ modelId: 'qwen-image-max' });
     expect(snapshot.providers[1]).toMatchObject({ code: 'dashscope' });
-    expect(snapshot.models[1]).toMatchObject({
+    expect(snapshot.models[2]).toMatchObject({
       modelId: 'qwen-image-edit-plus',
       capabilities: ['image_to_image', 'image_edit'],
     });

@@ -10,6 +10,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { AccountPage } from '../pages/AccountPage';
 import { AuthBootstrap } from '../components/AuthBootstrap';
 import { ProjectWorkspacePage } from '../pages/ProjectWorkspacePage';
+import { ResultCenterPage } from '../pages/ResultCenterPage';
 export function App() {
   return (
     <ErrorBoundary>
@@ -28,6 +29,7 @@ export function App() {
           <Route path="/create/model" element={<Navigate to="/projects" replace />} />
           <Route path="/create/commercial" element={<Navigate to="/projects" replace />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/results" element={<ResultCenterPage />} />
           <Route
             path="/assets"
             element={
@@ -37,15 +39,7 @@ export function App() {
               />
             }
           />
-          <Route
-            path="/history"
-            element={
-              <PlaceholderPage
-                title="历史记录"
-                description="已完成的生成记录将在这里按项目与时间组织。"
-              />
-            }
-          />
+          <Route path="/history" element={<Navigate to="/results" replace />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

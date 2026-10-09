@@ -8,6 +8,10 @@ import type {
   ImageGenerationRequest,
   AssetPresignRequest,
   AssetPresignResult,
+  AIEstimateRequest,
+  AIEstimateResult,
+  AIModelCatalogResult,
+  PromptTemplate,
 } from '@weavia/shared';
 
 export interface ApiErrorBody {
@@ -124,6 +128,20 @@ export class AIApiClient {
         body: JSON.stringify(request),
       })
     ).data;
+  }
+  async getModelCatalog() {
+    return (await this.client.request<AIModelCatalogResult>('ai/catalog')).data;
+  }
+  async estimate(request: AIEstimateRequest) {
+    return (
+      await this.client.request<AIEstimateResult>('ai/estimate', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+    ).data;
+  }
+  async getPromptTemplates() {
+    return (await this.client.request<PromptTemplate[]>('ai/templates')).data;
   }
 }
 

@@ -94,7 +94,7 @@ describe('AntDigitalProvider', () => {
     await expect(
       provider.generateImage({
         ...input,
-        mode: 'image_to_image',
+        mode: 'image_edit',
         capability: 'image_to_image',
         referenceImages: [
           { type: 'url', value: 'https://storage.example/reference.png', mimeType: 'image/png' },
@@ -102,6 +102,29 @@ describe('AntDigitalProvider', () => {
       }),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY', retryable: false });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('maps a qwen-image-2.0 reference image request', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ url: 'https://results.example/reference.png' }] }), {
+        status: 200,
+      }),
+    );
+    const provider = createProvider(fetcher);
+    await provider.generateImage({
+      ...input,
+      modelId: 'qwen-image-2.0',
+      mode: 'image_to_image',
+      capability: 'image_to_image',
+      referenceImages: [
+        { type: 'base64', value: 'data:image/png;base64,AQID', mimeType: 'image/png' },
+      ],
+    });
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toMatchObject({
+      model: 'qwen-image-2.0',
+      image: 'data:image/png;base64,AQID',
+      n: 1,
+    });
   });
 });
 

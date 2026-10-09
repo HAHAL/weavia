@@ -2,10 +2,21 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ImagePlus, Star, Upload, WandSparkles } from 'lucide-react';
 import { Badge, Button } from '@weavia/ui';
 import { Link, useParams } from 'react-router-dom';
-import type { GeneratedResult, LocalAsset, LocalTaskRecord } from '@weavia/shared';
+import type {
+  AIEstimateResult,
+  AIModelCatalogItem,
+  GeneratedResult,
+  GenerationQualityLevel,
+  LocalAsset,
+  LocalTaskRecord,
+  PromptTemplate,
+  Quality,
+} from '@weavia/shared';
 import { AssetThumbnail } from '../components/AssetThumbnail';
 import { localData, runMockModelWorkflow } from '../services/local-data';
 import {
+  estimateCloudGeneration,
+  loadCloudGenerationOptions,
   resumePendingDeliveries,
   runCloudImageWorkflow,
   type CloudGenerationStage,
@@ -22,8 +33,18 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
   const [error, setError] = useState<string>();
   const [mode, setMode] = useState<'mock' | 'cloud'>('mock');
   const [stage, setStage] = useState<CloudGenerationStage>();
+  const [models, setModels] = useState<AIModelCatalogItem[]>([]);
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [professionalAccess, setProfessionalAccess] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [qualityLevel, setQualityLevel] = useState<GenerationQualityLevel>('standard');
+  const [model, setModel] = useState('qwen-image-2.0');
+  const [templateId, setTemplateId] = useState('fashion-brand-ad');
+  const [estimate, setEstimate] = useState<AIEstimateResult>();
   const imported = assets.filter((asset) => asset.source === 'imported');
   const chosen = imported.find((asset) => asset.id === selected);
+  const automaticModelId = modelForQuality(qualityLevel, models);
+  const selectedModelId = advanced ? model : automaticModelId;
   const load = useCallback(
     () =>
       void Promise.all([localData.listAssets(projectId), localData.listTasks(projectId)]).then(
@@ -44,6 +65,26 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
     load();
     void resumePendingDeliveries(projectId).then(load);
   }, [load, projectId]);
+  useEffect(() => {
+    if (mode !== 'cloud') return;
+    void loadCloudGenerationOptions()
+      .then(({ catalog, templates: nextTemplates }) => {
+        setModels(catalog.models.filter((item) => item.enabled));
+        setProfessionalAccess(catalog.professionalAccess);
+        setTemplates(nextTemplates);
+      })
+      .catch((value) => setError(friendlyError(value)));
+  }, [mode]);
+  useEffect(() => {
+    if (mode !== 'cloud' || !selectedModelId) return;
+    void estimateCloudGeneration(
+      kind === 'model' ? 'ai_model' : 'ai_commercial',
+      selectedModelId,
+      advanced,
+    )
+      .then(setEstimate)
+      .catch((value) => setError(friendlyError(value)));
+  }, [advanced, kind, mode, selectedModelId]);
   async function importAsset() {
     try {
       const asset = await localData.chooseAndImportAsset(projectId);
@@ -55,6 +96,18 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
   }
   async function generate() {
     if (!chosen) return;
+    const template = templates.find((item) => item.id === templateId);
+    if (mode === 'cloud' && (!estimate || !template)) {
+      setError('生成参数尚未准备完成');
+      return;
+    }
+    if (
+      mode === 'cloud' &&
+      !window.confirm(
+        `确认生成？\n本次预计消耗 ${estimate!.credits} Credits\n预计时间 ${estimate!.estimatedTime} 秒`,
+      )
+    )
+      return;
     setBusy(true);
     setError(undefined);
     const polling = setInterval(() => void localData.listTasks(projectId).then(setTasks), 25);
@@ -66,6 +119,13 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
               chosen,
               kind === 'model' ? 'ai_model' : 'ai_commercial',
               setStage,
+              {
+                model: selectedModelId,
+                prompt: template!.prompt,
+                quality: qualityForLevel(qualityLevel),
+                credits: estimate!.credits,
+                advancedModelSelection: advanced,
+              },
             )
           : await runMockModelWorkflow(projectId, chosen),
       );
@@ -202,12 +262,49 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
               </select>
             </div>
             <div>
-              <label>质量</label>
-              <select>
-                <option>标准</option>
+              <label>生成质量</label>
+              <select
+                value={qualityLevel}
+                onChange={(event) => setQualityLevel(event.target.value as GenerationQualityLevel)}
+              >
+                <option value="fast">快速</option>
+                <option value="standard">标准</option>
+                <option value="professional">专业</option>
+                <option value="flagship">旗舰</option>
               </select>
             </div>
           </div>
+          {mode === 'cloud' && (
+            <div className="field beta-generation-options">
+              <label>创作模板</label>
+              <select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+                {templates.map((template) => (
+                  <option value={template.id} key={template.id}>
+                    {template.category} · {template.scene}
+                  </option>
+                ))}
+              </select>
+              {professionalAccess && (
+                <label className="advanced-toggle">
+                  <input
+                    type="checkbox"
+                    checked={advanced}
+                    onChange={(event) => setAdvanced(event.target.checked)}
+                  />
+                  专业模式：显示高级模型选择
+                </label>
+              )}
+              {advanced && (
+                <select value={model} onChange={(event) => setModel(event.target.value)}>
+                  {models.map((item) => (
+                    <option value={item.id} key={item.id}>
+                      {item.name} · {item.creditsCost} Credits
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
         </div>
         <footer className="generate-footer">
           <div className="segments generation-mode">
@@ -219,8 +316,11 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
             </button>
           </div>
           <div>
-            <span>执行模式</span>
-            <strong>{mode === 'cloud' ? '专业生成' : 'Local Mock'}</strong>
+            <span>{mode === 'cloud' ? '本次预计消耗' : '执行模式'}</span>
+            <strong>
+              {mode === 'cloud' ? `${estimate?.credits ?? '—'} Credits` : 'Local Mock'}
+            </strong>
+            {mode === 'cloud' && <small>预计 {estimate?.estimatedTime ?? '—'} 秒</small>}
           </div>
           <Button
             disabled={!chosen || busy || (mode === 'cloud' && chosen.role !== 'REFERENCE_IMAGE')}
@@ -238,6 +338,20 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
       </aside>
     </div>
   );
+}
+
+function qualityForLevel(level: GenerationQualityLevel): Quality {
+  return level === 'fast' ? 'fast' : level === 'standard' ? 'standard' : 'high';
+}
+
+function modelForQuality(level: GenerationQualityLevel, models: AIModelCatalogItem[]) {
+  const target =
+    level === 'fast' || level === 'standard'
+      ? 'qwen-image-2.0'
+      : level === 'professional'
+        ? 'qwen-image-max'
+        : 'qwen-image-edit-plus';
+  return models.find((item) => item.id === target)?.id ?? models.at(-1)?.id ?? '';
 }
 
 function stageLabel(stage?: CloudGenerationStage) {

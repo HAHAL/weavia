@@ -65,7 +65,7 @@ export class ReferenceAssetTransport implements AssetTransport {
           size: input.fileSize,
         }),
       ]);
-      const body = await fetch(dataUrl).then((response) => response.blob());
+      const body = dataUrlToBlob(dataUrl);
       if (body.size !== input.fileSize || body.type !== input.mimeType)
         throw new Error('本地参考图内容与素材元数据不一致');
       await this.dependencies.upload(ticket.uploadUrl, body, input.mimeType);
@@ -91,4 +91,12 @@ export class ReferenceAssetTransport implements AssetTransport {
   async cleanup(input: PreparedAssetInput): Promise<void> {
     void input;
   }
+}
+
+export function dataUrlToBlob(dataUrl: string) {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl);
+  if (!match?.[1] || !match[2]) throw new Error('本地参考图数据格式无效');
+  const binary = atob(match[2].replace(/\s/g, ''));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type: match[1] });
 }

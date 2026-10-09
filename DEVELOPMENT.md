@@ -94,6 +94,6 @@ ENABLE_REAL_AI=true
 
 不要把 Key 粘贴进聊天、Desktop、SQLite、日志或 Git。默认 `ENABLE_REAL_AI=false`，`pnpm test` 永不真实调用。真实验证应显式启动已配置环境，先进行一次最简单的 connectivity 请求，再进行一次 Desktop Workflow；最多 1–3 次必要请求。Health/Test Connection 只能检查 readiness，不能生成收费图片。
 
-`qwen-image-3.0-pro` 当前仅按已确认的 OpenAI-compatible Text-to-Image contract 调用。参考图/Image Edit 必须等待 Ant Digital 官方字段确认，不能照搬其他平台字段。
+`qwen-image-2.0` 已按模型官方 OpenAI-compatible contract 验证：`/v1/images/generations` 的顶层 `image` 扩展字段可接收公网 URL 或 Base64 Data URL。其他模型的参考图字段仍须先核对官方文档，不能直接照搬。
 
 Provider 数据库迁移：`packages/database/drizzle/0001_nice_wolverine.sql`。Cloud 开发存储当前与 Dev Auth 一样为进程内 Repository，Schema 已为 PostgreSQL 正式实现预留；生产持久化是后续部署工作。
