@@ -210,6 +210,42 @@ export const orders = pgTable('orders', {
   metadata: jsonb('metadata').default({}).notNull(),
   ...timestamps,
 });
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    type: text('type').notNull(),
+    priceMinor: integer('price_minor').notNull(),
+    currency: text('currency').notNull(),
+    metadata: jsonb('metadata').default({}).notNull(),
+    enabled: boolean('enabled').default(true).notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('products_code_unique').on(t.code)],
+);
+export const payments = pgTable(
+  'payments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    orderId: uuid('order_id')
+      .references(() => orders.id, { onDelete: 'cascade' })
+      .notNull(),
+    provider: text('provider').notNull(),
+    providerPaymentId: text('provider_payment_id').notNull(),
+    status: text('status').notNull(),
+    amountMinor: integer('amount_minor').notNull(),
+    currency: text('currency').notNull(),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    metadata: jsonb('metadata').default({}).notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('payments_provider_reference_unique').on(t.provider, t.providerPaymentId),
+    index('payments_order_idx').on(t.orderId),
+  ],
+);
 export const aiProviders = pgTable(
   'ai_providers',
   {

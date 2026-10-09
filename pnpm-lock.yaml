@@ -148,18 +148,9 @@ importers:
 
   apps/web:
     dependencies:
-      '@weavia/ai-core':
-        specifier: workspace:*
-        version: link:../../packages/ai-core
-      '@weavia/auth-core':
-        specifier: workspace:*
-        version: link:../../packages/auth-core
       '@weavia/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@weavia/storage-core':
-        specifier: workspace:*
-        version: link:../../packages/storage-core
       '@weavia/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -218,19 +209,6 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.5)(jsdom@27.4.0)(tsx@4.23.15)
 
-  packages/auth-core:
-    dependencies:
-      '@weavia/shared':
-        specifier: workspace:*
-        version: link:../shared
-    devDependencies:
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.4
-        version: 3.2.7(@types/node@22.20.5)(jsdom@27.4.0)(tsx@4.23.15)
-
   packages/config:
     devDependencies:
       typescript:
@@ -260,15 +238,6 @@ importers:
         version: 3.2.7(@types/node@22.20.5)(jsdom@27.4.0)(tsx@4.23.15)
 
   packages/shared:
-    devDependencies:
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.4
-        version: 3.2.7(@types/node@22.20.5)(jsdom@27.4.0)(tsx@4.23.15)
-
-  packages/storage-core:
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -785,6 +754,18 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [netbsd]
+
+  '@esbuild/openbsd-arm64@0.25.12':
+    resolution: {integrity: sha512-fF96T6KsBo/pkQI950FARU9apGNTSlZGsv1jZBAlcLL1MLjLNIWPBkj5NlSz8aAzYKg+eNqknrUJ24QBybeR5A==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [openbsd]
+
+  '@esbuild/openbsd-arm64@0.28.2':
+    resolution: {integrity: sha512-AL2qJILH7lNjrDmCQDvdxMfAUIv8KMNZOvrwAQ8i8//ntL9FflhOyMJ8OZSMBb8/AWXe3/5v5S20y3zCoZWKoQ==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [openbsd]
 
   '@esbuild/openbsd-x64@0.18.20':
     resolution: {integrity: sha512-e5e4YSsuQfX4cxcygw/UCPIEP6wbIL+se3sxPdCiMbFLBWu0eiZOJ7WoD+ptCLrmjZBK1Wk7I6D/I3NglUGOxg==}
@@ -2948,6 +2929,12 @@ snapshots:
   '@esbuild/netbsd-x64@0.28.2':
     optional: true
 
+  '@esbuild/openbsd-arm64@0.25.12':
+    optional: true
+
+  '@esbuild/openbsd-arm64@0.28.2':
+    optional: true
+
   '@esbuild/openbsd-x64@0.18.20':
     optional: true
 
@@ -3764,6 +3751,7 @@ snapshots:
       '@esbuild/linux-x64': 0.25.12
       '@esbuild/netbsd-arm64': 0.25.12
       '@esbuild/netbsd-x64': 0.25.12
+      '@esbuild/openbsd-arm64': 0.25.12
       '@esbuild/openbsd-x64': 0.25.12
       '@esbuild/openharmony-arm64': 0.25.12
       '@esbuild/sunos-x64': 0.25.12
@@ -3792,6 +3780,7 @@ snapshots:
       '@esbuild/linux-x64': 0.28.2
       '@esbuild/netbsd-arm64': 0.28.2
       '@esbuild/netbsd-x64': 0.28.2
+      '@esbuild/openbsd-arm64': 0.28.2
       '@esbuild/openbsd-x64': 0.28.2
       '@esbuild/openharmony-arm64': 0.28.2
       '@esbuild/sunos-x64': 0.28.2

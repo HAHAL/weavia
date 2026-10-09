@@ -10,10 +10,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@weavia/ai-core": "workspace:*",
-    "@weavia/auth-core": "workspace:*",
     "@weavia/shared": "workspace:*",
-    "@weavia/storage-core": "workspace:*",
     "@weavia/ui": "workspace:*",
     "lucide-react": "^0.545.0",
     "next": "^15.5.4",

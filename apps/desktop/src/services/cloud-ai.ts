@@ -129,6 +129,7 @@ export async function runCloudImageWorkflow(
   let cloudTask: CloudAITaskResult;
   try {
     cloudTask = await aiApi.generateImage(request);
+    cloudTask = await waitForCloudTask(cloudTask);
   } catch (error) {
     await failLocalTask(task, error);
     throw error;
@@ -163,6 +164,22 @@ export async function runCloudImageWorkflow(
   } finally {
     await referenceAssetTransport.cleanup(preparedInput);
   }
+}
+
+async function waitForCloudTask(initial: CloudAITaskResult) {
+  let task = initial;
+  const deadline = Date.now() + 3 * 60 * 1000;
+  while (task.status === 'queued' || task.status === 'running') {
+    if (Date.now() >= deadline) throw new Error('AI 任务等待超时，可在任务中心继续查看');
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    task = await aiApi.getTask(task.id);
+  }
+  if (task.status === 'failed') {
+    const error = new Error(task.error?.message ?? '专业生成失败') as Error & { code?: string };
+    error.code = task.error?.code ?? 'GENERATION_FAILED';
+    throw error;
+  }
+  return task;
 }
 
 export async function resumePendingDeliveries(projectId: string) {
