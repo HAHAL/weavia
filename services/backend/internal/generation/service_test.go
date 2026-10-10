@@ -28,7 +28,7 @@ func TestTaskIdempotencyAndPaidRequestGuard(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for {
 		current, _, _ := service.Get(context.Background(), auth.DemoUser.ID, first.ID)
-		if current.Status == "generated" {
+		if current.Status == "success" {
 			break
 		}
 		if time.Now().After(deadline) {

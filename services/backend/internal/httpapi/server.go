@@ -15,11 +15,13 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/weavia/weavia/services/backend/internal/assets"
 	"github.com/weavia/weavia/services/backend/internal/auth"
+	"github.com/weavia/weavia/services/backend/internal/commercial"
 	"github.com/weavia/weavia/services/backend/internal/generation"
 )
 
 type Server struct {
-	Auth                 *auth.Service
+	Auth                 AuthService
+	Commercial           *commercial.Service
 	Generation           *generation.Service
 	Assets               *assets.Storage
 	AntDigitalConfigured bool
@@ -31,10 +33,26 @@ type Server struct {
 	providerEnabled      bool
 }
 
+type AuthService interface {
+	Register(context.Context, string, string, string, auth.DeviceInfo) (auth.SessionResult, error)
+	Login(context.Context, string, string, auth.DeviceInfo) (auth.SessionResult, error)
+	CreateDesktopSession(context.Context, string) (map[string]any, error)
+	Authorize(context.Context, string, string) (map[string]string, error)
+	Exchange(context.Context, string, string, auth.DeviceInfo) (auth.SessionResult, error)
+	Refresh(context.Context, string) (auth.SessionResult, error)
+	Logout(context.Context, string) error
+	Me(context.Context, string) (auth.User, error)
+	ListDevices(context.Context, string) ([]auth.Device, error)
+	RevokeDevice(context.Context, string, string) error
+}
+
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(cors, middleware.RequestID, middleware.RealIP, middleware.Recoverer, middleware.Timeout(3*time.Minute))
 	r.Get("/api/health", s.health)
+	r.Get("/api/plans", s.plans)
+	r.Post("/api/auth/register", s.register)
+	r.Post("/api/auth/login", s.login)
 	r.Post("/api/auth/desktop/session", s.desktopSession)
 	r.Post("/api/auth/desktop/authorize", s.authorize)
 	r.Post("/api/auth/desktop/exchange", s.exchange)
@@ -45,6 +63,18 @@ func (s *Server) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireUser)
 			r.Get("/ai/catalog", s.catalog)
+			r.Get("/auth/devices", s.listDevices)
+			r.Delete("/auth/devices/{deviceID}", s.revokeDevice)
+			r.Get("/membership", s.membership)
+			r.Get("/credits", s.credits)
+			r.Get("/credits/transactions", s.creditTransactions)
+			r.Post("/workspaces", s.createWorkspace)
+			r.Get("/workspaces", s.listWorkspaces)
+			r.Post("/workspaces/{workspaceID}/projects", s.createProject)
+			r.Post("/projects/{projectID}/products", s.createProduct)
+			r.Post("/products/{productID}/skus", s.createSKU)
+			r.Post("/skus/{skuID}/assets", s.createProductAsset)
+			r.Get("/skus/{skuID}/assets", s.listProductAssets)
 			r.Post("/ai/estimate", s.estimate)
 			r.Get("/ai/templates", s.templates)
 			r.Post("/ai/tasks", s.createTask)
@@ -59,6 +89,9 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/admin/ai/models", s.adminModels)
 	r.Get("/api/admin/ai/routing", s.adminRouting)
 	r.Get("/api/admin/ai/usage", s.adminUsage)
+	r.Get("/api/admin/users", s.adminUsers)
+	r.Get("/api/admin/credits/transactions", s.adminCreditTransactions)
+	r.Get("/api/admin/tasks", s.adminTasks)
 	r.Patch("/api/admin/ai/providers/{providerID}", s.patchProvider)
 	return r
 }
@@ -89,7 +122,7 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 			writeError(w, &auth.Error{Code: "INVALID_TOKEN", Message: "WEAVIA Access Token 缺失", Status: 401})
 			return
 		}
-		user, err := s.Auth.Me(strings.TrimPrefix(header, "Bearer "))
+		user, err := s.Auth.Me(r.Context(), strings.TrimPrefix(header, "Bearer "))
 		if err != nil {
 			writeError(w, err)
 			return
@@ -110,7 +143,7 @@ func (s *Server) desktopSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	data, err := s.Auth.CreateDesktopSession(body.RedirectURI)
+	data, err := s.Auth.CreateDesktopSession(r.Context(), body.RedirectURI)
 	respond(w, data, err)
 }
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +154,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	data, err := s.Auth.Authorize(body.LoginSessionID)
+	data, err := s.Auth.Authorize(r.Context(), body.LoginSessionID, "")
 	respond(w, data, err)
 }
 func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +167,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	data, err := s.Auth.Exchange(body.Code, body.State, body.DeviceInfo)
+	data, err := s.Auth.Exchange(r.Context(), body.Code, body.State, body.DeviceInfo)
 	respond(w, data, err)
 }
 func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +178,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	data, err := s.Auth.Refresh(body.RefreshToken)
+	data, err := s.Auth.Refresh(r.Context(), body.RefreshToken)
 	respond(w, data, err)
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +186,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refreshToken"`
 	}
 	_ = decode(r, &body)
-	s.Auth.Logout(body.RefreshToken)
+	_ = s.Auth.Logout(r.Context(), body.RefreshToken)
 	ok(w, map[string]bool{"loggedOut": true})
 }
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
@@ -162,8 +195,142 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, &auth.Error{Code: "INVALID_TOKEN", Message: "访问令牌缺失", Status: 401})
 		return
 	}
-	user, err := s.Auth.Me(strings.TrimPrefix(header, "Bearer "))
+	user, err := s.Auth.Me(r.Context(), strings.TrimPrefix(header, "Bearer "))
 	respond(w, user, err)
+}
+func (s *Server) register(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email      string          `json:"email"`
+		Password   string          `json:"password"`
+		Name       string          `json:"name"`
+		DeviceInfo auth.DeviceInfo `json:"deviceInfo"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, err := s.Auth.Register(r.Context(), body.Email, body.Password, body.Name, body.DeviceInfo)
+	respond(w, data, err)
+}
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email      string          `json:"email"`
+		Password   string          `json:"password"`
+		DeviceInfo auth.DeviceInfo `json:"deviceInfo"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, err := s.Auth.Login(r.Context(), body.Email, body.Password, body.DeviceInfo)
+	respond(w, data, err)
+}
+func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Auth.ListDevices(r.Context(), currentUser(r).ID)
+	respond(w, data, err)
+}
+func (s *Server) revokeDevice(w http.ResponseWriter, r *http.Request) {
+	err := s.Auth.RevokeDevice(r.Context(), currentUser(r).ID, chi.URLParam(r, "deviceID"))
+	respond(w, map[string]bool{"revoked": err == nil}, err)
+}
+func (s *Server) plans(w http.ResponseWriter, r *http.Request) {
+	if s.Commercial == nil {
+		ok(w, []any{})
+		return
+	}
+	data, err := s.Commercial.Plans(r.Context())
+	respond(w, data, err)
+}
+func (s *Server) membership(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.Subscription(r.Context(), currentUser(r).ID)
+	respond(w, data, err)
+}
+func (s *Server) credits(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.CreditAccount(r.Context(), currentUser(r).ID)
+	respond(w, data, err)
+}
+func (s *Server) creditTransactions(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.CreditTransactions(r.Context(), currentUser(r).ID, 50)
+	respond(w, data, err)
+}
+func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Name string `json:"name"`
+	}
+	if err := decode(r, &b); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, err := s.Commercial.CreateWorkspace(r.Context(), currentUser(r).ID, b.Name)
+	respond(w, data, err)
+}
+func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.ListWorkspaces(r.Context(), currentUser(r).ID)
+	respond(w, data, err)
+}
+func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := decode(r, &b); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, err := s.Commercial.CreateProject(r.Context(), currentUser(r).ID, chi.URLParam(r, "workspaceID"), b.Name, b.Description)
+	respond(w, data, err)
+}
+func (s *Server) createProduct(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		WorkspaceID string `json:"workspaceId"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := decode(r, &b); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, err := s.Commercial.CreateProduct(r.Context(), currentUser(r).ID, b.WorkspaceID, chi.URLParam(r, "projectID"), b.Name, b.Description)
+	respond(w, data, err)
+}
+func (s *Server) createSKU(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Code       string         `json:"code"`
+		Name       string         `json:"name"`
+		Attributes map[string]any `json:"attributes"`
+	}
+	if err := decode(r, &b); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, err := s.Commercial.CreateSKU(r.Context(), currentUser(r).ID, chi.URLParam(r, "productID"), b.Code, b.Name, b.Attributes)
+	respond(w, data, err)
+}
+func (s *Server) createProductAsset(w http.ResponseWriter, r *http.Request) {
+	var b commercial.Asset
+	if err := decode(r, &b); err != nil {
+		writeError(w, err)
+		return
+	}
+	b.SKUID = chi.URLParam(r, "skuID")
+	data, err := s.Commercial.CreateAsset(r.Context(), currentUser(r).ID, b)
+	respond(w, data, err)
+}
+func (s *Server) listProductAssets(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.ListSKUAssets(r.Context(), currentUser(r).ID, chi.URLParam(r, "skuID"))
+	respond(w, data, err)
+}
+func (s *Server) adminUsers(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.AdminUsers(r.Context())
+	respond(w, data, err)
+}
+func (s *Server) adminCreditTransactions(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.AdminCreditTransactions(r.Context())
+	respond(w, data, err)
+}
+func (s *Server) adminTasks(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.AdminTasks(r.Context())
+	respond(w, data, err)
 }
 func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 	ok(w, generation.PublicCatalog(currentUser(r)))

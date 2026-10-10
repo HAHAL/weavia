@@ -12,9 +12,14 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/store/db"
 )
 
-type TaskRepository struct{ queries *db.Queries }
+type TaskRepository struct {
+	queries *db.Queries
+	pool    *pgxpool.Pool
+}
 
-func NewTaskRepository(pool *pgxpool.Pool) *TaskRepository { return &TaskRepository{db.New(pool)} }
+func NewTaskRepository(pool *pgxpool.Pool) *TaskRepository {
+	return &TaskRepository{queries: db.New(pool), pool: pool}
+}
 func (r *TaskRepository) EnsureDemoUser(ctx context.Context) error {
 	return r.queries.EnsureDemoUser(ctx)
 }
@@ -30,6 +35,11 @@ func (r *TaskRepository) Create(ctx context.Context, task generation.Task) (gene
 	if err != nil {
 		return generation.Task{}, err
 	}
+	_, err = r.pool.Exec(ctx, `UPDATE tasks SET status='reserved',workspace_id=nullif($2,'')::uuid,product_id=nullif($3,'')::uuid,sku_id=nullif($4,'')::uuid,credit_reservation_id=nullif($5,'')::uuid,provider=$6,model=$7,cost=$8,reserved_credits=$8 WHERE id=$1`, row.ID, task.WorkspaceID, task.ProductID, task.SKUID, task.CreditReservationID, task.Provider, task.Model, task.Cost)
+	if err != nil {
+		return generation.Task{}, err
+	}
+	row.Status = "reserved"
 	return decodeRow(row.ID, row.UserID, row.Status, row.IdempotencyKey, row.Input, row.Output, row.Error, row.CreatedAt, row.UpdatedAt)
 }
 func (r *TaskRepository) Get(ctx context.Context, id string) (generation.Task, bool, error) {
@@ -81,9 +91,13 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 		return generation.Task{}, err
 	}
 	task := generation.Task{ID: id, UserID: userID, IdempotencyKey: idem, Workflow: request.Workflow, LogicalModel: request.LogicalModel, Status: status, Outputs: []generation.Output{}, CreatedAt: created.Time.UTC().Format(time.RFC3339Nano), UpdatedAt: updated.Time.UTC().Format(time.RFC3339Nano), Request: request}
-	if status == "success" {
-		task.Status = "generated"
-	}
+	task.WorkspaceID = request.WorkspaceID
+	task.ProductID = request.ProductID
+	task.SKUID = request.SKUID
+	task.CreditReservationID = request.CreditReservationID
+	task.Model = request.Model
+	task.Provider = providerForModel(request.Model)
+	task.Cost = int64(10 * request.NumberOfImages)
 	var envelope struct {
 		Outputs           []generation.Output `json:"outputs"`
 		ProviderRequestID string              `json:"providerRequestId"`
@@ -98,4 +112,10 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 		_ = json.Unmarshal(errorJSON, task.Error)
 	}
 	return task, nil
+}
+func providerForModel(model string) string {
+	if model == "qwen-image-2.0" {
+		return "dashscope"
+	}
+	return "antdigital"
 }

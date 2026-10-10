@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/weavia/weavia/services/backend/internal/assets"
 	"github.com/weavia/weavia/services/backend/internal/auth"
+	"github.com/weavia/weavia/services/backend/internal/commercial"
 	"github.com/weavia/weavia/services/backend/internal/generation"
 	"github.com/weavia/weavia/services/backend/internal/httpapi"
 	"github.com/weavia/weavia/services/backend/internal/jobs"
@@ -49,8 +50,9 @@ func main() {
 	}
 	storage := assets.New(cfg.AssetStorageDir, cfg.StorageSigningKey)
 	provider := &providers.Router{AntDigital: &providers.AntDigital{BaseURL: cfg.AntDigitalBaseURL, APIKey: cfg.AntDigitalAPIKey, Timeout: cfg.ProviderTimeout}, DashScope: &providers.DashScope{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Model: cfg.DashScopeModel, Timeout: cfg.ProviderTimeout}}
-	service := generation.NewService(cfg.RealAIEnabled, provider, jobs.Enqueuer{Client: riverClient}, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, repository)
-	api := &httpapi.Server{Auth: auth.NewService(cfg.WebOrigin), Generation: service, Assets: storage, AntDigitalConfigured: cfg.AntDigitalAPIKey != "", DashScopeConfigured: cfg.DashScopeAPIKey != "", RealAIEnabled: cfg.RealAIEnabled, AntDigitalBaseURL: cfg.AntDigitalBaseURL, DashScopeBaseURL: cfg.DashScopeBaseURL}
+	commercialService := commercial.New(pool)
+	service := generation.NewService(cfg.RealAIEnabled, provider, jobs.Enqueuer{Client: riverClient}, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, repository).WithCredits(commercialService)
+	api := &httpapi.Server{Auth: auth.NewService(pool, cfg.WebOrigin), Commercial: commercialService, Generation: service, Assets: storage, AntDigitalConfigured: cfg.AntDigitalAPIKey != "", DashScopeConfigured: cfg.DashScopeAPIKey != "", RealAIEnabled: cfg.RealAIEnabled, AntDigitalBaseURL: cfg.AntDigitalBaseURL, DashScopeBaseURL: cfg.DashScopeBaseURL}
 	server := &http.Server{Addr: cfg.Address, Handler: api.Router(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

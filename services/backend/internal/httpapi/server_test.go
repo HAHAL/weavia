@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +13,41 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/generation"
 )
 
+type testAuth struct{ access string }
+
+func (a *testAuth) Register(context.Context, string, string, string, auth.DeviceInfo) (auth.SessionResult, error) {
+	return auth.SessionResult{}, nil
+}
+func (a *testAuth) Login(context.Context, string, string, auth.DeviceInfo) (auth.SessionResult, error) {
+	return auth.SessionResult{}, nil
+}
+func (a *testAuth) CreateDesktopSession(context.Context, string) (map[string]any, error) {
+	return map[string]any{"loginSessionId": "login", "state": "state", "loginUrl": "http://example.test", "expiresAt": "2099-01-01T00:00:00Z"}, nil
+}
+func (a *testAuth) Authorize(context.Context, string, string) (map[string]string, error) {
+	return map[string]string{"callbackUrl": "weavia://auth/callback?code=code&state=state"}, nil
+}
+func (a *testAuth) Exchange(context.Context, string, string, auth.DeviceInfo) (auth.SessionResult, error) {
+	a.access = "access"
+	return auth.SessionResult{AccessToken: a.access, User: auth.User{ID: auth.DemoUserID, Email: "demo@weavia.local", Status: "active"}}, nil
+}
+func (a *testAuth) Refresh(context.Context, string) (auth.SessionResult, error) {
+	return auth.SessionResult{}, nil
+}
+func (a *testAuth) Logout(context.Context, string) error { return nil }
+func (a *testAuth) Me(_ context.Context, value string) (auth.User, error) {
+	if value != a.access {
+		return auth.User{}, &auth.Error{Code: "INVALID_TOKEN", Message: "invalid", Status: 401}
+	}
+	return auth.User{ID: auth.DemoUserID, Email: "demo@weavia.local", Status: "active"}, nil
+}
+func (a *testAuth) ListDevices(context.Context, string) ([]auth.Device, error) {
+	return []auth.Device{}, nil
+}
+func (a *testAuth) RevokeDevice(context.Context, string, string) error { return nil }
+
 func TestCatalogEstimateAndTemplatesCompatibility(t *testing.T) {
-	authService := auth.NewService("http://localhost:3000")
+	authService := &testAuth{}
 	server := &Server{Auth: authService, Generation: generation.NewService(false, nil, nil, nil, nil), Assets: assets.New(t.TempDir(), "secret")}
 	handler := server.Router()
 	session := call(t, handler, "POST", "/api/auth/desktop/session", map[string]any{"redirectUri": "weavia://auth/callback"}, "")

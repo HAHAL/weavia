@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/weavia/weavia/services/backend/internal/assets"
+	"github.com/weavia/weavia/services/backend/internal/commercial"
 	"github.com/weavia/weavia/services/backend/internal/generation"
 	"github.com/weavia/weavia/services/backend/internal/jobs"
 	"github.com/weavia/weavia/services/backend/internal/platform"
@@ -37,7 +38,7 @@ func main() {
 	}
 	storage := assets.New(cfg.AssetStorageDir, cfg.StorageSigningKey)
 	provider := &providers.Router{AntDigital: &providers.AntDigital{BaseURL: cfg.AntDigitalBaseURL, APIKey: cfg.AntDigitalAPIKey, Timeout: cfg.ProviderTimeout}, DashScope: &providers.DashScope{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Model: cfg.DashScopeModel, Timeout: cfg.ProviderTimeout}}
-	service := generation.NewService(cfg.RealAIEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool))
+	service := generation.NewService(cfg.RealAIEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool)).WithCredits(commercial.New(pool))
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Queues: map[string]river.QueueConfig{jobs.Queue: {MaxWorkers: 4}}, Workers: jobs.Workers(service)})
 	if err != nil {
 		fatal(err)

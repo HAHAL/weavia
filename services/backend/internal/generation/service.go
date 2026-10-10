@@ -11,20 +11,24 @@ import (
 )
 
 type Request struct {
-	IdempotencyKey  string           `json:"idempotencyKey"`
-	ProjectID       string           `json:"projectId"`
-	InputAssetID    string           `json:"inputAssetId"`
-	Workflow        string           `json:"workflow"`
-	LogicalModel    string           `json:"logicalModel"`
-	Model           string           `json:"model"`
-	Prompt          string           `json:"prompt"`
-	Mode            string           `json:"mode"`
-	ReferenceAssets []ReferenceAsset `json:"referenceAssets"`
-	Size            string           `json:"size"`
-	Quality         string           `json:"quality"`
-	NumberOfImages  int              `json:"numberOfImages"`
-	OutputFormat    string           `json:"outputFormat"`
-	Metadata        map[string]any   `json:"metadata"`
+	IdempotencyKey      string           `json:"idempotencyKey"`
+	WorkspaceID         string           `json:"workspaceId"`
+	ProjectID           string           `json:"projectId"`
+	ProductID           string           `json:"productId"`
+	SKUID               string           `json:"skuId"`
+	CreditReservationID string           `json:"creditReservationId,omitempty"`
+	InputAssetID        string           `json:"inputAssetId"`
+	Workflow            string           `json:"workflow"`
+	LogicalModel        string           `json:"logicalModel"`
+	Model               string           `json:"model"`
+	Prompt              string           `json:"prompt"`
+	Mode                string           `json:"mode"`
+	ReferenceAssets     []ReferenceAsset `json:"referenceAssets"`
+	Size                string           `json:"size"`
+	Quality             string           `json:"quality"`
+	NumberOfImages      int              `json:"numberOfImages"`
+	OutputFormat        string           `json:"outputFormat"`
+	Metadata            map[string]any   `json:"metadata"`
 }
 type ReferenceAsset struct {
 	AssetID   string `json:"assetId"`
@@ -37,18 +41,25 @@ type Output struct {
 	MimeType     string `json:"mimeType"`
 }
 type Task struct {
-	ID                string     `json:"id"`
-	UserID            string     `json:"userId"`
-	IdempotencyKey    string     `json:"idempotencyKey"`
-	Workflow          string     `json:"workflow"`
-	LogicalModel      string     `json:"logicalModel"`
-	Status            string     `json:"status"`
-	Outputs           []Output   `json:"outputs"`
-	ProviderRequestID string     `json:"providerRequestId,omitempty"`
-	Error             *TaskError `json:"error,omitempty"`
-	CreatedAt         string     `json:"createdAt"`
-	UpdatedAt         string     `json:"updatedAt"`
-	Request           Request    `json:"-"`
+	ID                  string     `json:"id"`
+	UserID              string     `json:"userId"`
+	IdempotencyKey      string     `json:"idempotencyKey"`
+	Workflow            string     `json:"workflow"`
+	LogicalModel        string     `json:"logicalModel"`
+	WorkspaceID         string     `json:"workspaceId"`
+	ProductID           string     `json:"productId"`
+	SKUID               string     `json:"skuId"`
+	CreditReservationID string     `json:"creditReservationId"`
+	Provider            string     `json:"provider"`
+	Model               string     `json:"model"`
+	Cost                int64      `json:"cost"`
+	Status              string     `json:"status"`
+	Outputs             []Output   `json:"outputs"`
+	ProviderRequestID   string     `json:"providerRequestId,omitempty"`
+	Error               *TaskError `json:"error,omitempty"`
+	CreatedAt           string     `json:"createdAt"`
+	UpdatedAt           string     `json:"updatedAt"`
+	Request             Request    `json:"-"`
 }
 type TaskError struct {
 	Code    string `json:"code"`
@@ -66,6 +77,11 @@ type Repository interface {
 	List(context.Context, string) ([]Task, error)
 	Update(context.Context, Task) error
 }
+type Credits interface {
+	Reserve(context.Context, string, string, string, int64) (string, error)
+	Confirm(context.Context, string) error
+	Release(context.Context, string) error
+}
 
 type Service struct {
 	repository  Repository
@@ -73,6 +89,7 @@ type Service struct {
 	provider    Generator
 	realEnabled bool
 	refs        func(string) (string, bool)
+	credits     Credits
 }
 
 func NewService(realEnabled bool, provider Generator, enqueue Enqueuer, refs func(string) (string, bool), repository Repository) *Service {
@@ -81,6 +98,7 @@ func NewService(realEnabled bool, provider Generator, enqueue Enqueuer, refs fun
 	}
 	return &Service{repository: repository, realEnabled: realEnabled, provider: provider, enqueue: enqueue, refs: refs}
 }
+func (s *Service) WithCredits(credits Credits) *Service { s.credits = credits; return s }
 
 func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Task, error) {
 	if err := validate(input); err != nil {
@@ -90,11 +108,25 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 		return Task{}, &APIError{"REAL_AI_DISABLED", "真实 AI 当前未启用", 503}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	task, err := s.repository.Create(ctx, Task{ID: id(), UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, Status: "queued", Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
+	taskID := id()
+	cost := int64(10 * input.NumberOfImages)
+	reservationID := ""
+	if s.credits != nil {
+		var reserveErr error
+		reservationID, reserveErr = s.credits.Reserve(ctx, user.ID, taskID, input.IdempotencyKey, cost)
+		if reserveErr != nil {
+			return Task{}, &APIError{"INSUFFICIENT_CREDITS", "Credits 余额不足", 402}
+		}
+	}
+	input.CreditReservationID = reservationID
+	task, err := s.repository.Create(ctx, Task{ID: taskID, UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, WorkspaceID: input.WorkspaceID, ProductID: input.ProductID, SKUID: input.SKUID, CreditReservationID: reservationID, Provider: providerFor(input.Model), Model: input.Model, Cost: cost, Status: "reserved", Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
 	if err != nil {
+		if reservationID != "" {
+			_ = s.credits.Release(ctx, reservationID)
+		}
 		return Task{}, err
 	}
-	if task.Status != "queued" {
+	if task.Status != "reserved" {
 		return task, nil
 	}
 	if s.enqueue != nil {
@@ -125,7 +157,7 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	// River owns exclusive delivery of a queued job. A process can disappear after
 	// persisting "running", and failed attempts are retried with the same provider
 	// idempotency key, so only genuinely terminal states may short-circuit here.
-	if task.Status == "generated" || task.Status == "cancelled" {
+	if task.Status == "success" || task.Status == "generated" || task.Status == "cancelled" {
 		return nil
 	}
 	task.Status = "running"
@@ -148,9 +180,12 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 			code = pe.Code
 		}
 		s.fail(ctx, &task, code, message)
+		if s.credits != nil && task.CreditReservationID != "" {
+			_ = s.credits.Release(ctx, task.CreditReservationID)
+		}
 		return err
 	}
-	task.Status = "generated"
+	task.Status = "success"
 	task.ProviderRequestID = result.ProviderRequestID
 	task.Outputs = []Output{}
 	for _, output := range result.Outputs {
@@ -161,7 +196,19 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 		}
 	}
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	return s.repository.Update(ctx, task)
+	if err = s.repository.Update(ctx, task); err != nil {
+		return err
+	}
+	if s.credits != nil && task.CreditReservationID != "" {
+		return s.credits.Confirm(ctx, task.CreditReservationID)
+	}
+	return nil
+}
+func providerFor(model string) string {
+	if model == "qwen-image-2.0" {
+		return "dashscope"
+	}
+	return "antdigital"
 }
 func (s *Service) fail(ctx context.Context, task *Task, code, message string) {
 	task.Status = "failed"
