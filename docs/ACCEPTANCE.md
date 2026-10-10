@@ -26,7 +26,8 @@ The `postgres-integration` GitHub Actions job uses an isolated PostgreSQL 17 ser
 
 The workflow always sets `ENABLE_REAL_AI=false`; it cannot spend provider credits.
 
+GitHub Actions run `38054011415` completed successfully for commit `9599ea2`.
+
 ## Pending
 
 - `PENDING_REAL_PROVIDER_TEST`: qwen-image-2.0 requires explicit authorization for call count and fee budget before execution.
-- The GitHub-hosted PostgreSQL integration job must be green for this commit before M1 entry is approved.
