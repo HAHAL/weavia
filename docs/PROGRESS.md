@@ -1,5 +1,18 @@
 # Go Backend Migration
 
+## Commercial V1 Phase 1 (2026-10-10)
+
+- Done: PostgreSQL-persistent registration, password login, access/refresh token rotation, logout, desktop authorization, and device revocation. Production Auth has no in-memory session store.
+- Done: database-configured Free, Pro, Studio, and Agency plans; subscriptions, normalized entitlements, status lookup, and expiry reconciliation.
+- Done: append-only Credits commercial ledger with accounts, reservations, transactions, reserve/confirm/release, top-up/admin adjustment primitives, row locking, idempotency, and audit logs. Balances are only changed inside ledger transactions.
+- Done: Workspace → Project → Product → SKU → Asset persistence and APIs, including generated asset/task association columns.
+- Done: generation tasks persist workspace/product/SKU/reservation/provider/model/cost and use `reserved → running → success|failed`; River remains the worker.
+- Done: admin APIs expose users/membership summary, Credits balances/transactions, commercial tasks, and the existing model usage surfaces.
+- Done: Web registration/login, desktop browser authorization, Credits ledger view, and workspace entry; Desktop understands commercial task states.
+- Done: OpenAPI and shared TypeScript contracts updated.
+- Verified: Go tests/vet, pnpm tests/typecheck/lint/build, and Rust tests/check pass locally.
+- Environment limitation: an executable PostgreSQL migration run could not be performed locally because Docker/PostgreSQL clients are not installed; the additive migration is ready for the existing PostgreSQL CI job.
+
 - Done: Chi API/Worker module, pgx + sqlc task persistence, River queue/migrations, OpenAPI, Docker Compose.
 - Done: additive PostgreSQL migration for future Products and Payments; existing tables/data are untouched.
 - Done: auth, model catalog/quality mapping, credits estimate, prompt templates, generation task/result, assets, AntDigital and DashScope adapters, admin AI APIs.

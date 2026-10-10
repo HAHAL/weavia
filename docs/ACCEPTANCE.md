@@ -2,6 +2,23 @@
 
 Date: 2026-10-10
 
+## Commercial V1 Phase 1 acceptance
+
+The implementation now supports the commercial chain:
+
+1. Register or log in on Web and persist the account/session/device in PostgreSQL.
+2. Create a workspace, project, product, SKU, and SKU asset.
+3. Submit a generation task carrying workspace/product/SKU identity.
+4. Reserve Credits in an idempotent PostgreSQL transaction before River enqueue.
+5. Execute through the existing River worker and AI gateway.
+6. Confirm the reservation and append consumption on success, or release it on failure.
+7. Persist provider, model, cost, task result, ledger history, and audit history.
+8. Query users, memberships, balances, transactions, tasks, and model usage from Admin APIs.
+
+Local checks passed: `go test ./...`, `go vet ./...`, `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `cargo test` (15 tests), and `cargo check`.
+
+PostgreSQL execution is pending CI because this workstation has neither Docker nor a PostgreSQL client. The migration is additive and retains the legacy membership/wallet tables for compatibility while introducing the Commercial V1 subscription and append-only ledger tables.
+
 ## Accepted locally
 
 - Git branch and commit were verified before changes; the development branch was safely pushed with Git HTTP/1.1.
