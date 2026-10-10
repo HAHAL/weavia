@@ -30,7 +30,7 @@ func (w *Worker) Timeout(*river.Job[GenerationArgs]) time.Duration { return 3 * 
 type Enqueuer struct{ Client *river.Client[pgx.Tx] }
 
 func (e Enqueuer) Enqueue(ctx context.Context, taskID string) error {
-	_, err := e.Client.Insert(ctx, GenerationArgs{TaskID: taskID}, &river.InsertOpts{Queue: Queue, MaxAttempts: 3})
+	_, err := e.Client.Insert(ctx, GenerationArgs{TaskID: taskID}, &river.InsertOpts{Queue: Queue, MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByArgs: true}})
 	return err
 }
 func Workers(service *generation.Service) *river.Workers {

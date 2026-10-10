@@ -122,7 +122,10 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if err != nil || !ok {
 		return err
 	}
-	if task.Status == "generated" || task.Status == "cancelled" || task.Status == "failed" || task.Status == "running" {
+	// River owns exclusive delivery of a queued job. A process can disappear after
+	// persisting "running", and failed attempts are retried with the same provider
+	// idempotency key, so only genuinely terminal states may short-circuit here.
+	if task.Status == "generated" || task.Status == "cancelled" {
 		return nil
 	}
 	task.Status = "running"

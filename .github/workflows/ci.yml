@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, dev]
+    branches: [main, dev, refactor/go-backend-migration]
 
 jobs:
   quality:
@@ -22,3 +22,73 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  go-and-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/backend/go.mod
+          cache-dependency-path: services/backend/go.sum
+      - run: go test ./...
+        working-directory: services/backend
+      - run: go vet ./...
+        working-directory: services/backend
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: weavia
+          POSTGRES_PASSWORD: weavia
+          POSTGRES_DB: weavia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U weavia -d weavia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://weavia:weavia@localhost:5432/weavia?sslmode=disable
+      ENABLE_REAL_AI: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/backend/go.mod
+          cache-dependency-path: services/backend/go.sum
+      - run: pnpm install --frozen-lockfile
+      - name: Fresh database application and River migrations
+        run: |
+          pnpm db:migrate
+          (cd services/backend && go run ./cmd/migrate)
+      - name: Verify application migrations and preserve seed data
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO products (code,name,type,price_minor,currency) VALUES ('ci-product','CI Product','credits',100,'CNY');
+          SELECT 1 / (COUNT(*) = 1)::int FROM products WHERE code = 'ci-product';
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payments';
+          SELECT 1 / (COUNT(*) >= 1)::int FROM information_schema.tables WHERE table_schema = 'river' OR table_name LIKE 'river_%';
+          SQL
+          pnpm db:migrate
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT 1 / (COUNT(*) = 1)::int FROM products WHERE code = 'ci-product'"
+      - name: Go API, PostgreSQL, River and mock provider integration
+        run: go test -tags integration ./internal/jobs -run TestPostgresRiverAPIFlow -count=1 -v
+        working-directory: services/backend
