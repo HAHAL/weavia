@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, ImagePlus, ListChecks, Sparkles } from 'lucide-react';
+import { ArrowRight, Camera, ImagePlus, ListChecks, Sparkles } from 'lucide-react';
 import { Badge, Button, PageHeader } from '@weavia/ui';
 import { Link, useParams } from 'react-router-dom';
 import type { GeneratedResult, LocalAsset, LocalProject, LocalTaskRecord } from '@weavia/shared';
@@ -37,13 +37,21 @@ export function ProjectWorkspacePage() {
       setError(String(value));
     }
   }
+  async function setReference(assetId: string) {
+    try {
+      await localData.setAssetRole(assetId, 'REFERENCE_IMAGE');
+      load();
+    } catch (value) {
+      setError(String(value));
+    }
+  }
   if (!project) return <p className="local-loading">{error ?? '正在打开项目…'}</p>;
   return (
     <div className="workspace-page">
       <PageHeader
         eyebrow="PROJECT WORKSPACE"
         title={project.name}
-        description={project.description || '本地素材、Mock AI 任务与生成结果。'}
+        description={project.description || '本地素材、AI 任务与生成结果。'}
         action={
           <Button onClick={() => void importAsset()}>
             <ImagePlus size={15} />
@@ -56,6 +64,10 @@ export function ProjectWorkspacePage() {
         <Link to={`/projects/${projectId}/create/model`}>
           <Sparkles />
           AI 模特 <ArrowRight />
+        </Link>
+        <Link to={`/projects/${projectId}/create/commercial`}>
+          <Camera />
+          AI 商拍 <ArrowRight />
         </Link>
         <Link to={`/projects/${projectId}/tasks`}>
           <ListChecks />
@@ -70,11 +82,24 @@ export function ProjectWorkspacePage() {
         {assets.length ? (
           <div className="asset-grid">
             {assets.map((asset) => (
-              <article key={asset.id}>
+              <article
+                key={asset.id}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  if (asset.source === 'imported') void setReference(asset.id);
+                }}
+                title={asset.source === 'imported' ? '右键设为商品参考图' : undefined}
+              >
                 <div className="asset-preview">
                   <AssetThumbnail asset={asset} />
                 </div>
-                <strong>{asset.source === 'generated' ? '生成结果' : '导入素材'}</strong>
+                <strong>
+                  {asset.role === 'REFERENCE_IMAGE'
+                    ? '⭐ 商品参考图'
+                    : asset.source === 'generated'
+                      ? '生成结果'
+                      : '导入素材'}
+                </strong>
                 <small>
                   {asset.width} × {asset.height} · {(asset.fileSize / 1024).toFixed(1)} KB
                 </small>
@@ -94,21 +119,24 @@ export function ProjectWorkspacePage() {
           <div className="asset-grid">
             {results.map((result) => {
               const asset = assets.find((item) => item.id === result.assetId);
+              const task = tasks.find((item) => item.id === result.taskId);
+              const workflowName = task?.workflow === 'ai_commercial' ? 'AI 商拍' : 'AI 模特';
+              const modeName = task?.input.logicalModel ? 'WEAVIA 专业' : 'Local Mock';
               return (
                 <article key={result.id}>
                   <div className="asset-preview">
-                    {asset && <AssetThumbnail asset={asset} alt="AI 模特生成结果" />}
+                    {asset && <AssetThumbnail asset={asset} alt={`${workflowName}生成结果`} />}
                   </div>
-                  <strong>AI 模特 Mock Result</strong>
+                  <strong>
+                    {workflowName} · {modeName}
+                  </strong>
                   <small>{result.relativePath}</small>
                 </article>
               );
             })}
           </div>
         ) : (
-          <p className="workspace-empty">
-            运行 AI 模特 Mock Workflow 后，真实文件会保存在 generated/images/。
-          </p>
+          <p className="workspace-empty">运行 AI 工作流后，生成文件会保存在 generated/images/。</p>
         )}
       </section>
     </div>

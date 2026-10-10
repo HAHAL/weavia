@@ -12,6 +12,7 @@ use std::{
 };
 
 const MAX_ASSET_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_REMOTE_RESULT_BYTES: usize = 20 * 1024 * 1024;
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, local_root_path TEXT NOT NULL UNIQUE, thumbnail_asset_id TEXT, project_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_opened_at TEXT NOT NULL);
 CREATE TABLE assets (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, type TEXT NOT NULL, source TEXT NOT NULL, file_name TEXT NOT NULL, relative_path TEXT NOT NULL, mime_type TEXT NOT NULL, file_size INTEGER NOT NULL, width INTEGER, height INTEGER, duration REAL, hash TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(project_id, hash, source));
@@ -19,6 +20,14 @@ CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES pro
 CREATE TABLE results (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, type TEXT NOT NULL, relative_path TEXT NOT NULL, mime_type TEXT NOT NULL, file_size INTEGER NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX assets_project_idx ON assets(project_id); CREATE INDEX tasks_project_idx ON tasks(project_id); CREATE INDEX results_project_idx ON results(project_id);
+"#;
+const MIGRATION_2: &str = r#"
+ALTER TABLE assets ADD COLUMN asset_role TEXT NOT NULL DEFAULT 'INPUT';
+ALTER TABLE assets ADD COLUMN upload_status TEXT NOT NULL DEFAULT 'LOCAL';
+ALTER TABLE assets ADD COLUMN remote_reference_id TEXT;
+ALTER TABLE assets ADD COLUMN expires_at TEXT;
+UPDATE assets SET asset_role='GENERATED_RESULT' WHERE source='generated';
+CREATE INDEX assets_project_role_idx ON assets(project_id, asset_role);
 "#;
 
 #[derive(Clone)]
@@ -61,6 +70,10 @@ pub struct LocalAsset {
     pub height: Option<i64>,
     pub duration: Option<f64>,
     pub hash: String,
+    pub role: String,
+    pub upload_status: String,
+    pub remote_reference_id: Option<String>,
+    pub expires_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -158,7 +171,18 @@ impl LocalData {
                 .map_err(err)?;
             transaction.commit().map_err(err)?;
         }
-        Ok(1)
+        if version < 2 {
+            let transaction = connection.transaction().map_err(err)?;
+            transaction.execute_batch(MIGRATION_2).map_err(err)?;
+            transaction
+                .execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES(2, ?1)",
+                    [now()],
+                )
+                .map_err(err)?;
+            transaction.commit().map_err(err)?;
+        }
+        Ok(2)
     }
 
     pub fn info(&self) -> Result<LocalDataInfo, String> {
@@ -324,13 +348,52 @@ impl LocalData {
         project_id: &str,
         hash: &str,
     ) -> Result<Option<LocalAsset>, String> {
-        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,created_at,updated_at FROM assets WHERE project_id=?1 AND hash=?2 AND source='imported'", params![project_id,hash], asset_from_row).optional().map_err(err)
+        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,asset_role,upload_status,remote_reference_id,expires_at,created_at,updated_at FROM assets WHERE project_id=?1 AND hash=?2 AND source='imported'", params![project_id,hash], asset_from_row).optional().map_err(err)
     }
     pub fn get_asset(&self, id: &str) -> Result<Option<LocalAsset>, String> {
-        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,created_at,updated_at FROM assets WHERE id=?1", [id], asset_from_row).optional().map_err(err)
+        self.connection()?.query_row("SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,asset_role,upload_status,remote_reference_id,expires_at,created_at,updated_at FROM assets WHERE id=?1", [id], asset_from_row).optional().map_err(err)
     }
     pub fn list_assets(&self, project_id: &str) -> Result<Vec<LocalAsset>, String> {
-        query_assets(&self.connection()?, "SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,created_at,updated_at FROM assets WHERE project_id=?1 ORDER BY created_at DESC", project_id)
+        query_assets(&self.connection()?, "SELECT id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,duration,hash,asset_role,upload_status,remote_reference_id,expires_at,created_at,updated_at FROM assets WHERE project_id=?1 ORDER BY created_at DESC", project_id)
+    }
+
+    pub fn set_asset_role(&self, asset_id: &str, role: &str) -> Result<LocalAsset, String> {
+        if !matches!(role, "INPUT" | "REFERENCE_IMAGE" | "GENERATED_RESULT") {
+            return Err("素材角色无效".into());
+        }
+        let asset = self
+            .get_asset(asset_id)?
+            .ok_or_else(|| "素材不存在".to_string())?;
+        if asset.source == "generated" && role != "GENERATED_RESULT" {
+            return Err("生成结果不能设为参考图".into());
+        }
+        self.connection()?
+            .execute(
+                "UPDATE assets SET asset_role=?2,updated_at=?3 WHERE id=?1",
+                params![asset_id, role, now()],
+            )
+            .map_err(err)?;
+        self.get_asset(asset_id)?.ok_or_else(|| "素材不存在".into())
+    }
+
+    pub fn update_asset_upload(
+        &self,
+        asset_id: &str,
+        status: &str,
+        remote_reference_id: Option<&str>,
+        expires_at: Option<&str>,
+    ) -> Result<LocalAsset, String> {
+        if !matches!(
+            status,
+            "LOCAL" | "PENDING" | "UPLOADED" | "FAILED" | "EXPIRED"
+        ) {
+            return Err("上传状态无效".into());
+        }
+        self.connection()?.execute(
+            "UPDATE assets SET upload_status=?2,remote_reference_id=?3,expires_at=?4,updated_at=?5 WHERE id=?1",
+            params![asset_id, status, remote_reference_id, expires_at, now()],
+        ).map_err(err)?;
+        self.get_asset(asset_id)?.ok_or_else(|| "素材不存在".into())
     }
 
     pub fn create_task(&self, task: &LocalTask) -> Result<(), String> {
@@ -368,7 +431,7 @@ impl LocalData {
 
     pub fn recover_tasks(&self) -> Result<usize, String> {
         let timestamp = now();
-        self.connection()?.execute("UPDATE tasks SET status='failed',error_json='{\"code\":\"INTERRUPTED\",\"message\":\"应用退出导致任务中断，可重新创建任务\"}',completed_at=?1,updated_at=?1 WHERE status IN ('pending','queued','uploading','running','downloading','reconciling')", [timestamp]).map_err(err)
+        self.connection()?.execute("UPDATE tasks SET status='failed',error_json='{\"code\":\"INTERRUPTED\",\"message\":\"应用退出导致任务中断，可重新创建任务\"}',completed_at=?1,updated_at=?1 WHERE status IN ('pending','queued','uploading','running','downloading')", [timestamp]).map_err(err)
     }
 
     pub fn execute_mock_task(
@@ -456,6 +519,103 @@ impl LocalData {
             .ok_or_else(|| "生成结果保存失败".into())
     }
 
+    pub fn save_remote_generated_result(
+        &self,
+        task_id: &str,
+        remote_source: &str,
+        expected_mime_type: &str,
+    ) -> Result<GeneratedResult, String> {
+        let mut task = self
+            .get_task(task_id)?
+            .ok_or_else(|| "任务不存在".to_string())?;
+        if task.status == "success" {
+            if let Some(result_id) = task
+                .output
+                .as_ref()
+                .and_then(|value| value.get("resultId"))
+                .and_then(|value| value.as_str())
+            {
+                return self
+                    .get_result(result_id)?
+                    .ok_or_else(|| "本地结果记录不存在".into());
+            }
+        }
+        task.status = "downloading".into();
+        task.progress = 85;
+        task.updated_at = now();
+        self.update_task(&task)?;
+        let (bytes, mime, extension, width, height) =
+            match download_result(remote_source, expected_mime_type) {
+                Ok(value) => value,
+                Err(error) => {
+                    task.status = "reconciling".into();
+                    task.error = Some(serde_json::json!({
+                        "code":"RESULT_DOWNLOAD_FAILED",
+                        "message":error,
+                        "retryable":true
+                    }));
+                    task.updated_at = now();
+                    self.update_task(&task)?;
+                    return Err(error);
+                }
+            };
+        let project = self
+            .get_project(&task.project_id)?
+            .ok_or_else(|| "项目不存在".to_string())?;
+        let generated_asset_id = uuid::Uuid::new_v4().to_string();
+        let file_name = format!("ai-{generated_asset_id}.{extension}");
+        let relative = format!("generated/images/{file_name}");
+        let final_path = PathBuf::from(&project.local_root_path).join(&relative);
+        let temporary = final_path.with_extension(format!("{extension}.downloading"));
+        fs::write(&temporary, &bytes).map_err(err)?;
+        let timestamp = now();
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        let result_id = uuid::Uuid::new_v4().to_string();
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(err)?;
+        register_generated(
+            &transaction,
+            &generated_asset_id,
+            &task.project_id,
+            &file_name,
+            &relative,
+            &mime,
+            bytes.len() as i64,
+            Some(width as i64),
+            Some(height as i64),
+            &hash,
+            &timestamp,
+            &result_id,
+            &task.id,
+        )
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&temporary);
+        })?;
+        fs::rename(&temporary, &final_path).map_err(|error| {
+            let _ = fs::remove_file(&temporary);
+            err(error)
+        })?;
+        let output = serde_json::json!({
+            "resultId":result_id,
+            "assetId":generated_asset_id,
+            "relativePath":relative,
+            "deliveryStatus":"local_saved"
+        });
+        if let Err(error) = transaction.execute(
+            "UPDATE tasks SET status='success',progress=100,output_json=?2,error_json=NULL,completed_at=?3,updated_at=?3 WHERE id=?1",
+            params![task.id, output.to_string(), timestamp],
+        ) {
+            let _ = fs::remove_file(&final_path);
+            return Err(err(error));
+        }
+        if let Err(error) = transaction.commit() {
+            let _ = fs::remove_file(&final_path);
+            return Err(err(error));
+        }
+        self.get_result(&result_id)?
+            .ok_or_else(|| "生成结果保存失败".into())
+    }
+
     pub fn get_result(&self, id: &str) -> Result<Option<GeneratedResult>, String> {
         self.connection()?.query_row("SELECT id,project_id,task_id,asset_id,type,relative_path,mime_type,file_size,created_at FROM results WHERE id=?1",[id],result_from_row).optional().map_err(err)
     }
@@ -468,6 +628,29 @@ impl LocalData {
             .collect::<Result<Vec<_>, _>>()
             .map_err(err)?;
         Ok(results)
+    }
+    pub fn delete_result(&self, result_id: &str) -> Result<(), String> {
+        let result = self
+            .get_result(result_id)?
+            .ok_or_else(|| "生成结果不存在".to_string())?;
+        let project = self
+            .get_project(&result.project_id)?
+            .ok_or_else(|| "项目不存在".to_string())?;
+        let path = PathBuf::from(project.local_root_path).join(&result.relative_path);
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(err)?;
+        transaction
+            .execute("DELETE FROM results WHERE id=?1", [result_id])
+            .map_err(err)?;
+        transaction
+            .execute("DELETE FROM assets WHERE id=?1", [&result.asset_id])
+            .map_err(err)?;
+        transaction.commit().map_err(err)?;
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(err(error)),
+        }
     }
     pub fn asset_data_url(&self, asset_id: &str) -> Result<String, String> {
         let asset = self
@@ -503,6 +686,77 @@ impl LocalData {
     }
 }
 
+fn download_result(
+    source: &str,
+    expected_mime_type: &str,
+) -> Result<(Vec<u8>, String, &'static str, u32, u32), String> {
+    if !matches!(
+        expected_mime_type,
+        "image/png" | "image/jpeg" | "image/webp"
+    ) {
+        return Err("结果 MIME 不受支持".into());
+    }
+    let (bytes, response_mime) = if source.starts_with("data:") {
+        let (metadata, payload) = source
+            .split_once(',')
+            .ok_or_else(|| "结果 Data URL 无效".to_string())?;
+        if metadata != format!("data:{expected_mime_type};base64") {
+            return Err("结果 Data URL MIME 不匹配".into());
+        }
+        (
+            STANDARD.decode(payload).map_err(|_| "结果 Base64 无效")?,
+            expected_mime_type.to_owned(),
+        )
+    } else {
+        let url = reqwest::Url::parse(source).map_err(|_| "结果 URL 无效")?;
+        if url.scheme() != "https" {
+            return Err("结果只允许 HTTPS URL".into());
+        }
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(120))
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()
+            .map_err(err)?;
+        let response = client
+            .get(url)
+            .send()
+            .map_err(err)?
+            .error_for_status()
+            .map_err(err)?;
+        if response.content_length().unwrap_or(0) > MAX_REMOTE_RESULT_BYTES as u64 {
+            return Err("结果文件超过 20 MB".into());
+        }
+        let mime = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .unwrap_or("")
+            .to_owned();
+        let bytes = response.bytes().map_err(err)?.to_vec();
+        (bytes, mime)
+    };
+    if bytes.len() > MAX_REMOTE_RESULT_BYTES {
+        return Err("结果文件超过 20 MB".into());
+    }
+    if response_mime != expected_mime_type {
+        return Err("结果响应 MIME 不匹配".into());
+    }
+    let format = image::guess_format(&bytes).map_err(|_| "结果不是有效图片")?;
+    let (actual_mime, extension) = match format {
+        image::ImageFormat::Png => ("image/png", "png"),
+        image::ImageFormat::Jpeg => ("image/jpeg", "jpg"),
+        image::ImageFormat::WebP => ("image/webp", "webp"),
+        _ => return Err("结果图片格式不受支持".into()),
+    };
+    if actual_mime != expected_mime_type {
+        return Err("结果内容与 MIME 不匹配".into());
+    }
+    let decoded = image::load_from_memory(&bytes).map_err(|_| "结果图片损坏")?;
+    let (width, height) = decoded.dimensions();
+    Ok((bytes, actual_mime.into(), extension, width, height))
+}
+
 fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalProject> {
     Ok(LocalProject {
         id: row.get(0)?,
@@ -534,8 +788,12 @@ fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalAsset> {
         height: row.get(9)?,
         duration: row.get(10)?,
         hash: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        role: row.get(12)?,
+        upload_status: row.get(13)?,
+        remote_reference_id: row.get(14)?,
+        expires_at: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
 fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalTask> {
@@ -600,7 +858,7 @@ fn register_generated(
     result_id: &str,
     task_id: &str,
 ) -> Result<(), String> {
-    transaction.execute("INSERT INTO assets(id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,hash,created_at,updated_at) VALUES(?1,?2,'image','generated',?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![asset_id,project_id,file_name,relative,mime,size,width,height,hash,timestamp]).map_err(err)?;
+    transaction.execute("INSERT INTO assets(id,project_id,type,source,file_name,relative_path,mime_type,file_size,width,height,hash,asset_role,created_at,updated_at) VALUES(?1,?2,'image','generated',?3,?4,?5,?6,?7,?8,?9,'GENERATED_RESULT',?10,?10)",params![asset_id,project_id,file_name,relative,mime,size,width,height,hash,timestamp]).map_err(err)?;
     transaction.execute("INSERT INTO results(id,project_id,task_id,asset_id,type,relative_path,mime_type,file_size,created_at) VALUES(?1,?2,?3,?4,'image',?5,?6,?7,?8)",params![result_id,project_id,task_id,asset_id,relative,mime,size,timestamp]).map_err(err)?;
     Ok(())
 }
@@ -640,7 +898,7 @@ mod tests {
     #[test]
     fn migration_and_restart() {
         let (dir, data) = setup();
-        assert_eq!(data.info().unwrap().schema_version, 1);
+        assert_eq!(data.info().unwrap().schema_version, 2);
         drop(data);
         assert_eq!(
             LocalData::new(dir.path().join("WEAVIA"))
@@ -684,6 +942,7 @@ mod tests {
         let path = dir.path().join("input.png");
         fixture(&path);
         let first = data.import_asset(&project.id, &path).unwrap();
+        assert_eq!(first.role, "INPUT");
         assert_eq!((first.width, first.height), (Some(3), Some(2)));
         assert_eq!(
             first.hash,
@@ -698,6 +957,49 @@ mod tests {
         fs::write(&bad, b"invalid").unwrap();
         assert!(data.import_asset(&project.id, &bad).is_err());
         assert_eq!(data.list_assets(&project.id).unwrap().len(), 1);
+    }
+    #[test]
+    fn reference_asset_role_and_upload_metadata_persist() {
+        let (dir, data) = setup();
+        let project = data.create_project("Reference", "").unwrap();
+        let path = dir.path().join("reference.png");
+        fixture(&path);
+        let asset = data.import_asset(&project.id, &path).unwrap();
+        let asset = data.set_asset_role(&asset.id, "REFERENCE_IMAGE").unwrap();
+        assert_eq!(asset.role, "REFERENCE_IMAGE");
+        let asset = data
+            .update_asset_upload(
+                &asset.id,
+                "UPLOADED",
+                Some("references/user/asset.png"),
+                Some("2026-10-07T00:10:00Z"),
+            )
+            .unwrap();
+        assert_eq!(asset.upload_status, "UPLOADED");
+        let mut reference_task = task(&project.id, "queued", Some(&asset.id));
+        reference_task.workflow = "ai_commercial".into();
+        reference_task.input = serde_json::json!({
+            "workflow":"product_image_generation",
+            "referenceAssets":[asset.id.clone()],
+            "logicalModel":"weavia-image-pro"
+        });
+        data.create_task(&reference_task).unwrap();
+        drop(data);
+        let restarted = LocalData::new(dir.path().join("WEAVIA")).unwrap();
+        let persisted = restarted.get_asset(&asset.id).unwrap().unwrap();
+        assert_eq!(persisted.role, "REFERENCE_IMAGE");
+        assert_eq!(
+            persisted.remote_reference_id.as_deref(),
+            Some("references/user/asset.png")
+        );
+        assert_eq!(
+            restarted
+                .get_task(&reference_task.id)
+                .unwrap()
+                .unwrap()
+                .input["referenceAssets"][0],
+            asset.id
+        );
     }
     #[test]
     fn task_result_persistence_and_recovery() {
@@ -851,6 +1153,84 @@ mod tests {
         assert!(data.execute_mock_task(&task.id, &foreign_asset.id).is_err());
         assert!(data.list_results(&first.id).unwrap().is_empty());
         assert_eq!(data.get_task(&task.id).unwrap().unwrap().status, "queued");
+    }
+
+    #[test]
+    fn remote_result_is_validated_registered_and_idempotent() {
+        let (dir, data) = setup();
+        let project = data.create_project("Cloud Result", "").unwrap();
+        let source = dir.path().join("cloud.png");
+        fixture(&source);
+        let task = task(&project.id, "downloading", None);
+        data.create_task(&task).unwrap();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(fs::read(&source).unwrap())
+        );
+
+        let first = data
+            .save_remote_generated_result(&task.id, &data_url, "image/png")
+            .unwrap();
+        let second = data
+            .save_remote_generated_result(&task.id, &data_url, "image/png")
+            .unwrap();
+        assert_eq!(first.id, second.id);
+        assert!(Path::new(&project.local_root_path)
+            .join(&first.relative_path)
+            .is_file());
+        assert_eq!(
+            data.list_assets(&project.id).unwrap()[0].source,
+            "generated"
+        );
+        assert_eq!(data.get_task(&task.id).unwrap().unwrap().status, "success");
+        data.delete_result(&first.id).unwrap();
+        assert!(data.list_results(&project.id).unwrap().is_empty());
+        assert!(data.list_assets(&project.id).unwrap().is_empty());
+        assert!(!Path::new(&project.local_root_path)
+            .join(&first.relative_path)
+            .exists());
+    }
+
+    #[test]
+    fn invalid_remote_result_stays_reconciling_without_dirty_records() {
+        let (dir, data) = setup();
+        let project = data.create_project("Delivery Recovery", "").unwrap();
+        let source = dir.path().join("wrong.png");
+        fixture(&source);
+        let task = task(&project.id, "downloading", None);
+        data.create_task(&task).unwrap();
+        let wrong_mime = format!(
+            "data:image/jpeg;base64,{}",
+            STANDARD.encode(fs::read(&source).unwrap())
+        );
+
+        assert!(data
+            .save_remote_generated_result(&task.id, &wrong_mime, "image/jpeg")
+            .is_err());
+        assert!(data.list_results(&project.id).unwrap().is_empty());
+        assert!(data.list_assets(&project.id).unwrap().is_empty());
+        drop(data);
+        let restarted = LocalData::new(dir.path().join("WEAVIA")).unwrap();
+        assert_eq!(
+            restarted.get_task(&task.id).unwrap().unwrap().status,
+            "reconciling"
+        );
+    }
+
+    #[test]
+    fn remote_result_rejects_unsafe_protocol_and_oversized_payload() {
+        assert!(
+            download_result("http://example.com/result.png", "image/png")
+                .unwrap_err()
+                .contains("HTTPS")
+        );
+        let oversized = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(vec![0_u8; MAX_REMOTE_RESULT_BYTES + 1])
+        );
+        assert!(download_result(&oversized, "image/png")
+            .unwrap_err()
+            .contains("20 MB"));
     }
 
     #[test]

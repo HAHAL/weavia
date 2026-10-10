@@ -1,0 +1,140 @@
+openapi: 3.1.0
+info:
+  title: WEAVIA Cloud API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api
+paths:
+  /health:
+    get:
+      operationId: health
+      responses: { '200': { description: Healthy } }
+  /auth/desktop/session:
+    post:
+      operationId: createDesktopSession
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/desktop/authorize:
+    post:
+      operationId: authorizeDesktopSession
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/desktop/exchange:
+    post:
+      operationId: exchangeDesktopCode
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/refresh:
+    post:
+      operationId: refreshSession
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/logout:
+    post:
+      operationId: logout
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/me:
+    get:
+      operationId: currentUser
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/catalog:
+    get:
+      operationId: modelCatalog
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/estimate:
+    post:
+      operationId: estimateCredits
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/templates:
+    get:
+      operationId: promptTemplates
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/tasks:
+    get:
+      operationId: listGenerationTasks
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      operationId: createGenerationTask
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/tasks/{taskId}:
+    get:
+      operationId: getGenerationResult
+      security: [{ bearerAuth: [] }]
+      parameters:
+        [{ name: taskId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets/presign:
+    post:
+      operationId: presignReferenceAsset
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets/upload/{token}:
+    put:
+      operationId: uploadReferenceAsset
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '204': { description: Uploaded }
+  /admin/ai/catalog:
+    get:
+      operationId: adminCatalog
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/providers:
+    get:
+      operationId: adminProviders
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/providers/{providerId}:
+    patch:
+      operationId: updateProvider
+      parameters:
+        [{ name: providerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/models:
+    get:
+      operationId: adminModels
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/routing:
+    get:
+      operationId: adminRouting
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/usage:
+    get:
+      operationId: adminUsage
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  requestBodies:
+    JSON:
+      required: true
+      content: { application/json: { schema: { type: object, additionalProperties: true } } }
+  responses:
+    Success:
+      description: Compatible WEAVIA response envelope
+      content: { application/json: { schema: { $ref: '#/components/schemas/Success' } } }
+  schemas:
+    Success:
+      type: object
+      required: [data]
+      properties: { data: {} }
+    Error:
+      type: object
+      required: [code, message]
+      properties: { code: { type: string }, message: { type: string } }

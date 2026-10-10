@@ -19,7 +19,7 @@ const primary = [
   [Camera, 'AI 商拍', '/create/commercial'],
   [Archive, '任务中心', '/tasks'],
   [Image, '素材库', '/assets'],
-  [History, '历史记录', '/history'],
+  [History, '作品中心', '/results'],
 ] as const;
 export function AppShell() {
   const location = useLocation();

@@ -4,6 +4,14 @@ import type {
   DesktopLoginSession,
   DeviceInfo,
   User,
+  CloudAITaskResult,
+  ImageGenerationRequest,
+  AssetPresignRequest,
+  AssetPresignResult,
+  AIEstimateRequest,
+  AIEstimateResult,
+  AIModelCatalogResult,
+  PromptTemplate,
 } from '@weavia/shared';
 
 export interface ApiErrorBody {
@@ -97,6 +105,43 @@ export class AuthApiClient implements AuthApi {
   }
   async me() {
     return (await this.client.request<User>('auth/me')).data;
+  }
+}
+
+export class AIApiClient {
+  constructor(private readonly client: ApiClient) {}
+  async generateImage(request: ImageGenerationRequest) {
+    return (
+      await this.client.request<CloudAITaskResult>('ai/tasks', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+    ).data;
+  }
+  async getTask(taskId: string) {
+    return (await this.client.request<CloudAITaskResult>(`ai/tasks/${taskId}`)).data;
+  }
+  async presignAsset(request: AssetPresignRequest) {
+    return (
+      await this.client.request<AssetPresignResult>('assets/presign', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+    ).data;
+  }
+  async getModelCatalog() {
+    return (await this.client.request<AIModelCatalogResult>('ai/catalog')).data;
+  }
+  async estimate(request: AIEstimateRequest) {
+    return (
+      await this.client.request<AIEstimateResult>('ai/estimate', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+    ).data;
+  }
+  async getPromptTemplates() {
+    return (await this.client.request<PromptTemplate[]>('ai/templates')).data;
   }
 }
 

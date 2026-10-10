@@ -5,13 +5,13 @@ import type { LocalTaskRecord } from '@weavia/shared';
 import { localData } from '../services/local-data';
 
 const labels: Record<string, string> = {
-  pending: '等待处理',
-  queued: '队列中',
-  uploading: '准备素材',
-  running: '生成中',
-  downloading: '保存结果',
-  reconciling: '校验结果',
-  success: '已完成',
+  pending: '等待中',
+  queued: '等待中',
+  uploading: '处理中',
+  running: '处理中',
+  downloading: '处理中',
+  reconciling: '处理中',
+  success: '生成完成',
   failed: '失败',
   cancelled: '已取消',
 };
@@ -35,8 +35,8 @@ export function TasksPage() {
         <div className="task-row local-task-head">
           <span>任务</span>
           <span>状态</span>
-          <span>进度</span>
-          <span>创建时间</span>
+          <span>模型 / Credits</span>
+          <span>进度 / 耗时</span>
           <span>结果 / 错误</span>
         </div>
         {tasks.length ? (
@@ -56,8 +56,13 @@ export function TasksPage() {
               >
                 {labels[task.status]}
               </Badge>
-              <span>{task.progress}%</span>
-              <span>{new Date(task.createdAt).toLocaleString('zh-CN')}</span>
+              <span>
+                {String(task.input.model ?? task.input.logicalModel ?? 'Local Mock')} ·{' '}
+                {String(task.input.credits ?? 0)} Credits
+              </span>
+              <span>
+                {task.progress}% · {elapsedSeconds(task)}s
+              </span>
               <small>{task.error?.message ?? (task.output ? '已保存本地结果' : '—')}</small>
             </div>
           ))
@@ -69,4 +74,9 @@ export function TasksPage() {
       </div>
     </>
   );
+}
+
+function elapsedSeconds(task: LocalTaskRecord) {
+  const end = task.completedAt ?? task.updatedAt;
+  return Math.max(0, Math.round((Date.parse(end) - Date.parse(task.createdAt)) / 1000));
 }

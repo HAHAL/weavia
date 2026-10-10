@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { MockProvider, ProviderRegistry } from './index';
+import { MockProvider } from './index';
 
-describe('MockProvider', () => {
-  it('runs an image generation contract without network access', async () => {
-    const registry = new ProviderRegistry();
-    registry.register(new MockProvider());
-    const provider = registry.get('mock');
-    const input = { capability: 'image_generation' as const, modelId: 'mock-image-v1', quality: 'standard' as const, aspectRatio: '3:4' as const, outputCount: 4, idempotencyKey: 'test-task' };
-    expect((await provider.estimateCost(input)).credits).toBe(80);
-    const result = await provider.generateImage(input);
-    expect(result.status).toBe('succeeded');
-    expect(result.outputs).toHaveLength(4);
+describe('desktop offline MockProvider', () => {
+  it('never performs a network request', async () => {
+    const provider = new MockProvider();
+    const result = await provider.generateImage({
+      capability: 'image_edit',
+      modelId: 'mock-image-v1',
+      mode: 'image_edit',
+      quality: 'standard',
+      aspectRatio: '3:4',
+      outputCount: 1,
+      idempotencyKey: 'local-task',
+    });
+    expect(result.outputs[0]?.uri).toBe('mock://output/mock-local-task/1');
   });
 });

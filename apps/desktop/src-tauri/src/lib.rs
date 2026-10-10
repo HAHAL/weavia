@@ -168,6 +168,31 @@ fn list_local_assets(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+fn set_local_asset_role(
+    data: tauri::State<'_, LocalData>,
+    asset_id: String,
+    role: String,
+) -> Result<LocalAsset, String> {
+    data.set_asset_role(&asset_id, &role)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn update_local_asset_upload(
+    data: tauri::State<'_, LocalData>,
+    asset_id: String,
+    status: String,
+    remote_reference_id: Option<String>,
+    expires_at: Option<String>,
+) -> Result<LocalAsset, String> {
+    data.update_asset_upload(
+        &asset_id,
+        &status,
+        remote_reference_id.as_deref(),
+        expires_at.as_deref(),
+    )
+}
+
+#[tauri::command(rename_all = "camelCase")]
 fn get_local_asset_data_url(
     data: tauri::State<'_, LocalData>,
     asset_id: String,
@@ -211,11 +236,31 @@ fn execute_local_mock_task(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+async fn save_remote_generated_result(
+    data: tauri::State<'_, LocalData>,
+    task_id: String,
+    remote_source: String,
+    expected_mime_type: String,
+) -> Result<GeneratedResult, String> {
+    let local_data = data.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        local_data.save_remote_generated_result(&task_id, &remote_source, &expected_mime_type)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command(rename_all = "camelCase")]
 fn list_local_results(
     data: tauri::State<'_, LocalData>,
     project_id: String,
 ) -> Result<Vec<GeneratedResult>, String> {
     data.list_results(&project_id)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn delete_local_result(data: tauri::State<'_, LocalData>, result_id: String) -> Result<(), String> {
+    data.delete_result(&result_id)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -261,13 +306,17 @@ pub fn run() {
             delete_local_project,
             import_local_asset,
             list_local_assets,
+            set_local_asset_role,
+            update_local_asset_upload,
             get_local_asset_data_url,
             create_local_task,
             update_local_task,
             get_local_task,
             list_local_tasks,
             execute_local_mock_task,
+            save_remote_generated_result,
             list_local_results,
+            delete_local_result,
             set_local_setting,
             get_local_setting
         ])

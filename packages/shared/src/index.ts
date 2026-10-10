@@ -154,6 +154,8 @@ export interface LocalProject {
 
 export type LocalAssetType = 'image' | 'video';
 export type LocalAssetSource = 'imported' | 'generated';
+export type AssetRole = 'INPUT' | 'REFERENCE_IMAGE' | 'GENERATED_RESULT';
+export type AssetUploadStatus = 'LOCAL' | 'PENDING' | 'UPLOADED' | 'FAILED' | 'EXPIRED';
 export interface LocalAsset {
   id: EntityId;
   projectId: EntityId;
@@ -167,6 +169,10 @@ export interface LocalAsset {
   height?: number;
   duration?: number;
   hash: string;
+  role: AssetRole;
+  uploadStatus: AssetUploadStatus;
+  remoteReferenceId?: string;
+  expiresAt?: IsoDateTime;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
 }
@@ -207,8 +213,117 @@ export interface GeneratedResult {
   createdAt: IsoDateTime;
 }
 
+export type LogicalModelKey = 'weavia-image-pro' | (string & {});
+export type AIWorkflow = 'ai_model' | 'ai_commercial' | 'product_image_generation';
+export type ImageGenerationMode = 'text_to_image' | 'image_to_image' | 'image_edit';
+export type GenerationQualityLevel = 'fast' | 'standard' | 'professional' | 'flagship';
+export interface AIModelCatalogItem {
+  id: string;
+  name: string;
+  capabilities: Array<'image_generation' | 'reference_image' | 'image_edit' | 'high_quality_image'>;
+  creditsCost: number;
+  enabled: boolean;
+  qualityLevel: GenerationQualityLevel;
+  advanced: boolean;
+}
+export interface AIModelCatalogResult {
+  models: AIModelCatalogItem[];
+  professionalAccess: boolean;
+}
+export interface AIEstimateRequest {
+  workflow: AIWorkflow;
+  model: string;
+  imageCount: number;
+  advancedSelection?: boolean;
+}
+export interface AIEstimateResult {
+  credits: number;
+  estimatedTime: number;
+  model: string;
+}
+export interface PromptTemplate {
+  id: string;
+  category: string;
+  scene: string;
+  style: string;
+  prompt: string;
+  negativePrompt: string;
+  supportedModels: string[];
+}
+export interface ReferenceAssetInput {
+  assetId: EntityId;
+  objectKey: string;
+  mimeType: string;
+}
+export interface AssetPresignRequest {
+  assetId: EntityId;
+  contentType: string;
+  size: number;
+}
+export interface AssetPresignResult {
+  uploadUrl: string;
+  objectKey: string;
+  expiresAt: IsoDateTime;
+  requestId: string;
+}
+export type CloudAITaskStatus =
+  'queued' | 'running' | 'generated' | 'download_pending' | 'local_saved' | 'failed';
+export type AIGatewayErrorCode =
+  | 'AUTH_FAILED'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'PROVIDER_RATE_LIMITED'
+  | 'INVALID_REQUEST'
+  | 'UNSUPPORTED_MODEL'
+  | 'CONTENT_REJECTED'
+  | 'TIMEOUT'
+  | 'NETWORK_ERROR'
+  | 'GENERATION_FAILED'
+  | 'RESULT_EXPIRED'
+  | 'CONCURRENCY_LIMIT'
+  | 'CANCELLED'
+  | 'REAL_AI_DISABLED'
+  | 'UNSUPPORTED_CAPABILITY'
+  | 'UNKNOWN';
+export interface ImageGenerationRequest {
+  idempotencyKey: string;
+  projectId: EntityId;
+  inputAssetId: EntityId;
+  workflow: AIWorkflow;
+  logicalModel: LogicalModelKey;
+  model?: string;
+  prompt: string;
+  mode: ImageGenerationMode;
+  referenceAssets?: ReferenceAssetInput[];
+  size: '1024x1024';
+  quality: Quality;
+  numberOfImages: 1;
+  outputFormat: 'png';
+  metadata?: Record<string, string | number | boolean>;
+}
+export interface CloudAIOutput {
+  temporaryUrl?: string;
+  base64Data?: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
+}
+export interface CloudAITaskResult {
+  id: EntityId;
+  userId: EntityId;
+  idempotencyKey: string;
+  workflow: AIWorkflow;
+  logicalModel: LogicalModelKey;
+  status: CloudAITaskStatus;
+  outputs: CloudAIOutput[];
+  providerRequestId?: string;
+  error?: { code: AIGatewayErrorCode; message: string };
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+}
+
 export type AICapability =
   | 'image_generation'
+  | 'image_to_image'
   | 'image_edit'
   | 'image_to_video'
   | 'text_to_video'

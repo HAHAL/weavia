@@ -58,6 +58,24 @@ export const localData = {
     if (!isTauri()) return [];
     return invoke<LocalAsset[]>('list_local_assets', { projectId });
   },
+  async setAssetRole(assetId: string, role: LocalAsset['role']) {
+    requireDesktop();
+    return invoke<LocalAsset>('set_local_asset_role', { assetId, role });
+  },
+  async updateAssetUpload(
+    assetId: string,
+    status: LocalAsset['uploadStatus'],
+    remoteReferenceId?: string,
+    expiresAt?: string,
+  ) {
+    requireDesktop();
+    return invoke<LocalAsset>('update_local_asset_upload', {
+      assetId,
+      status,
+      remoteReferenceId: remoteReferenceId ?? null,
+      expiresAt: expiresAt ?? null,
+    });
+  },
   async assetDataUrl(assetId: string) {
     requireDesktop();
     return invoke<string>('get_local_asset_data_url', { assetId });
@@ -69,6 +87,10 @@ export const localData = {
   async listResults(projectId: string) {
     if (!isTauri()) return [];
     return invoke<GeneratedResult[]>('list_local_results', { projectId });
+  },
+  async deleteResult(resultId: string) {
+    requireDesktop();
+    await invoke('delete_local_result', { resultId });
   },
   async setSetting(key: string, value: unknown) {
     requireDesktop();
@@ -156,8 +178,11 @@ export async function runMockModelWorkflow(projectId: string, asset: LocalAsset)
   await invoke('create_local_task', { task });
   await provider.generateImage({
     capability: 'image_edit',
+    mode: 'image_edit',
     modelId: 'mock-image-v1',
-    imageUris: [asset.relativePath],
+    referenceImages: [
+      { type: 'url', value: `mock-local://${asset.relativePath}`, mimeType: asset.mimeType },
+    ],
     quality: 'standard',
     aspectRatio: '3:4',
     outputCount: 1,
