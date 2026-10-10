@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, dev, refactor/go-backend-migration]
+    branches: [main, dev, refactor/go-backend-migration, phase/commercial-v1]
 
 jobs:
   quality:
@@ -84,9 +84,13 @@ jobs:
           SELECT 1 / (COUNT(*) = 1)::int FROM products WHERE code = 'ci-product';
           SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payments';
           SELECT 1 / (COUNT(*) >= 1)::int FROM information_schema.tables WHERE table_schema = 'river' OR table_name LIKE 'river_%';
+          SELECT 1 / (COUNT(*) = 4)::int FROM plans WHERE code IN ('free','pro','studio','agency');
+          SELECT 1 / (COUNT(*) = 12)::int FROM entitlements e JOIN plans p ON p.id=e.plan_id WHERE p.code IN ('free','pro','studio','agency');
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='credit_reservations';
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.columns WHERE table_name='tasks' AND column_name='credit_reservation_id';
           SQL
           pnpm db:migrate
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT 1 / (COUNT(*) = 1)::int FROM products WHERE code = 'ci-product'"
-      - name: Go API, PostgreSQL, River and mock provider integration
-        run: go test -tags integration ./internal/jobs -run TestPostgresRiverAPIFlow -count=1 -v
+      - name: Commercial E2E — Go API, PostgreSQL, River, Credits and Assets
+        run: go test -tags integration ./internal/jobs -run TestCommercialPostgresRiverE2E -count=1 -v
         working-directory: services/backend

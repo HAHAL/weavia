@@ -39,6 +39,9 @@ func (r *TaskRepository) Create(ctx context.Context, task generation.Task) (gene
 	if err != nil {
 		return generation.Task{}, err
 	}
+	if row.ID != task.ID {
+		return decodeRow(row.ID, row.UserID, row.Status, row.IdempotencyKey, row.Input, row.Output, row.Error, row.CreatedAt, row.UpdatedAt)
+	}
 	_, err = r.pool.Exec(ctx, `UPDATE tasks SET status='reserved',workspace_id=nullif($2,'')::uuid,product_id=nullif($3,'')::uuid,sku_id=nullif($4,'')::uuid,credit_reservation_id=nullif($5,'')::uuid,provider=$6,model=$7,cost=$8,reserved_credits=$8 WHERE id=$1`, row.ID, task.WorkspaceID, task.ProductID, task.SKUID, task.CreditReservationID, task.Provider, task.Model, task.Cost)
 	if err != nil {
 		return generation.Task{}, err
