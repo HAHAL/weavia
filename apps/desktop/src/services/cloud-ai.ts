@@ -169,7 +169,7 @@ export async function runCloudImageWorkflow(
 async function waitForCloudTask(initial: CloudAITaskResult) {
   let task = initial;
   const deadline = Date.now() + 3 * 60 * 1000;
-  while (task.status === 'queued' || task.status === 'running') {
+  while (task.status === 'pending' || task.status === 'reserved' || task.status === 'running') {
     if (Date.now() >= deadline) throw new Error('AI 任务等待超时，可在任务中心继续查看');
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     task = await aiApi.getTask(task.id);

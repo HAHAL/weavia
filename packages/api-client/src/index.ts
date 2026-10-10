@@ -64,6 +64,8 @@ export class ApiClient {
 }
 
 export interface AuthApi {
+  register?(email: string, password: string, name: string, deviceInfo?: Partial<DeviceInfo>): Promise<AuthSessionResult>;
+  login?(email: string, password: string, deviceInfo?: Partial<DeviceInfo>): Promise<AuthSessionResult>;
   createDesktopSession(redirectUri: string): Promise<DesktopLoginSession>;
   exchange(code: string, state: string, deviceInfo: DeviceInfo): Promise<AuthSessionResult>;
   refresh(refreshToken: string): Promise<AuthSessionResult>;
@@ -73,6 +75,12 @@ export interface AuthApi {
 
 export class AuthApiClient implements AuthApi {
   constructor(private readonly client: ApiClient) {}
+  async register(email: string, password: string, name: string, deviceInfo: Partial<DeviceInfo> = {}) {
+    return (await this.client.request<AuthSessionResult>('auth/register', { method: 'POST', body: JSON.stringify({ email, password, name, deviceInfo }) })).data;
+  }
+  async login(email: string, password: string, deviceInfo: Partial<DeviceInfo> = {}) {
+    return (await this.client.request<AuthSessionResult>('auth/login', { method: 'POST', body: JSON.stringify({ email, password, deviceInfo }) })).data;
+  }
   async createDesktopSession(redirectUri: string) {
     return (
       await this.client.request<DesktopLoginSession>('auth/desktop/session', {

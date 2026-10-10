@@ -9,7 +9,7 @@ export interface User {
   status: 'active' | 'disabled' | 'pending_verification';
 }
 
-export type PlanCode = 'free' | 'pro' | 'studio' | 'business';
+export type PlanCode = 'free' | 'pro' | 'studio' | 'agency';
 export type MembershipStatus = 'trialing' | 'active' | 'past_due' | 'cancelled' | 'expired';
 
 export interface Plan {
@@ -41,7 +41,7 @@ export interface CreditsWallet {
 }
 
 export type CreditsTransactionType =
-  'grant' | 'freeze' | 'consume' | 'unfreeze' | 'expire' | 'adjust';
+  'topup' | 'reserve' | 'consume' | 'release' | 'refund' | 'admin_adjustment';
 
 export interface CreditsTransaction {
   id: EntityId;
@@ -267,7 +267,7 @@ export interface AssetPresignResult {
   requestId: string;
 }
 export type CloudAITaskStatus =
-  'queued' | 'running' | 'generated' | 'download_pending' | 'local_saved' | 'failed';
+  'pending' | 'reserved' | 'running' | 'success' | 'cancelled' | 'download_pending' | 'local_saved' | 'failed';
 export type AIGatewayErrorCode =
   | 'AUTH_FAILED'
   | 'PROVIDER_UNAVAILABLE'
@@ -286,7 +286,10 @@ export type AIGatewayErrorCode =
   | 'UNKNOWN';
 export interface ImageGenerationRequest {
   idempotencyKey: string;
+  workspaceId?: EntityId;
   projectId: EntityId;
+  productId?: EntityId;
+  skuId?: EntityId;
   inputAssetId: EntityId;
   workflow: AIWorkflow;
   logicalModel: LogicalModelKey;
@@ -313,6 +316,13 @@ export interface CloudAITaskResult {
   idempotencyKey: string;
   workflow: AIWorkflow;
   logicalModel: LogicalModelKey;
+  workspaceId?: EntityId;
+  productId?: EntityId;
+  skuId?: EntityId;
+  creditReservationId?: EntityId;
+  provider?: string;
+  model?: string;
+  cost?: number;
   status: CloudAITaskStatus;
   outputs: CloudAIOutput[];
   providerRequestId?: string;
