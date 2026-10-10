@@ -81,6 +81,7 @@ type Credits interface {
 	Reserve(context.Context, string, string, string, int64) (string, error)
 	Confirm(context.Context, string) error
 	Release(context.Context, string) error
+	RecordGeneratedAsset(context.Context, string, string, string, string, string, string, string, string) error
 }
 
 type Service struct {
@@ -198,6 +199,15 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if err = s.repository.Update(ctx, task); err != nil {
 		return err
+	}
+	if s.credits != nil {
+		for _, output := range task.Outputs {
+			source := output.TemporaryURL
+			if source == "" {
+				source = output.Base64Data
+			}
+			_ = s.credits.RecordGeneratedAsset(ctx, task.UserID, task.WorkspaceID, task.Request.ProjectID, task.ProductID, task.SKUID, task.ID, source, output.MimeType)
+		}
 	}
 	if s.credits != nil && task.CreditReservationID != "" {
 		return s.credits.Confirm(ctx, task.CreditReservationID)

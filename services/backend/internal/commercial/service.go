@@ -326,6 +326,17 @@ func (s *Service) CreateAsset(ctx context.Context, userID string, a Asset) (Asse
 	err := s.pool.QueryRow(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) SELECT $1,$2,$3,$4,$5,$6,'INPUT','PENDING',$7,$8,$9,$10,'{}' WHERE EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id=$4 AND user_id=$2) RETURNING id::text,workspace_id::text,project_id,product_id::text,sku_id::text,task_id::text,kind,mime_type,size,object_key,created_at`, a.ID, userID, a.ProjectID, a.WorkspaceID, a.ProductID, a.SKUID, a.MimeType, a.Size, a.ObjectKey, a.Kind).Scan(&a.ID, &a.WorkspaceID, &a.ProjectID, &a.ProductID, &a.SKUID, &a.TaskID, &a.Kind, &a.MimeType, &a.Size, &a.ObjectKey, &a.CreatedAt)
 	return a, err
 }
+func (s *Service) MarkAssetUploaded(ctx context.Context, objectKey string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE assets SET upload_status='UPLOADED',updated_at=now() WHERE object_key=$1`, objectKey)
+	return err
+}
+func (s *Service) RecordGeneratedAsset(ctx context.Context, userID, workspaceID, projectID, productID, skuID, taskID, source, mimeType string) error {
+	if skuID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,task_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,'GENERATED_RESULT','UPLOADED',$8,0,$9,'generated',jsonb_build_object('source',$9))`, newID(), userID, projectID, workspaceID, productID, skuID, taskID, mimeType, source)
+	return err
+}
 func (s *Service) ListSKUAssets(ctx context.Context, userID, skuID string) ([]Asset, error) {
 	rows, err := s.pool.Query(ctx, `SELECT a.id::text,a.workspace_id::text,a.project_id,a.product_id::text,a.sku_id::text,a.task_id::text,a.kind,a.mime_type,a.size,a.object_key,a.created_at FROM assets a JOIN workspace_members m ON m.workspace_id=a.workspace_id WHERE a.sku_id=$1 AND m.user_id=$2 ORDER BY a.created_at DESC`, skuID, userID)
 	if err != nil {

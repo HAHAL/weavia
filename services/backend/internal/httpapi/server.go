@@ -386,6 +386,10 @@ func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 		AssetID     string `json:"assetId"`
 		ContentType string `json:"contentType"`
 		Size        int64  `json:"size"`
+		WorkspaceID string `json:"workspaceId"`
+		ProjectID   string `json:"projectId"`
+		ProductID   string `json:"productId"`
+		SKUID       string `json:"skuId"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeError(w, err)
@@ -402,6 +406,13 @@ func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	objectKey := fmt.Sprintf("references/%s/%s.%s", currentUser(r).ID, body.AssetID, ext)
+	if body.SKUID != "" && s.Commercial != nil {
+		_, err := s.Commercial.CreateAsset(r.Context(), currentUser(r).ID, commercial.Asset{ID: body.AssetID, WorkspaceID: body.WorkspaceID, ProjectID: body.ProjectID, ProductID: body.ProductID, SKUID: body.SKUID, Kind: "source", MimeType: body.ContentType, Size: body.Size, ObjectKey: &objectKey})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	token := s.Assets.Token(objectKey)
 	scheme := "http"
 	if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded != "" {
@@ -420,9 +431,13 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "上传内容无效", Status: 413})
 		return
 	}
-	if _, err = s.Assets.Put(chi.URLParam(r, "token"), body); err != nil {
+	objectKey, err := s.Assets.Put(chi.URLParam(r, "token"), body)
+	if err != nil {
 		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "上传令牌无效", Status: 400})
 		return
+	}
+	if s.Commercial != nil {
+		_ = s.Commercial.MarkAssetUploaded(r.Context(), objectKey)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

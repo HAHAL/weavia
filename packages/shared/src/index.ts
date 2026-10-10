@@ -259,6 +259,10 @@ export interface AssetPresignRequest {
   assetId: EntityId;
   contentType: string;
   size: number;
+  workspaceId?: EntityId;
+  projectId?: EntityId;
+  productId?: EntityId;
+  skuId?: EntityId;
 }
 export interface AssetPresignResult {
   uploadUrl: string;
