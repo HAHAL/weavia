@@ -21,7 +21,11 @@ func NewTaskRepository(pool *pgxpool.Pool) *TaskRepository {
 	return &TaskRepository{queries: db.New(pool), pool: pool}
 }
 func (r *TaskRepository) EnsureDemoUser(ctx context.Context) error {
-	return r.queries.EnsureDemoUser(ctx)
+	if err := r.queries.EnsureDemoUser(ctx); err != nil {
+		return err
+	}
+	_, err := r.pool.Exec(ctx, `INSERT INTO subscriptions(user_id,plan_id,status,current_period_start) SELECT '00000000-0000-4000-8000-000000000001',id,'active',now() FROM plans WHERE code='free' AND NOT EXISTS(SELECT 1 FROM subscriptions WHERE user_id='00000000-0000-4000-8000-000000000001' AND status IN('active','trialing')); INSERT INTO credit_accounts(user_id,available_balance) VALUES('00000000-0000-4000-8000-000000000001',50) ON CONFLICT(user_id,currency) DO NOTHING`)
+	return err
 }
 
 func (r *TaskRepository) Create(ctx context.Context, task generation.Task) (generation.Task, error) {

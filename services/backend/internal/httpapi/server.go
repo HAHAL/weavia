@@ -154,7 +154,13 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	data, err := s.Auth.Authorize(r.Context(), body.LoginSessionID, "")
+	userID := ""
+	if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
+		if user, authErr := s.Auth.Me(r.Context(), strings.TrimPrefix(header, "Bearer ")); authErr == nil {
+			userID = user.ID
+		}
+	}
+	data, err := s.Auth.Authorize(r.Context(), body.LoginSessionID, userID)
 	respond(w, data, err)
 }
 func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
