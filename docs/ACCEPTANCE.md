@@ -19,6 +19,23 @@ Local checks passed: `go test ./...`, `go vet ./...`, `pnpm test`, `pnpm typeche
 
 PostgreSQL execution is pending CI because this workstation has neither Docker nor a PostgreSQL client. The migration is additive and retains the legacy membership/wallet tables for compatibility while introducing the Commercial V1 subscription and append-only ledger tables.
 
+## Commercial V1 Phase 1.5 executable acceptance
+
+The `postgres-integration` CI job is now the release gate. It applies every Drizzle migration including journaled `0005_commercial_v1.sql`, reruns migrations for idempotency, applies River migrations, and executes `TestCommercialPostgresRiverE2E`.
+
+The E2E test verifies:
+
+1. Free, Pro, Studio, and Agency plans and their normalized entitlements exist.
+2. A new user can register and log in through the real PostgreSQL Auth service.
+3. Workspace, Project, Product, SKU, and uploaded source Asset foreign-key relationships persist.
+4. Task creation changes the newly granted account from 50/0 to 40/10 available/reserved Credits.
+5. River executes the persisted job through a non-billable mock provider.
+6. Successful completion confirms the reservation, leaves the account at 40/0, and records one reserve plus one consume transaction.
+7. A generated-result Asset is linked to the user, workspace, product, SKU, and task.
+8. Duplicate task submission returns the original task without resetting terminal state.
+
+Current result: the integration test compiles, and the non-PostgreSQL suites pass. The database execution result is pending because this workstation lacks Docker/PostgreSQL and could not reach `github.com:443` to push commit `ef21b94`. Payment/Subscription remains gated until CI reports green.
+
 ## Accepted locally
 
 - Git branch and commit were verified before changes; the development branch was safely pushed with Git HTTP/1.1.

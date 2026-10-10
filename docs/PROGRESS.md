@@ -13,6 +13,17 @@
 - Verified: Go tests/vet, pnpm tests/typecheck/lint/build, and Rust tests/check pass locally.
 - Environment limitation: an executable PostgreSQL migration run could not be performed locally because Docker/PostgreSQL clients are not installed; the additive migration is ready for the existing PostgreSQL CI job.
 
+## Commercial V1 Phase 1.5 Acceptance (2026-10-10)
+
+- Done: registered `0005_commercial_v1` in the Drizzle migration journal and added `phase/commercial-v1` to CI branch triggers.
+- Done: CI now asserts four default plans, twelve normalized entitlement rows, Credits reservation tables, commercial task columns, and repeatable migrations.
+- Done: PostgreSQL/River integration coverage now performs register → login → workspace → project → product → SKU → source upload → generation reservation → River execution → Credits confirmation → generated Asset linkage.
+- Done: integration assertions cover the initial 50 Credits grant, 10 Credits reservation, final available/reserved balances of 40/0, exactly one reserve and consume ledger row, source Asset upload state, generated Asset/task linkage, and required task foreign keys.
+- Fixed: an idempotent task conflict no longer resets an existing terminal task to `reserved`.
+- Local verification: integration-tag build passes and skips cleanly without `DATABASE_URL`; normal Go tests and vet pass.
+- CI status: not executed from this workstation. Docker/PostgreSQL are unavailable locally and outbound access to `github.com:443` failed while pushing `ef21b94`; the branch remains ahead of origin.
+- Gate: do not start Payment/Subscription until the `postgres-integration` job is green on the pushed branch.
+
 - Done: Chi API/Worker module, pgx + sqlc task persistence, River queue/migrations, OpenAPI, Docker Compose.
 - Done: additive PostgreSQL migration for future Products and Payments; existing tables/data are untouched.
 - Done: auth, model catalog/quality mapping, credits estimate, prompt templates, generation task/result, assets, AntDigital and DashScope adapters, admin AI APIs.
