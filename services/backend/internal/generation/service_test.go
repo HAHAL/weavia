@@ -3,10 +3,13 @@ package generation
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/weavia/weavia/services/backend/internal/assets"
 	"github.com/weavia/weavia/services/backend/internal/auth"
 	"github.com/weavia/weavia/services/backend/internal/providers"
 )
@@ -15,7 +18,7 @@ type fakeProvider struct{ calls atomic.Int32 }
 
 func (p *fakeProvider) Generate(_ context.Context, input providers.ImageRequest) (providers.ImageResult, error) {
 	p.calls.Add(1)
-	return providers.ImageResult{ProviderRequestID: "provider-1", Outputs: []providers.Output{{URI: "https://example.test/result.png", MediaType: "image/png"}}}, nil
+	return providers.ImageResult{ProviderRequestID: "provider-1", Outputs: []providers.Output{{URI: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", MediaType: "image/png"}}}, nil
 }
 
 type failingProvider struct{ calls atomic.Int32 }
@@ -47,7 +50,7 @@ func (c *fakeCredits) Confirm(context.Context, string) error {
 	return nil
 }
 func (c *fakeCredits) Release(context.Context, string) error { c.release++; return nil }
-func (c *fakeCredits) RecordGeneratedAsset(context.Context, string, string, string, string, string, string, string, string) error {
+func (c *fakeCredits) RecordGeneratedAsset(context.Context, string, string, string, string, string, string, string, string, int64) error {
 	c.assets++
 	return nil
 }
@@ -59,7 +62,7 @@ func TestCommercialSuccessFailureAndRetry(t *testing.T) {
 	ctx := context.Background()
 	good := &fakeProvider{}
 	credits := &fakeCredits{}
-	service := NewService(true, good, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(credits)
+	service := NewService(true, good, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(credits).WithStorage(assets.New(t.TempDir(), "test-secret"))
 	task, err := service.Create(ctx, auth.DemoUser, paidRequest("commercial-good"))
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +105,7 @@ func TestReconciliationRetryDoesNotCallProviderAgain(t *testing.T) {
 	ctx := context.Background()
 	provider := &fakeProvider{}
 	credits := &fakeCredits{failConfirmOnce: true}
-	service := NewService(true, provider, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(credits)
+	service := NewService(true, provider, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(credits).WithStorage(assets.New(t.TempDir(), "test-secret"))
 	task, err := service.Create(ctx, auth.DemoUser, paidRequest("reconcile-once"))
 	if err != nil {
 		t.Fatal(err)
@@ -119,9 +122,37 @@ func TestReconciliationRetryDoesNotCallProviderAgain(t *testing.T) {
 	}
 }
 
+func TestMissingGeneratedFileBlocksCreditsConfirmation(t *testing.T) {
+	ctx := context.Background()
+	provider := &fakeProvider{}
+	credits := &fakeCredits{failConfirmOnce: true}
+	storage := assets.New(t.TempDir(), "test-secret")
+	service := NewService(true, provider, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(credits).WithStorage(storage)
+	task, err := service.Create(ctx, auth.DemoUser, paidRequest("missing-file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Execute(ctx, task.ID); err == nil {
+		t.Fatal("expected settlement failure")
+	}
+	current, _, err := service.Get(ctx, auth.DemoUser.ID, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(storage.Root, filepath.FromSlash(current.Outputs[0].ObjectKey))); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Execute(ctx, task.ID); err == nil {
+		t.Fatal("missing file must block confirmation")
+	}
+	if credits.confirm != 1 || provider.calls.Load() != 1 {
+		t.Fatalf("confirmation/provider repeated: %+v %d", credits, provider.calls.Load())
+	}
+}
+
 func TestTaskIdempotencyAndPaidRequestGuard(t *testing.T) {
 	provider := &fakeProvider{}
-	service := NewService(true, provider, nil, nil, nil)
+	service := NewService(true, provider, nil, nil, nil).WithStorage(assets.New(t.TempDir(), "test-secret"))
 	request := Request{IdempotencyKey: "idem-1", ProjectID: "project", InputAssetID: "asset", Workflow: "product_image_generation", LogicalModel: "weavia-image-pro", Model: "qwen-image-2.0", Prompt: "product photo", Mode: "text_to_image", Size: "1024x1024", NumberOfImages: 1, OutputFormat: "png"}
 	first, err := service.Create(context.Background(), auth.DemoUser, request)
 	if err != nil {

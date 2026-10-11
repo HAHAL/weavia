@@ -50,7 +50,7 @@ jobs:
         env:
           POSTGRES_USER: weavia
           POSTGRES_PASSWORD: weavia
-          POSTGRES_DB: weavia
+          POSTGRES_DB: weavia_acceptance
         ports:
           - 5432:5432
         options: >-
@@ -59,8 +59,9 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
-      DATABASE_URL: postgresql://weavia:weavia@localhost:5432/weavia?sslmode=disable
+      DATABASE_URL: postgresql://weavia:weavia@localhost:5432/weavia_acceptance?sslmode=disable
       ENABLE_REAL_AI: 'false'
+      WEAVIA_INTEGRATION_TEST_DB: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

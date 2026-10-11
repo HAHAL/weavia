@@ -74,7 +74,7 @@ func (s *Service) SetProviderEnabled(ctx context.Context, actorID, providerID st
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'provider.update','provider',$2,nullif($3,'')::inet,jsonb_build_object('enabled',$4),jsonb_build_object('enabled',$5))`, actorID, providerID, ip, previous, enabled)
+	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'provider.update','provider',$2,nullif($3::text,'')::inet,jsonb_build_object('enabled',$4::boolean),jsonb_build_object('enabled',$5::boolean))`, actorID, providerID, ip, previous, enabled)
 	if err != nil {
 		return err
 	}

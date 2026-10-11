@@ -506,6 +506,10 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "任务不存在", Status: 404})
 		return
 	}
+	if err = s.Generation.Deliver(&task); err != nil {
+		writeError(w, err)
+		return
+	}
 	ok(w, task)
 }
 func (s *Server) presign(w http.ResponseWriter, r *http.Request) {

@@ -37,7 +37,7 @@ func main() {
 	}
 	storage := assets.New(cfg.AssetStorageDir, cfg.StorageSigningKey)
 	provider := &providers.Router{AntDigital: &providers.AntDigital{BaseURL: cfg.AntDigitalBaseURL, APIKey: cfg.AntDigitalAPIKey, Timeout: cfg.ProviderTimeout}, DashScope: &providers.DashScope{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Model: cfg.DashScopeModel, Timeout: cfg.ProviderTimeout}}
-	service := generation.NewService(cfg.RealAIEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool)).WithCredits(commercial.New(pool)).WithRegistry(generation.PostgresRegistry{Pool: pool})
+	service := generation.NewService(cfg.RealAIEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool)).WithCredits(commercial.New(pool)).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage)
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Queues: map[string]river.QueueConfig{jobs.Queue: {MaxWorkers: 4}}, Workers: jobs.Workers(service)})
 	if err != nil {
 		fatal(err)

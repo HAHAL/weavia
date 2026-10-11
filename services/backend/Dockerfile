@@ -7,6 +7,9 @@ RUN CGO_ENABLED=0 go build -o /out/api ./cmd/api \
  && CGO_ENABLED=0 go build -o /out/worker ./cmd/worker \
  && CGO_ENABLED=0 go build -o /out/migrate ./cmd/migrate
 
+FROM build AS integration-test
+CMD ["go", "test", "-tags", "integration", "./internal/jobs", "-run", "^TestCommercialPostgresRiverE2E$", "-count=1", "-v"]
+
 FROM alpine:3.23
 RUN addgroup -S weavia && adduser -S weavia -G weavia
 WORKDIR /app

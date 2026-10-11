@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ type commercialMockProvider struct{ calls atomic.Int32 }
 
 func (p *commercialMockProvider) Generate(_ context.Context, input providers.ImageRequest) (providers.ImageResult, error) {
 	p.calls.Add(1)
-	return providers.ImageResult{ProviderRequestID: "commercial-mock-1", Outputs: []providers.Output{{URI: "https://mock.invalid/generated-product.png", MediaType: "image/png"}}}, nil
+	return providers.ImageResult{ProviderRequestID: "commercial-mock-1", Outputs: []providers.Output{{URI: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", MediaType: "image/png"}}}, nil
 }
 
 // TestCommercialPostgresRiverE2E proves the complete Commercial V1 acceptance
@@ -40,9 +41,19 @@ func TestCommercialPostgresRiverE2E(t *testing.T) {
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is required for PostgreSQL integration")
 	}
+	if os.Getenv("WEAVIA_INTEGRATION_TEST_DB") != "1" {
+		t.Fatal("WEAVIA_INTEGRATION_TEST_DB=1 is required; use an isolated disposable database")
+	}
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(config.ConnConfig.Database, "_acceptance") && !strings.HasSuffix(config.ConnConfig.Database, "_test") {
+		t.Fatal("integration tests require a database named *_acceptance or *_test")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +63,6 @@ func TestCommercialPostgresRiverE2E(t *testing.T) {
 	}
 
 	assertMigration(t, ctx, pool)
-	_, _ = pool.Exec(ctx, "DELETE FROM river_job WHERE kind = 'generation'")
 
 	commercialService := commercial.New(pool)
 	repository := store.NewTaskRepository(pool)
@@ -62,7 +72,7 @@ func TestCommercialPostgresRiverE2E(t *testing.T) {
 	}
 	mock := &commercialMockProvider{}
 	storage := assets.New(t.TempDir(), "integration-secret")
-	generationService := generation.NewService(true, mock, Enqueuer{Client: enqueueClient}, func(key string) (string, bool) { return storage.DataURL(key, "image/png") }, repository).WithCredits(commercialService)
+	generationService := generation.NewService(true, mock, Enqueuer{Client: enqueueClient}, func(key string) (string, bool) { return storage.DataURL(key, "image/png") }, repository).WithCredits(commercialService).WithStorage(storage)
 	server := &httpapi.Server{Auth: auth.NewService(pool, "http://localhost:3000"), Commercial: commercialService, Generation: generationService, Assets: storage}
 	handler := server.Router()
 
@@ -131,6 +141,18 @@ func TestCommercialPostgresRiverE2E(t *testing.T) {
 		t.Fatalf("provider calls=%d, want 1", mock.calls.Load())
 	}
 	assertSettledAndLinked(t, ctx, pool, userID, taskID, workspaceID, productID, skuID)
+	var objectKey string
+	var size int64
+	var metadata []byte
+	if err := pool.QueryRow(ctx, `SELECT object_key,size,metadata FROM assets WHERE task_id=$1 AND kind='generated'`, taskID).Scan(&objectKey, &size, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(objectKey, "generated/"+taskID+"/") || size <= 0 || bytes.Contains(metadata, []byte("data:")) || bytes.Contains(metadata, []byte("https://")) {
+		t.Fatalf("generated asset not private: key=%q size=%d metadata=%s", objectKey, size, metadata)
+	}
+	if err := storage.VerifyGenerated(objectKey, nil); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertMigration(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

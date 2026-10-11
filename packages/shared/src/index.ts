@@ -310,6 +310,8 @@ export interface ImageGenerationRequest {
 export interface CloudAIOutput {
   temporaryUrl?: string;
   base64Data?: string;
+  objectKey?: string;
+  size?: number;
   mimeType: string;
   width?: number;
   height?: number;

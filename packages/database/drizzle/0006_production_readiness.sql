@@ -1,4 +1,5 @@
 ALTER TABLE auth_requests ALTER COLUMN user_id DROP NOT NULL;--> statement-breakpoint
+ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'reserved';--> statement-breakpoint
 
 CREATE TABLE roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,4 +68,4 @@ FROM (VALUES
  ('qwen-image-edit-plus','Qwen Image Edit Plus','dashscope',50,'["image_to_image","image_edit"]','{"maxReferences":3}')
 ) AS seed(model_name,display_name,provider,credit_cost,capabilities,metadata)
 JOIN ai_providers p ON p.code=seed.provider
-ON CONFLICT(provider_id,external_id) DO UPDATE SET model_name=excluded.model_name,provider=excluded.provider,credit_cost=excluded.credit_cost,metadata=excluded.metadata,enabled=excluded.enabled;--> statement-breakpoint
+ON CONFLICT(provider_id,external_id) DO UPDATE SET model_name=excluded.model_name,provider=excluded.provider,credit_cost=excluded.credit_cost,metadata=excluded.metadata;--> statement-breakpoint

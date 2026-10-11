@@ -30,6 +30,7 @@ export const transactionType = pgEnum('credits_transaction_type', [
 ]);
 export const taskStatus = pgEnum('task_status', [
   'pending',
+  'reserved',
   'queued',
   'uploading',
   'running',

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/weavia/weavia/services/backend/internal/auth"
@@ -40,7 +41,14 @@ type ReferenceAsset struct {
 type Output struct {
 	TemporaryURL string `json:"temporaryUrl,omitempty"`
 	Base64Data   string `json:"base64Data,omitempty"`
+	ObjectKey    string `json:"objectKey,omitempty"`
+	Size         int64  `json:"size,omitempty"`
 	MimeType     string `json:"mimeType"`
+}
+type GeneratedStorage interface {
+	SaveGenerated(context.Context, string, int, string, string) (string, int64, error)
+	VerifyGenerated(string, []byte) error
+	GeneratedDataURL(string, string) (string, error)
 }
 type Task struct {
 	ID                  string     `json:"id"`
@@ -83,7 +91,7 @@ type Credits interface {
 	Reserve(context.Context, string, string, string, int64) (string, error)
 	Confirm(context.Context, string) error
 	Release(context.Context, string) error
-	RecordGeneratedAsset(context.Context, string, string, string, string, string, string, string, string) error
+	RecordGeneratedAsset(context.Context, string, string, string, string, string, string, string, string, int64) error
 }
 
 type Service struct {
@@ -94,6 +102,7 @@ type Service struct {
 	refs        func(string) (string, bool)
 	credits     Credits
 	registry    Registry
+	storage     GeneratedStorage
 }
 
 func NewService(realEnabled bool, provider Generator, enqueue Enqueuer, refs func(string) (string, bool), repository Repository) *Service {
@@ -102,8 +111,9 @@ func NewService(realEnabled bool, provider Generator, enqueue Enqueuer, refs fun
 	}
 	return &Service{repository: repository, realEnabled: realEnabled, provider: provider, enqueue: enqueue, refs: refs, registry: DefaultTestRegistry()}
 }
-func (s *Service) WithCredits(credits Credits) *Service    { s.credits = credits; return s }
-func (s *Service) WithRegistry(registry Registry) *Service { s.registry = registry; return s }
+func (s *Service) WithCredits(credits Credits) *Service          { s.credits = credits; return s }
+func (s *Service) WithRegistry(registry Registry) *Service       { s.registry = registry; return s }
+func (s *Service) WithStorage(storage GeneratedStorage) *Service { s.storage = storage; return s }
 
 func (s *Service) Estimate(ctx context.Context, user auth.User, modelName string, count int, advanced bool) (map[string]any, error) {
 	if count != 1 {
@@ -234,15 +244,18 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if len(result.Outputs) == 0 {
 		return s.fail(ctx, &task, "GENERATION_FAILED", "Provider 未返回图片")
 	}
+	if s.storage == nil {
+		return fmt.Errorf("generated asset storage is required")
+	}
 	task.Status = "reconciling"
 	task.ProviderRequestID = result.ProviderRequestID
 	task.Outputs = []Output{}
-	for _, output := range result.Outputs {
-		if len(output.URI) > 5 && output.URI[:5] == "data:" {
-			task.Outputs = append(task.Outputs, Output{Base64Data: output.URI, MimeType: output.MediaType})
-		} else {
-			task.Outputs = append(task.Outputs, Output{TemporaryURL: output.URI, MimeType: output.MediaType})
+	for i, output := range result.Outputs {
+		key, size, saveErr := s.storage.SaveGenerated(ctx, task.ID, i, output.URI, output.MediaType)
+		if saveErr != nil {
+			return saveErr
 		}
+		task.Outputs = append(task.Outputs, Output{ObjectKey: key, Size: size, MimeType: output.MediaType})
 	}
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if err = s.repository.Update(ctx, task); err != nil {
@@ -251,13 +264,41 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	return s.finalize(ctx, &task)
 }
 func (s *Service) finalize(ctx context.Context, task *Task) error {
+	if len(task.Outputs) == 0 || s.storage == nil {
+		return fmt.Errorf("generated asset is unavailable")
+	}
+	// Reconcile tasks saved by the previous worker version, which stored a
+	// provider URL or data URI in task.output before asset persistence existed.
+	for i := range task.Outputs {
+		if task.Outputs[i].ObjectKey != "" {
+			continue
+		}
+		source := task.Outputs[i].TemporaryURL
+		if source == "" {
+			source = task.Outputs[i].Base64Data
+		}
+		key, size, err := s.storage.SaveGenerated(ctx, task.ID, i, source, task.Outputs[i].MimeType)
+		if err != nil {
+			return err
+		}
+		task.Outputs[i].ObjectKey, task.Outputs[i].Size = key, size
+		task.Outputs[i].TemporaryURL, task.Outputs[i].Base64Data = "", ""
+		if err := s.repository.Update(ctx, *task); err != nil {
+			return err
+		}
+	}
 	if s.credits != nil {
 		for _, output := range task.Outputs {
-			source := output.TemporaryURL
-			if source == "" {
-				source = output.Base64Data
+			if err := s.storage.VerifyGenerated(output.ObjectKey, nil); err != nil {
+				return err
 			}
-			if err := s.credits.RecordGeneratedAsset(ctx, task.UserID, task.WorkspaceID, task.Request.ProjectID, task.ProductID, task.SKUID, task.ID, source, output.MimeType); err != nil {
+			if err := s.credits.RecordGeneratedAsset(ctx, task.UserID, task.WorkspaceID, task.Request.ProjectID, task.ProductID, task.SKUID, task.ID, output.ObjectKey, output.MimeType, output.Size); err != nil {
+				return err
+			}
+		}
+	} else {
+		for _, output := range task.Outputs {
+			if err := s.storage.VerifyGenerated(output.ObjectKey, nil); err != nil {
 				return err
 			}
 		}
@@ -270,6 +311,25 @@ func (s *Service) finalize(ctx context.Context, task *Task) error {
 	task.Status = "success"
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return s.repository.Update(ctx, *task)
+}
+func (s *Service) Deliver(task *Task) error {
+	if task.Status != "success" {
+		return nil
+	}
+	for i := range task.Outputs {
+		if task.Outputs[i].ObjectKey == "" {
+			continue
+		} // Legacy tasks retain their original response.
+		if s.storage == nil {
+			return fmt.Errorf("generated asset storage is required")
+		}
+		data, err := s.storage.GeneratedDataURL(task.Outputs[i].ObjectKey, task.Outputs[i].MimeType)
+		if err != nil {
+			return err
+		}
+		task.Outputs[i].Base64Data = data
+	}
+	return nil
 }
 func (s *Service) fail(ctx context.Context, task *Task, code, message string) error {
 	task.Status = "failed"

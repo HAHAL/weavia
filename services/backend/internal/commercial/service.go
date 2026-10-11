@@ -206,7 +206,10 @@ func (s *Service) Reserve(ctx context.Context, userID, referenceID, idempotencyK
 	if err != nil {
 		return "", err
 	}
-	_, _ = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,'credits.reserved','credit_reservation',$2,jsonb_build_object('amount',$3))`, userID, reservationID, amount)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,'credits.reserved','credit_reservation',$2,jsonb_build_object('amount',$3::bigint))`, userID, reservationID, amount)
+	if err != nil {
+		return "", err
+	}
 	return reservationID, tx.Commit(ctx)
 }
 func (s *Service) Confirm(ctx context.Context, reservationID string) error {
@@ -230,6 +233,16 @@ func (s *Service) settle(ctx context.Context, reservationID string, confirm bool
 	if status != "reserved" {
 		return nil
 	}
+	if confirm {
+		var ready bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM assets WHERE task_id=$1 AND user_id=$2 AND kind='generated' AND upload_status='UPLOADED' AND size>0 AND object_key LIKE 'generated/' || $1::text || '/%')`, referenceID, userID).Scan(&ready)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			return fmt.Errorf("generated asset is not durable")
+		}
+	}
 	kind, action, availableDelta, reservedDelta := "consume", "credits.consumed", int64(0), -amount
 	nextStatus, timeColumn := "confirmed", "confirmed_at"
 	if !confirm {
@@ -251,7 +264,10 @@ func (s *Service) settle(ctx context.Context, reservationID string, confirm bool
 	if err != nil {
 		return err
 	}
-	_, _ = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,$2,'credit_reservation',$3,jsonb_build_object('amount',$4))`, userID, action, reservationID, amount)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,$2,'credit_reservation',$3,jsonb_build_object('amount',$4::bigint))`, userID, action, reservationID, amount)
+	if err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int64, reason, idempotencyKey, ip string) (CreditAccount, error) {
@@ -292,12 +308,15 @@ func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int
 	if amount > 0 && actorID == userID {
 		kind = "topup"
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id,metadata) VALUES($1,$2,$3,0,$4,$5,'manual',$6,$7,$8,jsonb_build_object('reason',$9))`, a.ID, kind, amount, a.Available, a.Reserved, userID, idempotencyKey, actorID, reason)
+	_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id,metadata) VALUES($1,$2,$3,0,$4,$5,'manual',$6,$7,$8,jsonb_build_object('reason',$9::text))`, a.ID, kind, amount, a.Available, a.Reserved, userID, idempotencyKey, actorID, reason)
 	if err != nil {
 		return a, err
 	}
-	_, _ = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after,metadata) VALUES($1,'credits.adjusted','credit_account',$2,jsonb_build_object('amount',$3),jsonb_build_object('reason',$4))`, actorID, a.ID, amount, reason)
-	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'credits.adjust','credit_account',$2,nullif($3,'')::inet,jsonb_build_object('available',$4),jsonb_build_object('available',$5,'amount',$6,'reason',$7))`, actorID, a.ID, ip, a.Available-amount, a.Available, amount, reason)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after,metadata) VALUES($1,'credits.adjusted','credit_account',$2,jsonb_build_object('amount',$3::bigint),jsonb_build_object('reason',$4::text))`, actorID, a.ID, amount, reason)
+	if err != nil {
+		return a, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'credits.adjust','credit_account',$2,nullif($3::text,'')::inet,jsonb_build_object('available',$4::bigint),jsonb_build_object('available',$5::bigint,'amount',$6::bigint,'reason',$7::text))`, actorID, a.ID, ip, a.Available-amount, a.Available, amount, reason)
 	if err != nil {
 		return a, err
 	}
@@ -328,7 +347,7 @@ func (s *Service) AdminSetUserStatus(ctx context.Context, actorID, targetID, sta
 			return err
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'user.status','user',$2,nullif($3,'')::inet,jsonb_build_object('status',$4),jsonb_build_object('status',$5))`, actorID, targetID, ip, previous, status)
+	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'user.status','user',$2,nullif($3::text,'')::inet,jsonb_build_object('status',$4::text),jsonb_build_object('status',$5::text))`, actorID, targetID, ip, previous, status)
 	if err != nil {
 		return err
 	}
@@ -354,7 +373,7 @@ func (s *Service) AdminUpdatePlan(ctx context.Context, actorID, planID string, p
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'plan.update','plan',$2,nullif($3,'')::inet,jsonb_build_object('priceMinor',$4,'enabled',$5),jsonb_build_object('priceMinor',$6,'enabled',$7))`, actorID, planID, ip, previousPrice, previousEnabled, priceMinor, enabled)
+	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'plan.update','plan',$2,nullif($3::text,'')::inet,jsonb_build_object('priceMinor',$4::integer,'enabled',$5::boolean),jsonb_build_object('priceMinor',$6::integer,'enabled',$7::boolean))`, actorID, planID, ip, previousPrice, previousEnabled, priceMinor, enabled)
 	if err != nil {
 		return err
 	}
@@ -414,9 +433,9 @@ func (s *Service) MarkAssetUploaded(ctx context.Context, objectKey string) error
 	_, err := s.pool.Exec(ctx, `UPDATE assets SET upload_status='UPLOADED',updated_at=now() WHERE object_key=$1`, objectKey)
 	return err
 }
-func (s *Service) RecordGeneratedAsset(ctx context.Context, userID, workspaceID, projectID, productID, skuID, taskID, source, mimeType string) error {
-	if skuID == "" {
-		return nil
+func (s *Service) RecordGeneratedAsset(ctx context.Context, userID, workspaceID, projectID, productID, skuID, taskID, objectKey, mimeType string, size int64) error {
+	if !strings.HasPrefix(objectKey, "generated/"+taskID+"/") || size <= 0 {
+		return fmt.Errorf("generated asset is not durable")
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -433,7 +452,12 @@ func (s *Service) RecordGeneratedAsset(ctx context.Context, userID, workspaceID,
 		return err
 	}
 	if !exists {
-		_, err = tx.Exec(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,task_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,'GENERATED_RESULT','UPLOADED',$8,0,$9,'generated',jsonb_build_object('source',$9))`, newID(), userID, projectID, workspaceID, productID, skuID, taskID, mimeType, source)
+		_, err = tx.Exec(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,task_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) VALUES($1,$2,$3,nullif($4::text,'')::uuid,nullif($5::text,'')::uuid,nullif($6::text,'')::uuid,$7,'GENERATED_RESULT','UPLOADED',$8,$9,$10,'generated','{}')`, newID(), userID, projectID, workspaceID, productID, skuID, taskID, mimeType, size, objectKey)
+		if err != nil {
+			return err
+		}
+	} else {
+		_, err = tx.Exec(ctx, `UPDATE assets SET object_key=$3,mime_type=$4,size=$5,metadata='{}',upload_status='UPLOADED',updated_at=now() WHERE task_id=$1 AND user_id=$2 AND kind='generated'`, taskID, userID, objectKey, mimeType, size)
 		if err != nil {
 			return err
 		}

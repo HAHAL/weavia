@@ -1,5 +1,7 @@
 # WEAVIA RC1 production deployment
 
+For the Phase 2 release gate, run the [local PostgreSQL/River acceptance and production checklist](PHASE2_ACCEPTANCE.md) and record the evidence before canary traffic.
+
 ## Required runtime separation
 
 Deploy the Go API, River worker, Web, and Admin as separate processes. Use a PostgreSQL 17 database with TLS. API and Worker must see the same durable `ASSET_STORAGE_DIR`; the current implementation is suitable only for a single host with a shared persistent volume. Do not scale either service across hosts until asset storage is moved to an object store.
@@ -53,3 +55,5 @@ Use a reviewed email and execute the SQL through a privileged deployment session
 - Confirm provider keys and model registry rows exist, and the selected provider is enabled in `ai_providers`.
 - Run the paid-provider smoke test with an approved small budget before changing `ENABLE_REAL_AI` to `true`.
 - Monitor task status, credit reservations, failed River jobs, disk capacity, API readiness, and provider failures during canary rollout.
+- Back up and restore-test the shared `ASSET_STORAGE_DIR` alongside PostgreSQL. API and Worker must mount the same durable volume. New generated outputs are copied there before Credits confirmation; a missing or unreadable output leaves its task in `reconciling` for investigation and retry. Check for stranded `reconciling` tasks and reservation balances before and after rollout.
+- Historical completed tasks may still contain expired Provider URLs or data URIs. Inventory `assets.object_key` and `tasks.output` for values outside `generated/` and recover accessible files into the shared volume before retiring old storage; expired links require regeneration or a user-facing recovery process.

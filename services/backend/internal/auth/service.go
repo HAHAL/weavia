@@ -104,7 +104,10 @@ func (s *Service) Register(ctx context.Context, email, password, name string, in
 	if err != nil {
 		return SessionResult{}, err
 	}
-	_, _ = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,'user.registered','user',$1,jsonb_build_object('email',$2))`, user.ID, email)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1::uuid,'user.registered','user',$1::text,jsonb_build_object('email',$2::text))`, user.ID, email)
+	if err != nil {
+		return SessionResult{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return SessionResult{}, err
 	}

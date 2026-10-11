@@ -52,7 +52,7 @@ func main() {
 	storage := assets.New(cfg.AssetStorageDir, cfg.StorageSigningKey)
 	provider := &providers.Router{AntDigital: &providers.AntDigital{BaseURL: cfg.AntDigitalBaseURL, APIKey: cfg.AntDigitalAPIKey, Timeout: cfg.ProviderTimeout}, DashScope: &providers.DashScope{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Model: cfg.DashScopeModel, Timeout: cfg.ProviderTimeout}}
 	commercialService := commercial.New(pool)
-	service := generation.NewService(cfg.RealAIEnabled, provider, jobs.Enqueuer{Client: riverClient}, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, repository).WithCredits(commercialService).WithRegistry(generation.PostgresRegistry{Pool: pool})
+	service := generation.NewService(cfg.RealAIEnabled, provider, jobs.Enqueuer{Client: riverClient}, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, repository).WithCredits(commercialService).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage)
 	api := &httpapi.Server{Auth: auth.NewService(pool, cfg.WebOrigin, cfg.DemoMode), Commercial: commercialService, Generation: service, Assets: storage, AntDigitalConfigured: cfg.AntDigitalAPIKey != "", DashScopeConfigured: cfg.DashScopeAPIKey != "", RealAIEnabled: cfg.RealAIEnabled, AntDigitalBaseURL: cfg.AntDigitalBaseURL, DashScopeBaseURL: cfg.DashScopeBaseURL, Readiness: map[string]func(context.Context) error{
 		"database": pool.Ping,
 		"queue": func(ctx context.Context) error {
