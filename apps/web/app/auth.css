@@ -1,0 +1,19 @@
+.auth-shell { min-height: 100svh; padding: 72px 20px 36px; display: flex; flex-direction: column; align-items: center; background: var(--wv-background); }
+.auth-shell__logo { color: var(--wv-text); }
+.auth-shell__security { display: flex; align-items: center; justify-content: center; gap: 8px; max-width: 440px; margin: 24px 0 0; color: var(--wv-muted); font-size: 11px; line-height: 1.6; text-align: center; }
+.auth-shell__security svg { flex: none; color: var(--wv-accent); }
+.auth-shell .auth-card { width: min(100%, 440px); max-width: none; margin: 46px 0 0; padding: 38px; background: white; border: 1px solid var(--wv-border); border-radius: var(--wv-radius-card); }
+.auth-shell .auth-card .kicker { margin: 0 0 18px; }
+.auth-shell .auth-card h1 { margin: 0 0 32px; color: var(--wv-text); font-family: var(--wv-font-editorial); font-size: clamp(22px, 5vw, 34px); font-weight: 400; letter-spacing: -.04em; line-height: 1.25; white-space: nowrap; }
+.auth-shell .auth-card label { display: grid; gap: 8px; margin: 0 0 20px; color: var(--wv-secondary); font-size: 12px; }
+.auth-shell .auth-card .wv-input { width: 100%; }
+.auth-actions { display: grid; gap: 12px; margin-top: 30px; }
+.auth-shell .auth-actions .wv-button { display: inline-flex; justify-content: center; align-items: center; width: 100%; min-height: 44px; margin: 0; }
+.auth-shell .auth-actions .auth-secondary { background: transparent; color: var(--wv-text); border: 1px solid var(--wv-border); text-decoration: none; font-size: 13px; }
+.auth-shell .auth-actions .auth-secondary:hover { border-color: var(--wv-accent); color: var(--wv-accent); }
+.auth-shell .auth-error { margin: 0; font-size: 12px; }
+@media (max-width: 480px) {
+  .auth-shell { padding-top: 52px; }
+  .auth-shell .auth-card { margin-top: 36px; padding: 28px 24px; }
+  .auth-shell .auth-card h1 { font-size: clamp(20px, 6.5vw, 28px); }
+}

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",
+    "start": "next start --port 3000",
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

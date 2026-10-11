@@ -70,6 +70,42 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  web:
+    build:
+      context: .
+      dockerfile: apps/frontend.Dockerfile
+      args:
+        APP_NAME: '@weavia/web'
+        PORT: 3000
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://47.113.148.107:8080}
+      WEAVIA_BACKEND_URL: ${WEAVIA_BACKEND_URL:-http://backend:8080}
+      NODE_ENV: production
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/frontend.Dockerfile
+      args:
+        APP_NAME: '@weavia/admin'
+        PORT: 3001
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://47.113.148.107:8080}
+      WEAVIA_BACKEND_URL: ${WEAVIA_BACKEND_URL:-http://backend:8080}
+      NODE_ENV: production
+    ports:
+      - '3001:3001'
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   weavia-postgres:
   weavia-assets:

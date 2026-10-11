@@ -1,9 +1,10 @@
 import { Suspense } from 'react';
 import { DesktopLogin } from './desktop-login';
+import { AuthShell } from './auth-shell';
 
 export default function LoginPage() {
   return (
-    <main className="content-page">
+    <AuthShell>
       <Suspense
         fallback={
           <section className="auth-card">
@@ -11,8 +12,8 @@ export default function LoginPage() {
           </section>
         }
       >
-        <DesktopLogin />
+        <DesktopLogin mode="login" />
       </Suspense>
-    </main>
+    </AuthShell>
   );
 }

@@ -1,14 +1,14 @@
 'use client';
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Button } from '@weavia/ui';
+import Link from 'next/link';
+import { Button, Card, Input } from '@weavia/ui';
 
 type Mode = 'login' | 'register';
 type ViewState = 'ready' | 'authorizing' | 'success' | 'error';
 
-export function DesktopLogin() {
+export function DesktopLogin({ mode }: { mode: Mode }) {
   const loginSessionId = useSearchParams().get('session');
-  const [mode, setMode] = useState<Mode>('login');
   const [view, setView] = useState<ViewState>('ready');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,22 +50,22 @@ export function DesktopLogin() {
   }
 
   return (
-    <section className="auth-card desktop-auth-card">
+    <Card className="auth-card desktop-auth-card">
       <p className="kicker">{loginSessionId ? 'DESKTOP AUTHORIZATION' : 'WEAVIA ACCOUNT'}</p>
       <h1>{view === 'success' ? '登录成功' : mode === 'login' ? '登录 WEAVIA' : '创建 WEAVIA 账户'}</h1>
       {view !== 'success' && (
         <form onSubmit={submit}>
-          {mode === 'register' && <label>姓名<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
-          <label>邮箱<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-          <label>密码<input type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
-          {message && <p className="auth-error">{message}</p>}
-          <Button disabled={view === 'authorizing'}>{view === 'authorizing' ? '处理中…' : mode === 'login' ? '登录' : '注册'}</Button>
-          <button type="button" className="primary-link" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setView('ready'); setMessage(''); }}>
+          {mode === 'register' && <label>姓名<Input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required /></label>}
+          <label>邮箱<Input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+          <label>密码<Input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+          {message && <p className="auth-error" role="alert">{message}</p>}
+          <div className="auth-actions"><Button type="submit" loading={view === 'authorizing'}>{view === 'authorizing' ? '处理中…' : mode === 'login' ? '登录' : '创建账户'}</Button>
+          <Link className="wv-button wv-button--secondary auth-secondary" href={`${mode === 'login' ? '/signup' : '/login'}${loginSessionId ? `?session=${encodeURIComponent(loginSessionId)}` : ''}`}>
             {mode === 'login' ? '没有账户？立即注册' : '已有账户？返回登录'}
-          </button>
+          </Link></div>
         </form>
       )}
       {view === 'success' && <p>{loginSessionId ? '正在返回 WEAVIA Desktop…' : '正在进入账户中心…'}</p>}
-    </section>
+    </Card>
   );
 }
