@@ -18,7 +18,9 @@ RUN pnpm --filter "${APP_NAME}" build
 
 ENV NODE_ENV=production
 ARG PORT=3000
+ARG APP_DIR=apps/web
 ENV PORT=${PORT}
+ENV APP_DIR=${APP_DIR}
 ENV HOSTNAME=0.0.0.0
 
-CMD ["sh", "-c", "pnpm --filter \"${APP_NAME}\" exec next start -p \"${PORT}\""]
+CMD ["sh", "-c", "cd /app/${APP_DIR} && pnpm exec next start -p ${PORT}"]
