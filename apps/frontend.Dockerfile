@@ -13,6 +13,11 @@ RUN pnpm install --frozen-lockfile
 COPY apps ./apps
 COPY packages ./packages
 
+ARG NEXT_PUBLIC_API_URL
+ARG WEAVIA_BACKEND_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV WEAVIA_BACKEND_URL=${WEAVIA_BACKEND_URL}
+
 ARG APP_NAME
 RUN pnpm --filter "${APP_NAME}" build
 
