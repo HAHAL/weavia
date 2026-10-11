@@ -88,6 +88,10 @@ jobs:
           SELECT 1 / (COUNT(*) = 12)::int FROM entitlements e JOIN plans p ON p.id=e.plan_id WHERE p.code IN ('free','pro','studio','agency');
           SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='credit_reservations';
           SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.columns WHERE table_name='tasks' AND column_name='credit_reservation_id';
+          SELECT 1 / (COUNT(*) = 3)::int FROM roles WHERE code IN ('super_admin','operator','finance');
+          SELECT 1 / (COUNT(*) = 5)::int FROM permissions WHERE code IN ('admin.read','provider.write','credits.write','users.write','plans.write');
+          SELECT 1 / (COUNT(*) = 3)::int FROM ai_models WHERE model_name IN ('qwen-image-max','qwen-image-2.0','qwen-image-edit-plus') AND credit_cost > 0;
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='admin_audit_logs';
           SQL
           pnpm db:migrate
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT 1 / (COUNT(*) = 1)::int FROM products WHERE code = 'ci-product'"

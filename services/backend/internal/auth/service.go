@@ -26,6 +26,7 @@ type User struct {
 }
 
 var DemoUser = User{ID: DemoUserID, Email: "demo@weavia.local", Name: "WEAVIA Demo", Status: "active"}
+
 type DeviceInfo struct {
 	DeviceID   string `json:"deviceId"`
 	DeviceName string `json:"deviceName"`
@@ -58,10 +59,12 @@ func (e *Error) Error() string { return e.Message }
 type Service struct {
 	pool      *pgxpool.Pool
 	webOrigin string
+	demoMode  bool
 }
 
-func NewService(pool *pgxpool.Pool, webOrigin string) *Service {
-	return &Service{pool: pool, webOrigin: webOrigin}
+func NewService(pool *pgxpool.Pool, webOrigin string, demoMode ...bool) *Service {
+	enabled := len(demoMode) > 0 && demoMode[0]
+	return &Service{pool: pool, webOrigin: webOrigin, demoMode: enabled}
 }
 
 func (s *Service) Register(ctx context.Context, email, password, name string, info DeviceInfo) (SessionResult, error) {
@@ -97,7 +100,7 @@ func (s *Service) Register(ctx context.Context, email, password, name string, in
 	if err != nil {
 		return SessionResult{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id) VALUES($1,'topup',50,0,50,0,'registration',$2,$3,$2)`, accountID, user.ID, "registration:"+user.ID)
+	_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id) VALUES($1,'topup',50,0,50,0,'registration',$2,$3,$4)`, accountID, user.ID, "registration:"+user.ID, user.ID)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -131,7 +134,12 @@ func (s *Service) CreateDesktopSession(ctx context.Context, redirect string) (ma
 	}
 	id, state := uuid(), token()
 	expires := time.Now().Add(5 * time.Minute)
-	_, err = s.pool.Exec(ctx, `INSERT INTO auth_requests(id,user_id,state_hash,redirect_uri,expires_at) VALUES($1,$2,$3,$4,$5)`, id, DemoUserID, state, redirect, expires)
+	var initialUserID *string
+	if s.demoMode {
+		demoID := DemoUserID
+		initialUserID = &demoID
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO auth_requests(id,user_id,state_hash,redirect_uri,expires_at) VALUES($1,$2,$3,$4,$5)`, id, initialUserID, state, redirect, expires)
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +147,9 @@ func (s *Service) CreateDesktopSession(ctx context.Context, redirect string) (ma
 }
 func (s *Service) Authorize(ctx context.Context, loginID, userID string) (map[string]string, error) {
 	if userID == "" {
+		if !s.demoMode {
+			return nil, &Error{"INVALID_TOKEN", "请先登录", 401}
+		}
 		userID = DemoUserID
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -199,6 +210,9 @@ func (s *Service) Exchange(ctx context.Context, code, state string, info DeviceI
 	if !hmac.Equal([]byte(stateHash), []byte(state)) {
 		return SessionResult{}, &Error{"INVALID_STATE", "登录状态校验失败", 400}
 	}
+	if user.Status != "active" {
+		return SessionResult{}, &Error{"USER_DISABLED", "账户已停用", 403}
+	}
 	_, err = tx.Exec(ctx, `UPDATE auth_codes SET used_at=now() WHERE id=$1`, codeID)
 	if err != nil {
 		return SessionResult{}, err
@@ -223,6 +237,9 @@ func (s *Service) Refresh(ctx context.Context, value string) (SessionResult, err
 	if err != nil || revoked != nil || !time.Now().Before(expires) {
 		return SessionResult{}, &Error{"REFRESH_FAILED", "登录已失效，请重新登录", 401}
 	}
+	if user.Status != "active" {
+		return SessionResult{}, &Error{"USER_DISABLED", "账户已停用", 403}
+	}
 	_, err = tx.Exec(ctx, `UPDATE sessions SET revoked_at=now(),updated_at=now() WHERE id=$1`, sessionID)
 	if err != nil {
 		return SessionResult{}, err
@@ -238,7 +255,7 @@ func (s *Service) Logout(ctx context.Context, value string) error {
 }
 func (s *Service) Me(ctx context.Context, value string) (User, error) {
 	var u User
-	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.access_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()`, digest(value)).Scan(&u.ID, &u.Email, &u.Name, &u.Status)
+	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.access_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.status='active'`, digest(value)).Scan(&u.ID, &u.Email, &u.Name, &u.Status)
 	if err != nil {
 		return User{}, &Error{"INVALID_TOKEN", "访问令牌无效", 401}
 	}
@@ -270,11 +287,12 @@ func (s *Service) ListDevices(ctx context.Context, userID string) ([]Device, err
 	return out, rows.Err()
 }
 func (s *Service) RevokeDevice(ctx context.Context, userID, fingerprint string) error {
-	tag, err := s.pool.Exec(ctx, `WITH target AS (UPDATE devices SET revoked_at=now(),updated_at=now() WHERE user_id=$1 AND device_fingerprint_hash=$2 RETURNING id) UPDATE sessions SET revoked_at=coalesce(revoked_at,now()),updated_at=now() WHERE device_id IN(SELECT id FROM target)`, userID, fingerprint)
+	var count int
+	err := s.pool.QueryRow(ctx, `WITH target AS (UPDATE devices SET revoked_at=now(),updated_at=now() WHERE user_id=$1 AND device_fingerprint_hash=$2 RETURNING id), revoked AS (UPDATE sessions SET revoked_at=coalesce(revoked_at,now()),updated_at=now() WHERE device_id IN(SELECT id FROM target)) SELECT count(*) FROM target`, userID, fingerprint).Scan(&count)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if count == 0 {
 		return &Error{"DEVICE_NOT_FOUND", "设备不存在", 404}
 	}
 	return nil

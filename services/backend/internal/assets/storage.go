@@ -1,13 +1,16 @@
 package assets
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Storage struct {
@@ -20,24 +23,31 @@ func New(root, secret string) *Storage {
 		root = "./var/assets"
 	}
 	if secret == "" {
-		secret = "weavia-development-only"
+		panic("STORAGE_SIGNING_KEY is required")
 	}
 	return &Storage{root, []byte(secret)}
 }
 func (s *Storage) Token(objectKey string) string {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(objectKey))
+	expires := strconv.FormatInt(time.Now().Add(10*time.Minute).Unix(), 10)
+	payload := encoded + "." + expires
 	mac := hmac.New(sha256.New, s.Secret)
-	_, _ = mac.Write([]byte(encoded))
-	return encoded + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	_, _ = mac.Write([]byte(payload))
+	return payload + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 func (s *Storage) ObjectKey(token string) (string, error) {
 	parts := strings.Split(token, ".")
-	if len(parts) != 2 {
+	if len(parts) != 3 {
 		return "", fmt.Errorf("invalid upload token")
 	}
+	expiry, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || time.Now().Unix() >= expiry {
+		return "", fmt.Errorf("upload token expired")
+	}
+	payload := parts[0] + "." + parts[1]
 	mac := hmac.New(sha256.New, s.Secret)
-	_, _ = mac.Write([]byte(parts[0]))
-	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	_, _ = mac.Write([]byte(payload))
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil || !hmac.Equal(signature, mac.Sum(nil)) {
 		return "", fmt.Errorf("invalid upload token")
 	}
@@ -74,4 +84,22 @@ func (s *Storage) DataURL(objectKey, mime string) (string, bool) {
 		return "", false
 	}
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(body), true
+}
+func (s *Storage) Check(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(s.Root, 0o750); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(s.Root, ".readiness-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	if err = f.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
 }

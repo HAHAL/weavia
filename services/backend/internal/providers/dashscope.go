@@ -23,7 +23,7 @@ func (p *DashScope) Generate(ctx context.Context, input ImageRequest) (ImageResu
 		return ImageResult{}, &Error{"INVALID_REQUEST", "参考图不能为空", false, 400}
 	}
 	body := map[string]any{
-		"model": p.Model,
+		"model": input.Model,
 		"input": map[string]any{
 			"messages": []any{map[string]any{
 				"role": "user",
@@ -107,8 +107,12 @@ type Router struct {
 }
 
 func (r *Router) Generate(ctx context.Context, input ImageRequest) (ImageResult, error) {
-	if input.Model == r.DashScope.Model {
+	switch input.Provider {
+	case "dashscope":
 		return r.DashScope.Generate(ctx, input)
+	case "antdigital":
+		return r.AntDigital.Generate(ctx, input)
+	default:
+		return ImageResult{}, &Error{"UNSUPPORTED_MODEL", "Provider is not configured", false, 400}
 	}
-	return r.AntDigital.Generate(ctx, input)
 }

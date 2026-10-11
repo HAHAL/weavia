@@ -40,12 +40,3 @@ func TestAntDigitalContractAndRequestID(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 }
-
-func TestAntDigitalDoesNotAllowReferenceOnWrongModel(t *testing.T) {
-	provider := &AntDigital{}
-	_, err := provider.Generate(context.Background(), ImageRequest{Model: "qwen-image-max", Prompt: "ad", ReferenceImage: "data:image/png;base64,AA=="})
-	typed, ok := err.(*Error)
-	if !ok || typed.Code != "UNSUPPORTED_CAPABILITY" {
-		t.Fatalf("error = %#v", err)
-	}
-}

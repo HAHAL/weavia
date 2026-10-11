@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: weavia
       POSTGRES_USER: weavia
-      POSTGRES_PASSWORD: weavia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local Compose}
     ports:
       - '5432:5432'
     volumes:
@@ -22,7 +22,9 @@ services:
       dockerfile: services/backend/Dockerfile
     command: ['migrate']
     environment: &backend-env
-      DATABASE_URL: postgresql://weavia:weavia@postgres:5432/weavia?sslmode=disable
+      DATABASE_URL: postgresql://weavia:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/weavia?sslmode=disable
+      APP_ENV: development
+      DEMO_MODE: 'false'
       WEAVIA_WEB_ORIGIN: http://localhost:3000
       ENABLE_REAL_AI: 'false'
       ANTDIGITAL_BASE_URL: https://maas-api.antdigital.com/v1
@@ -31,7 +33,7 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_IMAGE_EDIT_MODEL: qwen-image-edit-plus
       ASSET_STORAGE_DIR: /app/var/assets
-      STORAGE_SIGNING_KEY: ${STORAGE_SIGNING_KEY:-weavia-development-only}
+      STORAGE_SIGNING_KEY: ${STORAGE_SIGNING_KEY:?Set STORAGE_SIGNING_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +45,12 @@ services:
     environment: *backend-env
     ports:
       - '8080:8080'
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/api/readiness']
+      interval: 10s
+      timeout: 3s
+      retries: 5
     volumes:
       - weavia-assets:/app/var/assets
     depends_on:
@@ -54,6 +62,7 @@ services:
       context: .
       dockerfile: services/backend/Dockerfile
     command: ['worker']
+    restart: unless-stopped
     environment: *backend-env
     volumes:
       - weavia-assets:/app/var/assets

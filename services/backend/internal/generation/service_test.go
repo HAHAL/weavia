@@ -2,6 +2,7 @@ package generation
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +16,107 @@ type fakeProvider struct{ calls atomic.Int32 }
 func (p *fakeProvider) Generate(_ context.Context, input providers.ImageRequest) (providers.ImageResult, error) {
 	p.calls.Add(1)
 	return providers.ImageResult{ProviderRequestID: "provider-1", Outputs: []providers.Output{{URI: "https://example.test/result.png", MediaType: "image/png"}}}, nil
+}
+
+type failingProvider struct{ calls atomic.Int32 }
+
+func (p *failingProvider) Generate(context.Context, providers.ImageRequest) (providers.ImageResult, error) {
+	p.calls.Add(1)
+	return providers.ImageResult{}, &providers.Error{Code: "PROVIDER_UNAVAILABLE", Message: "temporary failure", Retryable: true, Status: 503}
+}
+
+type fakeEnqueuer struct{}
+
+func (fakeEnqueuer) Enqueue(context.Context, string) error { return nil }
+
+type fakeCredits struct {
+	reserve, confirm, release, assets int
+	failConfirmOnce                   bool
+}
+
+func (c *fakeCredits) Reserve(context.Context, string, string, string, int64) (string, error) {
+	c.reserve++
+	return "reservation", nil
+}
+func (c *fakeCredits) Confirm(context.Context, string) error {
+	c.confirm++
+	if c.failConfirmOnce {
+		c.failConfirmOnce = false
+		return errors.New("temporary ledger failure")
+	}
+	return nil
+}
+func (c *fakeCredits) Release(context.Context, string) error { c.release++; return nil }
+func (c *fakeCredits) RecordGeneratedAsset(context.Context, string, string, string, string, string, string, string, string) error {
+	c.assets++
+	return nil
+}
+func paidRequest(key string) Request {
+	return Request{IdempotencyKey: key, ProjectID: "project", InputAssetID: "asset", Workflow: "product_image_generation", LogicalModel: "weavia-image-pro", Model: "qwen-image-2.0", Prompt: "photo", Mode: "text_to_image", Size: "1024x1024", NumberOfImages: 1, OutputFormat: "png"}
+}
+
+func TestCommercialSuccessFailureAndRetry(t *testing.T) {
+	ctx := context.Background()
+	good := &fakeProvider{}
+	credits := &fakeCredits{}
+	service := NewService(true, good, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(credits)
+	task, err := service.Create(ctx, auth.DemoUser, paidRequest("commercial-good"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Cost != 10 || task.Provider != "antdigital" {
+		t.Fatalf("routing/cost: %#v", task)
+	}
+	if err = service.Execute(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Execute(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if good.calls.Load() != 1 || credits.reserve != 1 || credits.confirm != 1 || credits.release != 0 || credits.assets != 1 {
+		t.Fatalf("success counts: provider=%d credits=%+v", good.calls.Load(), credits)
+	}
+	duplicate, err := service.Create(ctx, auth.DemoUser, paidRequest("commercial-good"))
+	if err != nil || duplicate.ID != task.ID || good.calls.Load() != 1 {
+		t.Fatalf("duplicate: %#v %v", duplicate, err)
+	}
+
+	bad := &failingProvider{}
+	failedCredits := &fakeCredits{}
+	failed := NewService(true, bad, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(failedCredits)
+	failedTask, err := failed.Create(ctx, auth.DemoUser, paidRequest("commercial-bad"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = failed.Execute(ctx, failedTask.ID); err == nil {
+		t.Fatal("expected provider error")
+	}
+	if err = failed.Execute(ctx, failedTask.ID); err != nil {
+		t.Fatal(err)
+	}
+	if bad.calls.Load() != 1 || failedCredits.reserve != 1 || failedCredits.release != 2 || failedCredits.confirm != 0 {
+		t.Fatalf("failure/retry counts: provider=%d credits=%+v", bad.calls.Load(), failedCredits)
+	}
+}
+func TestReconciliationRetryDoesNotCallProviderAgain(t *testing.T) {
+	ctx := context.Background()
+	provider := &fakeProvider{}
+	credits := &fakeCredits{failConfirmOnce: true}
+	service := NewService(true, provider, fakeEnqueuer{}, nil, NewMemoryRepository()).WithCredits(credits)
+	task, err := service.Create(ctx, auth.DemoUser, paidRequest("reconcile-once"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Execute(ctx, task.ID); err == nil {
+		t.Fatal("expected settlement error")
+	}
+	if err = service.Execute(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	current, _, err := service.Get(ctx, auth.DemoUser.ID, task.ID)
+	if err != nil || current.Status != "success" || provider.calls.Load() != 1 || credits.confirm != 2 {
+		t.Fatalf("reconcile result: %#v provider=%d credits=%+v err=%v", current, provider.calls.Load(), credits, err)
+	}
 }
 
 func TestTaskIdempotencyAndPaidRequestGuard(t *testing.T) {

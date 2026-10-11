@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,8 +29,7 @@ type Server struct {
 	RealAIEnabled        bool
 	AntDigitalBaseURL    string
 	DashScopeBaseURL     string
-	mu                   sync.RWMutex
-	providerEnabled      bool
+	Readiness            map[string]func(context.Context) error
 }
 
 type AuthService interface {
@@ -44,12 +43,17 @@ type AuthService interface {
 	Me(context.Context, string) (auth.User, error)
 	ListDevices(context.Context, string) ([]auth.Device, error)
 	RevokeDevice(context.Context, string, string) error
+	HasPermission(context.Context, string, string) (bool, error)
+	AuditAdmin(context.Context, string, string, string, string, string, any, any) error
+	ProviderStatuses(context.Context) (map[string]auth.ProviderStatus, error)
+	SetProviderEnabled(context.Context, string, string, bool, string) error
 }
 
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
-	r.Use(cors, middleware.RequestID, middleware.RealIP, middleware.Recoverer, middleware.Timeout(3*time.Minute))
+	r.Use(cors, middleware.RequestID, middleware.Recoverer, middleware.Timeout(3*time.Minute))
 	r.Get("/api/health", s.health)
+	r.Get("/api/readiness", s.readiness)
 	r.Get("/api/plans", s.plans)
 	r.Post("/api/auth/register", s.register)
 	r.Post("/api/auth/login", s.login)
@@ -84,15 +88,24 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 	r.Put("/api/assets/upload/{token}", s.upload)
-	r.Get("/api/admin/ai/catalog", s.adminCatalog)
-	r.Get("/api/admin/ai/providers", s.adminProviders)
-	r.Get("/api/admin/ai/models", s.adminModels)
-	r.Get("/api/admin/ai/routing", s.adminRouting)
-	r.Get("/api/admin/ai/usage", s.adminUsage)
-	r.Get("/api/admin/users", s.adminUsers)
-	r.Get("/api/admin/credits/transactions", s.adminCreditTransactions)
-	r.Get("/api/admin/tasks", s.adminTasks)
-	r.Patch("/api/admin/ai/providers/{providerID}", s.patchProvider)
+	r.Route("/api/admin", func(r chi.Router) {
+		r.Use(s.requireUser)
+		r.Group(func(r chi.Router) {
+			r.Use(s.requirePermission("admin.read"))
+			r.Get("/ai/catalog", s.adminCatalog)
+			r.Get("/ai/providers", s.adminProviders)
+			r.Get("/ai/models", s.adminModels)
+			r.Get("/ai/routing", s.adminRouting)
+			r.Get("/ai/usage", s.adminUsage)
+			r.Get("/users", s.adminUsers)
+			r.Get("/credits/transactions", s.adminCreditTransactions)
+			r.Get("/tasks", s.adminTasks)
+		})
+		r.With(s.requirePermission("provider.write")).Patch("/ai/providers/{providerID}", s.patchProvider)
+		r.With(s.requirePermission("credits.write")).Post("/credits/adjust", s.adminAdjustCredits)
+		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/status", s.adminSetUserStatus)
+		r.With(s.requirePermission("plans.write")).Patch("/plans/{planID}", s.adminUpdatePlan)
+	})
 	return r
 }
 
@@ -131,9 +144,51 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 	})
 }
 func currentUser(r *http.Request) auth.User { return r.Context().Value(userKey{}).(auth.User) }
+func (s *Server) requirePermission(permission string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			allowed, err := s.Auth.HasPermission(r.Context(), currentUser(r).ID, permission)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if !allowed {
+				writeError(w, &auth.Error{Code: "FORBIDDEN", Message: "无管理权限", Status: 403})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"service": "weavia-cloud-api", "status": "ok", "version": "0.1.0", "providers": map[string]any{"antdigital": map[string]bool{"configured": s.AntDigitalConfigured}, "dashscope": map[string]bool{"configured": s.DashScopeConfigured}}})
+}
+func (s *Server) readiness(w http.ResponseWriter, r *http.Request) {
+	if len(s.Readiness) == 0 {
+		writeJSON(w, 503, map[string]any{"status": "not_ready"})
+		return
+	}
+	checks := map[string]string{}
+	ready := true
+	for name, check := range s.Readiness {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		err := check(ctx)
+		cancel()
+		if err != nil {
+			checks[name] = "failed"
+			ready = false
+		} else {
+			checks[name] = "ok"
+		}
+	}
+	status := 200
+	state := "ready"
+	if !ready {
+		status = 503
+		state = "not_ready"
+	}
+	writeJSON(w, status, map[string]any{"status": state, "checks": checks})
 }
 func (s *Server) desktopSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -338,6 +393,55 @@ func (s *Server) adminTasks(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Commercial.AdminTasks(r.Context())
 	respond(w, data, err)
 }
+func (s *Server) adminAdjustCredits(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		UserID         string `json:"userId"`
+		Amount         int64  `json:"amount"`
+		Reason         string `json:"reason"`
+		IdempotencyKey string `json:"idempotencyKey"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if body.UserID == "" || body.Amount == 0 || body.Reason == "" || body.IdempotencyKey == "" {
+		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "调整参数不完整", Status: 400})
+		return
+	}
+	data, err := s.Commercial.Adjust(r.Context(), currentUser(r).ID, body.UserID, body.Amount, body.Reason, body.IdempotencyKey, clientIP(r))
+	respond(w, data, err)
+}
+func (s *Server) adminSetUserStatus(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if body.Status != "active" && body.Status != "disabled" {
+		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "用户状态无效", Status: 400})
+		return
+	}
+	err := s.Commercial.AdminSetUserStatus(r.Context(), currentUser(r).ID, chi.URLParam(r, "userID"), body.Status, clientIP(r))
+	respond(w, map[string]bool{"updated": err == nil}, err)
+}
+func (s *Server) adminUpdatePlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		PriceMinor *int  `json:"priceMinor"`
+		Enabled    *bool `json:"enabled"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if body.Enabled == nil || body.PriceMinor == nil || *body.PriceMinor < 0 {
+		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "套餐参数无效", Status: 400})
+		return
+	}
+	err := s.Commercial.AdminUpdatePlan(r.Context(), currentUser(r).ID, chi.URLParam(r, "planID"), *body.PriceMinor, *body.Enabled, clientIP(r))
+	respond(w, map[string]bool{"updated": err == nil}, err)
+}
 func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 	ok(w, generation.PublicCatalog(currentUser(r)))
 }
@@ -352,7 +456,7 @@ func (s *Server) estimate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	data, err := generation.Estimate(currentUser(r), body.Model, body.ImageCount, body.Advanced)
+	data, err := s.Generation.Estimate(r.Context(), currentUser(r), body.Model, body.ImageCount, body.Advanced)
 	respond(w, data, err)
 }
 func (s *Server) templates(w http.ResponseWriter, _ *http.Request) { ok(w, generation.Templates) }
@@ -361,6 +465,29 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if err := decode(r, &input); err != nil {
 		writeError(w, err)
 		return
+	}
+	userID := currentUser(r).ID
+	if len(input.ReferenceAssets) > 0 {
+		ref := input.ReferenceAssets[0]
+		if ref.AssetID != input.InputAssetID || !strings.HasPrefix(ref.ObjectKey, "references/"+userID+"/") {
+			writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "参考素材不属于当前用户", Status: 403})
+			return
+		}
+	}
+	if input.SKUID != "" {
+		if s.Commercial == nil || input.WorkspaceID == "" || input.ProductID == "" || len(input.ReferenceAssets) != 1 {
+			writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "商品任务缺少已上传素材", Status: 400})
+			return
+		}
+		allowed, err := s.Commercial.CanGenerate(r.Context(), userID, input.WorkspaceID, input.ProjectID, input.ProductID, input.SKUID, input.InputAssetID, input.ReferenceAssets[0].ObjectKey)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if !allowed {
+			writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "商品素材不可用", Status: 403})
+			return
+		}
 	}
 	task, err := s.Generation.Create(r.Context(), currentUser(r), input)
 	respond(w, task, err)
@@ -442,21 +569,31 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) providers() []generation.Provider {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *Server) providers(ctx context.Context) ([]generation.Provider, error) {
+	statuses, err := s.Auth.ProviderStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
 	timestamp := time.Unix(0, 0).UTC().Format(time.RFC3339)
 	return []generation.Provider{
-		{ID: "00000000-0000-4000-8000-000000000101", Code: "antdigital", Name: "Ant Digital MaaS", Type: "openai-compatible", BaseURL: s.AntDigitalBaseURL, Enabled: s.providerEnabled && s.RealAIEnabled, Configured: s.AntDigitalConfigured, CreatedAt: timestamp, UpdatedAt: timestamp, ModelCount: 2},
-		{ID: "00000000-0000-4000-8000-000000000105", Code: "dashscope", Name: "Alibaba Cloud Model Studio", Type: "dashscope-multimodal", BaseURL: s.DashScopeBaseURL, Enabled: s.providerEnabled && s.RealAIEnabled, Configured: s.DashScopeConfigured, CreatedAt: timestamp, UpdatedAt: timestamp, ModelCount: 1},
+		{ID: statuses["antdigital"].ID, Code: "antdigital", Name: "Ant Digital MaaS", Type: "openai-compatible", BaseURL: s.AntDigitalBaseURL, Enabled: statuses["antdigital"].Enabled && s.RealAIEnabled, Configured: s.AntDigitalConfigured, CreatedAt: timestamp, UpdatedAt: timestamp, ModelCount: 2},
+		{ID: statuses["dashscope"].ID, Code: "dashscope", Name: "Alibaba Cloud Model Studio", Type: "dashscope-multimodal", BaseURL: s.DashScopeBaseURL, Enabled: statuses["dashscope"].Enabled && s.RealAIEnabled, Configured: s.DashScopeConfigured, CreatedAt: timestamp, UpdatedAt: timestamp, ModelCount: 1},
+	}, nil
+}
+func (s *Server) snapshot(ctx context.Context) (map[string]any, error) {
+	providers, err := s.providers(ctx)
+	if err != nil {
+		return nil, err
 	}
+	return map[string]any{"providers": providers, "models": generation.Models, "logicalModels": generation.LogicalModels, "bindings": generation.Bindings, "usage": []any{}, "estimatedCost": 0}, nil
 }
-func (s *Server) snapshot() map[string]any {
-	return map[string]any{"providers": s.providers(), "models": generation.Models, "logicalModels": generation.LogicalModels, "bindings": generation.Bindings, "usage": []any{}, "estimatedCost": 0}
+func (s *Server) adminCatalog(w http.ResponseWriter, r *http.Request) {
+	data, err := s.snapshot(r.Context())
+	respond(w, data, err)
 }
-func (s *Server) adminCatalog(w http.ResponseWriter, _ *http.Request) { ok(w, s.snapshot()) }
-func (s *Server) adminProviders(w http.ResponseWriter, _ *http.Request) {
-	ok(w, s.providers())
+func (s *Server) adminProviders(w http.ResponseWriter, r *http.Request) {
+	data, err := s.providers(r.Context())
+	respond(w, data, err)
 }
 func (s *Server) adminModels(w http.ResponseWriter, _ *http.Request) {
 	ok(w, map[string]any{"providerModels": generation.Models, "logicalModels": generation.LogicalModels})
@@ -469,10 +606,6 @@ func (s *Server) adminUsage(w http.ResponseWriter, _ *http.Request) {
 }
 func (s *Server) patchProvider(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "providerID")
-	if providerID != "00000000-0000-4000-8000-000000000101" && providerID != "00000000-0000-4000-8000-000000000105" {
-		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "Provider 不存在", Status: 404})
-		return
-	}
 	var body struct {
 		Enabled *bool `json:"enabled"`
 	}
@@ -480,12 +613,26 @@ func (s *Server) patchProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if body.Enabled != nil {
-		s.mu.Lock()
-		s.providerEnabled = *body.Enabled
-		s.mu.Unlock()
+	if body.Enabled == nil {
+		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "缺少 enabled", Status: 400})
+		return
 	}
-	ok(w, s.snapshot())
+	if err := s.Auth.SetProviderEnabled(r.Context(), currentUser(r).ID, providerID, *body.Enabled, clientIP(r)); err != nil {
+		writeError(w, err)
+		return
+	}
+	data, err := s.snapshot(r.Context())
+	respond(w, data, err)
+}
+func clientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return ip
+	}
+	if net.ParseIP(r.RemoteAddr) != nil {
+		return r.RemoteAddr
+	}
+	return ""
 }
 
 func decode(r *http.Request, target any) error {

@@ -29,6 +29,8 @@ type Request struct {
 	NumberOfImages      int              `json:"numberOfImages"`
 	OutputFormat        string           `json:"outputFormat"`
 	Metadata            map[string]any   `json:"metadata"`
+	ResolvedProvider    string           `json:"resolvedProvider,omitempty"`
+	ResolvedCost        int64            `json:"resolvedCost,omitempty"`
 }
 type ReferenceAsset struct {
 	AssetID   string `json:"assetId"`
@@ -91,26 +93,56 @@ type Service struct {
 	realEnabled bool
 	refs        func(string) (string, bool)
 	credits     Credits
+	registry    Registry
 }
 
 func NewService(realEnabled bool, provider Generator, enqueue Enqueuer, refs func(string) (string, bool), repository Repository) *Service {
 	if repository == nil {
 		repository = NewMemoryRepository()
 	}
-	return &Service{repository: repository, realEnabled: realEnabled, provider: provider, enqueue: enqueue, refs: refs}
+	return &Service{repository: repository, realEnabled: realEnabled, provider: provider, enqueue: enqueue, refs: refs, registry: DefaultTestRegistry()}
 }
-func (s *Service) WithCredits(credits Credits) *Service { s.credits = credits; return s }
+func (s *Service) WithCredits(credits Credits) *Service    { s.credits = credits; return s }
+func (s *Service) WithRegistry(registry Registry) *Service { s.registry = registry; return s }
+
+func (s *Service) Estimate(ctx context.Context, user auth.User, modelName string, count int, advanced bool) (map[string]any, error) {
+	if count != 1 {
+		return nil, &APIError{"INVALID_REQUEST", "Beta 当前仅支持单张生成", 400}
+	}
+	model, err := s.registry.Lookup(ctx, modelName)
+	if err != nil || !model.Enabled || model.CreditCost <= 0 {
+		return nil, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
+	}
+	if advanced && user.Email != "demo@weavia.local" {
+		return nil, &APIError{"UNSUPPORTED_MODEL", "当前账户未开放高级模型", 403}
+	}
+	seconds := 60
+	if configured, ok := model.Metadata["estimatedSeconds"].(float64); ok && configured > 0 {
+		seconds = int(configured)
+	}
+	return map[string]any{"credits": model.CreditCost, "estimatedTime": seconds, "model": modelName}, nil
+}
 
 func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Task, error) {
-	if err := validate(input); err != nil {
+	if err := validateBase(input); err != nil {
 		return Task{}, err
+	}
+	model, err := s.registry.Lookup(ctx, input.Model)
+	if err != nil || !model.Enabled || model.Provider == "" || model.CreditCost <= 0 {
+		return Task{}, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
+	}
+	if !supports(model.Capabilities, input.Mode) {
+		return Task{}, &APIError{"UNSUPPORTED_CAPABILITY", "当前模型不支持所选生成方式", 400}
+	}
+	if max, ok := model.Metadata["maxReferences"].(float64); ok && len(input.ReferenceAssets) > int(max) {
+		return Task{}, &APIError{"INVALID_REQUEST", "参考图数量超过模型限制", 400}
 	}
 	if !s.realEnabled {
 		return Task{}, &APIError{"REAL_AI_DISABLED", "真实 AI 当前未启用", 503}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	taskID := id()
-	cost := int64(10 * input.NumberOfImages)
+	cost := model.CreditCost * int64(input.NumberOfImages)
 	reservationID := ""
 	if s.credits != nil {
 		var reserveErr error
@@ -120,7 +152,9 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 		}
 	}
 	input.CreditReservationID = reservationID
-	task, err := s.repository.Create(ctx, Task{ID: taskID, UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, WorkspaceID: input.WorkspaceID, ProductID: input.ProductID, SKUID: input.SKUID, CreditReservationID: reservationID, Provider: providerFor(input.Model), Model: input.Model, Cost: cost, Status: "reserved", Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
+	input.ResolvedProvider = model.Provider
+	input.ResolvedCost = cost
+	task, err := s.repository.Create(ctx, Task{ID: taskID, UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, WorkspaceID: input.WorkspaceID, ProductID: input.ProductID, SKUID: input.SKUID, CreditReservationID: reservationID, Provider: model.Provider, Model: input.Model, Cost: cost, Status: "reserved", Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
 	if err != nil {
 		if reservationID != "" {
 			_ = s.credits.Release(ctx, reservationID)
@@ -158,8 +192,17 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	// River owns exclusive delivery of a queued job. A process can disappear after
 	// persisting "running", and failed attempts are retried with the same provider
 	// idempotency key, so only genuinely terminal states may short-circuit here.
-	if task.Status == "success" || task.Status == "generated" || task.Status == "cancelled" {
+	if task.Status == "success" || task.Status == "cancelled" {
 		return nil
+	}
+	if task.Status == "failed" {
+		if s.credits != nil && task.CreditReservationID != "" {
+			return s.credits.Release(ctx, task.CreditReservationID)
+		}
+		return nil
+	}
+	if task.Status == "reconciling" {
+		return s.finalize(ctx, &task)
 	}
 	task.Status = "running"
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
@@ -173,20 +216,25 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 			ref = value
 		}
 	}
-	result, err := s.provider.Generate(ctx, providers.ImageRequest{Model: input.Model, Prompt: input.Prompt, ReferenceImage: ref, IdempotencyKey: input.IdempotencyKey})
+	if input.Mode != "text_to_image" && ref == "" {
+		return s.fail(ctx, &task, "INVALID_REQUEST", "参考素材不可用")
+	}
+	result, err := s.provider.Generate(ctx, providers.ImageRequest{Model: input.Model, Provider: task.Provider, Prompt: input.Prompt, ReferenceImage: ref, IdempotencyKey: input.IdempotencyKey})
 	if err != nil {
 		code := "GENERATION_FAILED"
 		message := err.Error()
 		if pe, typed := err.(*providers.Error); typed {
 			code = pe.Code
 		}
-		s.fail(ctx, &task, code, message)
-		if s.credits != nil && task.CreditReservationID != "" {
-			_ = s.credits.Release(ctx, task.CreditReservationID)
+		if failErr := s.fail(ctx, &task, code, message); failErr != nil {
+			return failErr
 		}
 		return err
 	}
-	task.Status = "success"
+	if len(result.Outputs) == 0 {
+		return s.fail(ctx, &task, "GENERATION_FAILED", "Provider 未返回图片")
+	}
+	task.Status = "reconciling"
 	task.ProviderRequestID = result.ProviderRequestID
 	task.Outputs = []Output{}
 	for _, output := range result.Outputs {
@@ -200,33 +248,42 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if err = s.repository.Update(ctx, task); err != nil {
 		return err
 	}
+	return s.finalize(ctx, &task)
+}
+func (s *Service) finalize(ctx context.Context, task *Task) error {
 	if s.credits != nil {
 		for _, output := range task.Outputs {
 			source := output.TemporaryURL
 			if source == "" {
 				source = output.Base64Data
 			}
-			_ = s.credits.RecordGeneratedAsset(ctx, task.UserID, task.WorkspaceID, task.Request.ProjectID, task.ProductID, task.SKUID, task.ID, source, output.MimeType)
+			if err := s.credits.RecordGeneratedAsset(ctx, task.UserID, task.WorkspaceID, task.Request.ProjectID, task.ProductID, task.SKUID, task.ID, source, output.MimeType); err != nil {
+				return err
+			}
 		}
 	}
 	if s.credits != nil && task.CreditReservationID != "" {
-		return s.credits.Confirm(ctx, task.CreditReservationID)
+		if err := s.credits.Confirm(ctx, task.CreditReservationID); err != nil {
+			return err
+		}
 	}
-	return nil
+	task.Status = "success"
+	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return s.repository.Update(ctx, *task)
 }
-func providerFor(model string) string {
-	if model == "qwen-image-2.0" {
-		return "dashscope"
-	}
-	return "antdigital"
-}
-func (s *Service) fail(ctx context.Context, task *Task, code, message string) {
+func (s *Service) fail(ctx context.Context, task *Task, code, message string) error {
 	task.Status = "failed"
 	task.Error = &TaskError{code, message}
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	_ = s.repository.Update(ctx, *task)
+	if err := s.repository.Update(ctx, *task); err != nil {
+		return err
+	}
+	if s.credits != nil && task.CreditReservationID != "" {
+		return s.credits.Release(ctx, task.CreditReservationID)
+	}
+	return nil
 }
-func validate(r Request) error {
+func validateBase(r Request) error {
 	if r.IdempotencyKey == "" || len(r.IdempotencyKey) > 128 {
 		return &APIError{"INVALID_REQUEST", "幂等键无效", 400}
 	}
@@ -239,34 +296,18 @@ func validate(r Request) error {
 	if r.Mode != "text_to_image" && len(r.ReferenceAssets) == 0 {
 		return &APIError{"INVALID_REQUEST", "参考图生成必须选择参考素材", 400}
 	}
-	if len(r.ReferenceAssets) > 1 && r.Model == "qwen-image-2.0" {
-		return &APIError{"INVALID_REQUEST", "qwen-image-2.0 当前仅支持单张商品参考图", 400}
-	}
-	var selected *Model
-	for index := range Models {
-		if Models[index].ModelID == r.Model && Models[index].Enabled {
-			selected = &Models[index]
-			break
-		}
-	}
-	if selected == nil {
-		return &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
-	}
-	capability := r.Mode
-	if capability == "" {
-		capability = "text_to_image"
-	}
-	supported := false
-	for _, candidate := range selected.Capabilities {
-		if candidate == capability {
-			supported = true
-			break
-		}
-	}
-	if !supported {
-		return &APIError{"UNSUPPORTED_CAPABILITY", "当前模型不支持所选生成方式", 400}
-	}
 	return nil
+}
+func supports(capabilities []string, mode string) bool {
+	if mode == "" {
+		mode = "text_to_image"
+	}
+	for _, candidate := range capabilities {
+		if candidate == mode {
+			return true
+		}
+	}
+	return false
 }
 func id() string {
 	b := make([]byte, 16)

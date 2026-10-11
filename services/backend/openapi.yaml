@@ -9,6 +9,10 @@ paths:
     get:
       operationId: health
       responses: { '200': { description: Healthy } }
+  /readiness:
+    get:
+      operationId: readiness
+      responses: { '200': { description: Dependencies ready }, '503': { description: Dependency unavailable } }
   /auth/desktop/session:
     post:
       operationId: createDesktopSession
@@ -177,14 +181,17 @@ paths:
   /admin/ai/catalog:
     get:
       operationId: adminCatalog
+      security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/ai/providers:
     get:
       operationId: adminProviders
+      security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/ai/providers/{providerId}:
     patch:
       operationId: updateProvider
+      security: [{ bearerAuth: [] }]
       parameters:
         [{ name: providerId, in: path, required: true, schema: { type: string, format: uuid } }]
       requestBody: { $ref: '#/components/requestBodies/JSON' }
@@ -192,26 +199,52 @@ paths:
   /admin/ai/models:
     get:
       operationId: adminModels
+      security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/ai/routing:
     get:
       operationId: adminRouting
+      security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/ai/usage:
     get:
       operationId: adminUsage
+      security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/users:
     get:
       operationId: adminUsers
+      security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/credits/transactions:
     get:
       operationId: adminCreditTransactions
+      security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/tasks:
     get:
       operationId: adminTasks
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/credits/adjust:
+    post:
+      operationId: adminAdjustCredits
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/users/{userId}/status:
+    patch:
+      operationId: adminSetUserStatus
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: userId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/plans/{planId}:
+    patch:
+      operationId: adminUpdatePlan
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: planId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
       responses: { '200': { $ref: '#/components/responses/Success' } }
 components:
   securitySchemes:

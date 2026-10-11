@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-type ImageRequest struct{ Model, Prompt, ReferenceImage, IdempotencyKey string }
+type ImageRequest struct{ Model, Provider, Prompt, ReferenceImage, IdempotencyKey string }
 type ImageResult struct {
 	ProviderRequestID string
 	Outputs           []Output
@@ -38,9 +38,6 @@ type AntDigital struct {
 func (p *AntDigital) Generate(ctx context.Context, input ImageRequest) (ImageResult, error) {
 	if strings.TrimSpace(input.Prompt) == "" {
 		return ImageResult{}, &Error{"INVALID_REQUEST", "Prompt is required", false, 400}
-	}
-	if input.ReferenceImage != "" && input.Model != "qwen-image-2.0" {
-		return ImageResult{}, &Error{"UNSUPPORTED_CAPABILITY", "当前仅 qwen-image-2.0 开放参考图生成", false, 400}
 	}
 	body := map[string]any{"model": input.Model, "prompt": input.Prompt, "size": "1024x1024", "n": 1, "prompt_extend": true}
 	if input.ReferenceImage != "" {

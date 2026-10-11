@@ -79,6 +79,38 @@ export const users = pgTable(
   },
   (t) => [uniqueIndex('users_email_unique').on(t.email)],
 );
+export const roles = pgTable('roles', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  code: text('code').notNull().unique(),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+export const permissions = pgTable('permissions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  code: text('code').notNull().unique(),
+  description: text('description').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+export const rolePermissions = pgTable('role_permissions', {
+  roleId: uuid('role_id').references(() => roles.id, { onDelete: 'cascade' }).notNull(),
+  permissionId: uuid('permission_id').references(() => permissions.id, { onDelete: 'cascade' }).notNull(),
+});
+export const userRoles = pgTable('user_roles', {
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  roleId: uuid('role_id').references(() => roles.id, { onDelete: 'cascade' }).notNull(),
+  grantedAt: timestamp('granted_at', { withTimezone: true }).defaultNow().notNull(),
+});
+export const adminAuditLogs = pgTable('admin_audit_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  actorUserId: uuid('actor_user_id').references(() => users.id).notNull(),
+  action: text('action').notNull(),
+  resourceType: text('resource_type').notNull(),
+  resourceId: text('resource_id').notNull(),
+  ip: text('ip'),
+  before: jsonb('before'),
+  after: jsonb('after'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
 export const accounts = pgTable(
   'accounts',
   {
@@ -270,6 +302,10 @@ export const aiModels = pgTable(
       .notNull(),
     externalId: text('external_id').notNull(),
     displayName: text('display_name').notNull(),
+    modelName: text('model_name'),
+    provider: text('provider'),
+    creditCost: bigint('credit_cost', { mode: 'number' }),
+    metadata: jsonb('metadata').default({}).notNull(),
     capabilities: jsonb('capabilities').$type<string[]>().default([]).notNull(),
     pricing: jsonb('pricing').default({}).notNull(),
     enabled: boolean('enabled').default(false).notNull(),

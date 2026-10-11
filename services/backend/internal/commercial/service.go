@@ -181,6 +181,13 @@ func (s *Service) Reserve(ctx context.Context, userID, referenceID, idempotencyK
 	if err != nil {
 		return "", err
 	}
+	err = tx.QueryRow(ctx, `SELECT id::text FROM credit_reservations WHERE account_id=$1 AND idempotency_key=$2`, accountID, idempotencyKey).Scan(&existing)
+	if err == nil {
+		return existing, tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
 	if available < amount {
 		return "", ErrInsufficientCredits
 	}
@@ -247,7 +254,7 @@ func (s *Service) settle(ctx context.Context, reservationID string, confirm bool
 	_, _ = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,$2,'credit_reservation',$3,jsonb_build_object('amount',$4))`, userID, action, reservationID, amount)
 	return tx.Commit(ctx)
 }
-func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int64, reason, idempotencyKey string) (CreditAccount, error) {
+func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int64, reason, idempotencyKey, ip string) (CreditAccount, error) {
 	if amount == 0 {
 		return CreditAccount{}, fmt.Errorf("amount must not be zero")
 	}
@@ -259,6 +266,17 @@ func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int
 	var a CreditAccount
 	err = tx.QueryRow(ctx, `SELECT id::text,available_balance,reserved_balance,currency,version FROM credit_accounts WHERE user_id=$1 FOR UPDATE`, userID).Scan(&a.ID, &a.Available, &a.Reserved, &a.Currency, &a.Version)
 	if err != nil {
+		return a, err
+	}
+	var existingAmount int64
+	err = tx.QueryRow(ctx, `SELECT available_delta FROM credit_transactions_v1 WHERE idempotency_key=$1 AND account_id=$2`, idempotencyKey, a.ID).Scan(&existingAmount)
+	if err == nil {
+		if existingAmount != amount {
+			return a, fmt.Errorf("idempotency key used with a different amount")
+		}
+		return a, tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return a, err
 	}
 	if a.Available+amount < 0 {
@@ -279,7 +297,68 @@ func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int
 		return a, err
 	}
 	_, _ = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after,metadata) VALUES($1,'credits.adjusted','credit_account',$2,jsonb_build_object('amount',$3),jsonb_build_object('reason',$4))`, actorID, a.ID, amount, reason)
+	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'credits.adjust','credit_account',$2,nullif($3,'')::inet,jsonb_build_object('available',$4),jsonb_build_object('available',$5,'amount',$6,'reason',$7))`, actorID, a.ID, ip, a.Available-amount, a.Available, amount, reason)
+	if err != nil {
+		return a, err
+	}
 	return a, tx.Commit(ctx)
+}
+
+func (s *Service) AdminSetUserStatus(ctx context.Context, actorID, targetID, status, ip string) error {
+	if status != "active" && status != "disabled" {
+		return fmt.Errorf("invalid user status")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var previous string
+	err = tx.QueryRow(ctx, `SELECT status FROM users WHERE id=$1 FOR UPDATE`, targetID).Scan(&previous)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE users SET status=$2,updated_at=now() WHERE id=$1`, targetID, status)
+	if err != nil {
+		return err
+	}
+	if status == "disabled" {
+		_, err = tx.Exec(ctx, `UPDATE sessions SET revoked_at=now(),updated_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, targetID)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'user.status','user',$2,nullif($3,'')::inet,jsonb_build_object('status',$4),jsonb_build_object('status',$5))`, actorID, targetID, ip, previous, status)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) AdminUpdatePlan(ctx context.Context, actorID, planID string, priceMinor int, enabled bool, ip string) error {
+	if priceMinor < 0 {
+		return fmt.Errorf("invalid price")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var previousPrice int
+	var previousEnabled bool
+	err = tx.QueryRow(ctx, `SELECT price_minor,enabled FROM plans WHERE id=$1 FOR UPDATE`, planID).Scan(&previousPrice, &previousEnabled)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE plans SET price_minor=$2,enabled=$3,updated_at=now() WHERE id=$1`, planID, priceMinor, enabled)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES($1,'plan.update','plan',$2,nullif($3,'')::inet,jsonb_build_object('priceMinor',$4,'enabled',$5),jsonb_build_object('priceMinor',$6,'enabled',$7))`, actorID, planID, ip, previousPrice, previousEnabled, priceMinor, enabled)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) CreateWorkspace(ctx context.Context, userID, name string) (Workspace, error) {
@@ -311,7 +390,7 @@ func (s *Service) CreateProject(ctx context.Context, userID, workspaceID, name, 
 }
 func (s *Service) CreateProduct(ctx context.Context, userID, workspaceID, projectID, name, description string) (Product, error) {
 	var p Product
-	err := s.pool.QueryRow(ctx, `INSERT INTO products(workspace_id,project_id,name,description,price_minor,currency,metadata) SELECT $1,$2,$3,$4,0,'CNY','{}' WHERE EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id=$1 AND user_id=$5) RETURNING id::text,workspace_id::text,project_id::text,name,coalesce(description,''),created_at`, workspaceID, projectID, name, description, userID).Scan(&p.ID, &p.WorkspaceID, &p.ProjectID, &p.Name, &p.Description, &p.CreatedAt)
+	err := s.pool.QueryRow(ctx, `INSERT INTO products(workspace_id,project_id,name,description,price_minor,currency,metadata) SELECT $1,$2,$3,$4,0,'CNY','{}' WHERE EXISTS(SELECT 1 FROM workspace_members wm JOIN projects project ON project.workspace_id=wm.workspace_id WHERE wm.workspace_id=$1 AND wm.user_id=$5 AND project.id=$2) RETURNING id::text,workspace_id::text,project_id::text,name,coalesce(description,''),created_at`, workspaceID, projectID, name, description, userID).Scan(&p.ID, &p.WorkspaceID, &p.ProjectID, &p.Name, &p.Description, &p.CreatedAt)
 	return p, err
 }
 func (s *Service) CreateSKU(ctx context.Context, userID, productID, code, name string, attributes map[string]any) (SKU, error) {
@@ -323,8 +402,13 @@ func (s *Service) CreateSKU(ctx context.Context, userID, productID, code, name s
 	return sku, err
 }
 func (s *Service) CreateAsset(ctx context.Context, userID string, a Asset) (Asset, error) {
-	err := s.pool.QueryRow(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) SELECT $1,$2,$3,$4,$5,$6,'INPUT','PENDING',$7,$8,$9,$10,'{}' WHERE EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id=$4 AND user_id=$2) RETURNING id::text,workspace_id::text,project_id,product_id::text,sku_id::text,task_id::text,kind,mime_type,size,object_key,created_at`, a.ID, userID, a.ProjectID, a.WorkspaceID, a.ProductID, a.SKUID, a.MimeType, a.Size, a.ObjectKey, a.Kind).Scan(&a.ID, &a.WorkspaceID, &a.ProjectID, &a.ProductID, &a.SKUID, &a.TaskID, &a.Kind, &a.MimeType, &a.Size, &a.ObjectKey, &a.CreatedAt)
+	err := s.pool.QueryRow(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) SELECT $1,$2,$3,$4,$5,$6,'INPUT','PENDING',$7,$8,$9,$10,'{}' WHERE EXISTS(SELECT 1 FROM workspace_members wm JOIN projects p ON p.workspace_id=wm.workspace_id JOIN products pr ON pr.project_id=p.id JOIN skus sku ON sku.product_id=pr.id WHERE wm.workspace_id=$4 AND wm.user_id=$2 AND p.id::text=$3 AND pr.id=$5 AND sku.id=$6) RETURNING id::text,workspace_id::text,project_id,product_id::text,sku_id::text,task_id::text,kind,mime_type,size,object_key,created_at`, a.ID, userID, a.ProjectID, a.WorkspaceID, a.ProductID, a.SKUID, a.MimeType, a.Size, a.ObjectKey, a.Kind).Scan(&a.ID, &a.WorkspaceID, &a.ProjectID, &a.ProductID, &a.SKUID, &a.TaskID, &a.Kind, &a.MimeType, &a.Size, &a.ObjectKey, &a.CreatedAt)
 	return a, err
+}
+func (s *Service) CanGenerate(ctx context.Context, userID, workspaceID, projectID, productID, skuID, assetID, objectKey string) (bool, error) {
+	var allowed bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM assets a JOIN skus sku ON sku.id=a.sku_id JOIN products pr ON pr.id=sku.product_id JOIN projects p ON p.id=pr.project_id JOIN workspace_members wm ON wm.workspace_id=p.workspace_id WHERE a.id=$1 AND a.user_id=$2 AND a.upload_status='UPLOADED' AND a.object_key=$3 AND a.workspace_id=$4 AND a.product_id=$5 AND a.sku_id=$6 AND a.project_id=$7 AND wm.user_id=$2)`, assetID, userID, objectKey, workspaceID, productID, skuID, projectID).Scan(&allowed)
+	return allowed, err
 }
 func (s *Service) MarkAssetUploaded(ctx context.Context, objectKey string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE assets SET upload_status='UPLOADED',updated_at=now() WHERE object_key=$1`, objectKey)
@@ -334,8 +418,27 @@ func (s *Service) RecordGeneratedAsset(ctx context.Context, userID, workspaceID,
 	if skuID == "" {
 		return nil
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,task_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,'GENERATED_RESULT','UPLOADED',$8,0,$9,'generated',jsonb_build_object('source',$9))`, newID(), userID, projectID, workspaceID, productID, skuID, taskID, mimeType, source)
-	return err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, taskID)
+	if err != nil {
+		return err
+	}
+	var exists bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM assets WHERE task_id=$1 AND kind='generated')`, taskID).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		_, err = tx.Exec(ctx, `INSERT INTO assets(id,user_id,project_id,workspace_id,product_id,sku_id,task_id,asset_role,upload_status,mime_type,size,object_key,kind,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,'GENERATED_RESULT','UPLOADED',$8,0,$9,'generated',jsonb_build_object('source',$9))`, newID(), userID, projectID, workspaceID, productID, skuID, taskID, mimeType, source)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 func (s *Service) ListSKUAssets(ctx context.Context, userID, skuID string) ([]Asset, error) {
 	rows, err := s.pool.Query(ctx, `SELECT a.id::text,a.workspace_id::text,a.project_id,a.product_id::text,a.sku_id::text,a.task_id::text,a.kind,a.mime_type,a.size,a.object_key,a.created_at FROM assets a JOIN workspace_members m ON m.workspace_id=a.workspace_id WHERE a.sku_id=$1 AND m.user_id=$2 ORDER BY a.created_at DESC`, skuID, userID)

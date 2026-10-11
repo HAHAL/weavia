@@ -13,7 +13,11 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/generation"
 )
 
-type testAuth struct{ access string }
+type testAuth struct {
+	access string
+	demo   bool
+	admin  bool
+}
 
 func (a *testAuth) Register(context.Context, string, string, string, auth.DeviceInfo) (auth.SessionResult, error) {
 	return auth.SessionResult{}, nil
@@ -24,7 +28,10 @@ func (a *testAuth) Login(context.Context, string, string, auth.DeviceInfo) (auth
 func (a *testAuth) CreateDesktopSession(context.Context, string) (map[string]any, error) {
 	return map[string]any{"loginSessionId": "login", "state": "state", "loginUrl": "http://example.test", "expiresAt": "2099-01-01T00:00:00Z"}, nil
 }
-func (a *testAuth) Authorize(context.Context, string, string) (map[string]string, error) {
+func (a *testAuth) Authorize(_ context.Context, _ string, userID string) (map[string]string, error) {
+	if userID == "" && !a.demo {
+		return nil, &auth.Error{Code: "INVALID_TOKEN", Message: "login required", Status: 401}
+	}
 	return map[string]string{"callbackUrl": "weavia://auth/callback?code=code&state=state"}, nil
 }
 func (a *testAuth) Exchange(context.Context, string, string, auth.DeviceInfo) (auth.SessionResult, error) {
@@ -44,10 +51,20 @@ func (a *testAuth) Me(_ context.Context, value string) (auth.User, error) {
 func (a *testAuth) ListDevices(context.Context, string) ([]auth.Device, error) {
 	return []auth.Device{}, nil
 }
-func (a *testAuth) RevokeDevice(context.Context, string, string) error { return nil }
+func (a *testAuth) RevokeDevice(context.Context, string, string) error          { return nil }
+func (a *testAuth) HasPermission(context.Context, string, string) (bool, error) { return a.admin, nil }
+func (a *testAuth) AuditAdmin(context.Context, string, string, string, string, string, any, any) error {
+	return nil
+}
+func (a *testAuth) ProviderStatuses(context.Context) (map[string]auth.ProviderStatus, error) {
+	return map[string]auth.ProviderStatus{"antdigital": {ID: "00000000-0000-4000-8000-000000000101", Enabled: true}, "dashscope": {ID: "00000000-0000-4000-8000-000000000105", Enabled: true}}, nil
+}
+func (a *testAuth) SetProviderEnabled(context.Context, string, string, bool, string) error {
+	return nil
+}
 
 func TestCatalogEstimateAndTemplatesCompatibility(t *testing.T) {
-	authService := &testAuth{}
+	authService := &testAuth{demo: true, admin: true}
 	server := &Server{Auth: authService, Generation: generation.NewService(false, nil, nil, nil, nil), Assets: assets.New(t.TempDir(), "secret")}
 	handler := server.Router()
 	session := call(t, handler, "POST", "/api/auth/desktop/session", map[string]any{"redirectUri": "weavia://auth/callback"}, "")
@@ -78,7 +95,7 @@ func TestCatalogEstimateAndTemplatesCompatibility(t *testing.T) {
 	if len(templates["data"].([]any)) != 3 {
 		t.Fatalf("templates = %#v", templates)
 	}
-	admin := call(t, handler, "GET", "/api/admin/ai/catalog", nil, "")
+	admin := call(t, handler, "GET", "/api/admin/ai/catalog", nil, token)
 	snapshot := admin["data"].(map[string]any)
 	if len(snapshot["models"].([]any)) != 3 || len(snapshot["bindings"].([]any)) != 3 {
 		t.Fatalf("admin catalog = %#v", snapshot)
@@ -86,6 +103,49 @@ func TestCatalogEstimateAndTemplatesCompatibility(t *testing.T) {
 	encoded, _ := json.Marshal(snapshot)
 	if bytes.Contains(encoded, []byte("APIKey")) || bytes.Contains(encoded, []byte("secret")) {
 		t.Fatalf("admin catalog exposed a credential: %s", encoded)
+	}
+}
+
+func TestProductionRejectsAnonymousDesktopAuthorizationAndAdmin(t *testing.T) {
+	authService := &testAuth{access: "valid"}
+	handler := (&Server{Auth: authService, Generation: generation.NewService(false, nil, nil, nil, nil), Assets: assets.New(t.TempDir(), "secret")}).Router()
+	for _, test := range []struct {
+		method, path string
+		body         any
+		token        string
+		want         int
+	}{
+		{"POST", "/api/auth/desktop/authorize", map[string]string{"loginSessionId": "login"}, "", 401},
+		{"GET", "/api/admin/ai/catalog", nil, "", 401},
+		{"GET", "/api/admin/ai/catalog", nil, "valid", 403},
+		{"PATCH", "/api/admin/ai/providers/00000000-0000-4000-8000-000000000101", map[string]bool{"enabled": true}, "valid", 403},
+	} {
+		encoded, _ := json.Marshal(test.body)
+		request := httptest.NewRequest(test.method, test.path, bytes.NewReader(encoded))
+		if test.token != "" {
+			request.Header.Set("Authorization", "Bearer "+test.token)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.want {
+			t.Fatalf("%s %s: got %d, want %d", test.method, test.path, response.Code, test.want)
+		}
+	}
+}
+
+func TestReadinessReflectsDependencyFailure(t *testing.T) {
+	handler := (&Server{Readiness: map[string]func(context.Context) error{
+		"database": func(context.Context) error { return nil },
+		"queue":    func(context.Context) error { return &auth.Error{Code: "DOWN", Message: "down", Status: 503} },
+		"storage":  func(context.Context) error { return nil },
+	}}).Router()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/readiness", nil))
+	if response.Code != 503 {
+		t.Fatalf("readiness=%d, want 503", response.Code)
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"queue":"failed"`)) {
+		t.Fatalf("body=%s", response.Body.String())
 	}
 }
 

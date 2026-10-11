@@ -31,7 +31,7 @@ docs/design-reference 已确认的 Design v1.0 原型参考
 ## 环境要求
 
 - Node.js 20.18+
-- pnpm 11+
+- pnpm 10.18.3（与 `packageManager` 一致）
 - Go 1.26+
 - Desktop 原生开发需 Rust stable 与 Tauri 2 系统依赖
 - 数据库开发需 PostgreSQL（仅运行迁移时必需）
@@ -51,7 +51,7 @@ cd services/backend && go test ./... && go vet ./...
 ## 启动
 
 ```bash
-docker compose up --build              # PostgreSQL + Go API + River Worker
+POSTGRES_PASSWORD=choose-a-local-password STORAGE_SIGNING_KEY=choose-a-local-secret docker compose up --build  # PostgreSQL + Go API + River Worker
 pnpm --filter @weavia/web dev       # http://localhost:3000
 pnpm --filter @weavia/admin dev     # http://localhost:3001
 pnpm --filter @weavia/desktop dev   # 浏览器 UI 开发

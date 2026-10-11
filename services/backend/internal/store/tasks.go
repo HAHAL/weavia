@@ -35,19 +35,19 @@ func (r *TaskRepository) Create(ctx context.Context, task generation.Task) (gene
 	if kind != "ai_model" && kind != "ai_commercial" && kind != "product_image_generation" {
 		kind = "image_generation"
 	}
-	row, err := r.queries.CreateTask(ctx, db.CreateTaskParams{ID: task.ID, UserID: task.UserID, Column3: kind, IdempotencyKey: task.IdempotencyKey, Input: input, CreatedAt: pgtype.Timestamptz{Time: created, Valid: true}})
+	var row struct {
+		id, userID, status, idem string
+		input, output, errorJSON []byte
+		created, updated         time.Time
+	}
+	err := r.pool.QueryRow(ctx, `INSERT INTO tasks(id,user_id,type,status,idempotency_key,input,pricing_snapshot,reserved_credits,consumed_credits,created_at,updated_at,workspace_id,product_id,sku_id,credit_reservation_id,provider,model,cost)
+	VALUES($1,$2,$3::task_type,'reserved',$4,$5,'{}'::jsonb,$6,0,$7,$7,nullif($8,'')::uuid,nullif($9,'')::uuid,nullif($10,'')::uuid,nullif($11,'')::uuid,$12,$13,$6)
+	ON CONFLICT(user_id,idempotency_key) DO UPDATE SET updated_at=tasks.updated_at
+	RETURNING id::text,user_id::text,status::text,idempotency_key,input,output,error,created_at,updated_at`, task.ID, task.UserID, kind, task.IdempotencyKey, input, task.Cost, created, task.WorkspaceID, task.ProductID, task.SKUID, task.CreditReservationID, task.Provider, task.Model).Scan(&row.id, &row.userID, &row.status, &row.idem, &row.input, &row.output, &row.errorJSON, &row.created, &row.updated)
 	if err != nil {
 		return generation.Task{}, err
 	}
-	if row.ID != task.ID {
-		return decodeRow(row.ID, row.UserID, row.Status, row.IdempotencyKey, row.Input, row.Output, row.Error, row.CreatedAt, row.UpdatedAt)
-	}
-	_, err = r.pool.Exec(ctx, `UPDATE tasks SET status='reserved',workspace_id=nullif($2,'')::uuid,product_id=nullif($3,'')::uuid,sku_id=nullif($4,'')::uuid,credit_reservation_id=nullif($5,'')::uuid,provider=$6,model=$7,cost=$8,reserved_credits=$8 WHERE id=$1`, row.ID, task.WorkspaceID, task.ProductID, task.SKUID, task.CreditReservationID, task.Provider, task.Model, task.Cost)
-	if err != nil {
-		return generation.Task{}, err
-	}
-	row.Status = "reserved"
-	return decodeRow(row.ID, row.UserID, row.Status, row.IdempotencyKey, row.Input, row.Output, row.Error, row.CreatedAt, row.UpdatedAt)
+	return decodeRow(row.id, row.userID, row.status, row.idem, row.input, row.output, row.errorJSON, pgtype.Timestamptz{Time: row.created, Valid: true}, pgtype.Timestamptz{Time: row.updated, Valid: true})
 }
 func (r *TaskRepository) Get(ctx context.Context, id string) (generation.Task, bool, error) {
 	row, err := r.queries.GetTask(ctx, id)
@@ -58,6 +58,11 @@ func (r *TaskRepository) Get(ctx context.Context, id string) (generation.Task, b
 		return generation.Task{}, false, err
 	}
 	task, err := decodeRow(row.ID, row.UserID, row.Status, row.IdempotencyKey, row.Input, row.Output, row.Error, row.CreatedAt, row.UpdatedAt)
+	if err == nil && task.Provider == "" {
+		err = r.pool.QueryRow(ctx, `SELECT p.code,m.credit_cost FROM ai_models m JOIN ai_providers p ON p.id=m.provider_id WHERE m.model_name=$1`, task.Model).Scan(&task.Provider, &task.Cost)
+		task.Request.ResolvedProvider = task.Provider
+		task.Request.ResolvedCost = task.Cost
+	}
 	return task, true, err
 }
 func (r *TaskRepository) List(ctx context.Context, userID string) ([]generation.Task, error) {
@@ -103,8 +108,8 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 	task.SKUID = request.SKUID
 	task.CreditReservationID = request.CreditReservationID
 	task.Model = request.Model
-	task.Provider = providerForModel(request.Model)
-	task.Cost = int64(10 * request.NumberOfImages)
+	task.Provider = request.ResolvedProvider
+	task.Cost = request.ResolvedCost
 	var envelope struct {
 		Outputs           []generation.Output `json:"outputs"`
 		ProviderRequestID string              `json:"providerRequestId"`
@@ -119,10 +124,4 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 		_ = json.Unmarshal(errorJSON, task.Error)
 	}
 	return task, nil
-}
-func providerForModel(model string) string {
-	if model == "qwen-image-2.0" {
-		return "dashscope"
-	}
-	return "antdigital"
 }

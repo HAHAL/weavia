@@ -64,7 +64,7 @@ interface Snapshot {
   }>;
   estimatedCost: number;
 }
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3000/api';
+const apiBase = '/api';
 
 export function AIAdminView({ view, providerId }: { view: View; providerId?: string }) {
   const [data, setData] = useState<Snapshot>();

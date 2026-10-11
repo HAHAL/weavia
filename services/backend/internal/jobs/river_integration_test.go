@@ -61,8 +61,9 @@ func TestCommercialPostgresRiverE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock := &commercialMockProvider{}
-	generationService := generation.NewService(true, mock, Enqueuer{Client: enqueueClient}, nil, repository).WithCredits(commercialService)
-	server := &httpapi.Server{Auth: auth.NewService(pool, "http://localhost:3000"), Commercial: commercialService, Generation: generationService, Assets: assets.New(t.TempDir(), "integration-secret")}
+	storage := assets.New(t.TempDir(), "integration-secret")
+	generationService := generation.NewService(true, mock, Enqueuer{Client: enqueueClient}, func(key string) (string, bool) { return storage.DataURL(key, "image/png") }, repository).WithCredits(commercialService)
+	server := &httpapi.Server{Auth: auth.NewService(pool, "http://localhost:3000"), Commercial: commercialService, Generation: generationService, Assets: storage}
 	handler := server.Router()
 
 	suffix := time.Now().UnixNano()
