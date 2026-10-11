@@ -9,10 +9,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -52,9 +54,11 @@ type SessionResult struct {
 type Error struct {
 	Code, Message string
 	Status        int
+	Cause         error
 }
 
 func (e *Error) Error() string { return e.Message }
+func (e *Error) Unwrap() error { return e.Cause }
 
 type Service struct {
 	pool      *pgxpool.Pool
@@ -71,47 +75,56 @@ func (s *Service) Register(ctx context.Context, email, password, name string, in
 	email = strings.ToLower(strings.TrimSpace(email))
 	name = strings.TrimSpace(name)
 	if !strings.Contains(email, "@") || len(password) < 8 {
-		return SessionResult{}, &Error{"INVALID_REQUEST", "邮箱格式无效或密码少于 8 位", 400}
+		return SessionResult{}, &Error{Code: "INVALID_REQUEST", Message: "邮箱格式无效或密码少于 8 位", Status: 400}
 	}
 	passwordHash, err := hashPassword(password)
 	if err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "password_hash", err)
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "transaction_begin", err)
 	}
 	defer tx.Rollback(ctx)
 	var user User
 	err = tx.QueryRow(ctx, `INSERT INTO users(email,name,status,created_at,updated_at) VALUES($1,$2,'active',now(),now()) RETURNING id::text,email,coalesce(name,''),status`, email, name).Scan(&user.ID, &user.Email, &user.Name, &user.Status)
 	if err != nil {
-		return SessionResult{}, &Error{"EMAIL_EXISTS", "该邮箱已注册", 409}
+		return SessionResult{}, s.registerFailure(ctx, "user_create", &Error{Code: "EMAIL_EXISTS", Message: "该邮箱已注册", Status: 409, Cause: err})
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO accounts(user_id,provider,provider_account_id,password_hash,created_at,updated_at) VALUES($1,'password',$2,$3,now(),now())`, user.ID, email, passwordHash)
 	if err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "password_account_create", err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO subscriptions(user_id,plan_id,status,current_period_start) SELECT $1,id,'active',now() FROM plans WHERE code='free'`, user.ID)
 	if err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "subscription_create", err)
 	}
 	var accountID string
 	err = tx.QueryRow(ctx, `INSERT INTO credit_accounts(user_id,available_balance) VALUES($1,50) RETURNING id::text`, user.ID).Scan(&accountID)
 	if err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "credits_create", err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id) VALUES($1,'topup',50,0,50,0,'registration',$2,$3,$4)`, accountID, user.ID, "registration:"+user.ID, user.ID)
 	if err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "credits_transaction_create", err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1::uuid,'user.registered','user',$1::text,jsonb_build_object('email',$2::text))`, user.ID, email)
 	if err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "audit_log_create", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return SessionResult{}, err
+		return SessionResult{}, s.registerFailure(ctx, "transaction_commit", err)
 	}
-	return s.issue(ctx, user, normalizeDevice(info, "web"))
+	result, err := s.issue(ctx, user, normalizeDevice(info, "web"))
+	if err != nil {
+		return SessionResult{}, s.registerFailure(ctx, "session_create", err)
+	}
+	return result, nil
+}
+
+func (s *Service) registerFailure(ctx context.Context, step string, err error) error {
+	slog.Error("registration failed", "request_id", middleware.GetReqID(ctx), "register_step", step, "error_detail", err.Error())
+	return fmt.Errorf("register step %s: %w", step, err)
 }
 
 func (s *Service) Login(ctx context.Context, email, password string, info DeviceInfo) (SessionResult, error) {
@@ -119,10 +132,10 @@ func (s *Service) Login(ctx context.Context, email, password string, info Device
 	var stored string
 	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,a.password_hash FROM users u JOIN accounts a ON a.user_id=u.id AND a.provider='password' WHERE u.email=$1`, strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.Email, &user.Name, &user.Status, &stored)
 	if err != nil || !verifyPassword(stored, password) {
-		return SessionResult{}, &Error{"INVALID_CREDENTIALS", "邮箱或密码错误", 401}
+		return SessionResult{}, &Error{Code: "INVALID_CREDENTIALS", Message: "邮箱或密码错误", Status: 401}
 	}
 	if user.Status != "active" {
-		return SessionResult{}, &Error{"USER_DISABLED", "账户已停用", 403}
+		return SessionResult{}, &Error{Code: "USER_DISABLED", Message: "账户已停用", Status: 403}
 	}
 	return s.issue(ctx, user, normalizeDevice(info, "web"))
 }
@@ -133,7 +146,7 @@ func (s *Service) CreateDesktopSession(ctx context.Context, redirect string) (ma
 	}
 	parsed, err := url.Parse(redirect)
 	if err != nil || parsed.Scheme != "weavia" || parsed.Host != "auth" || parsed.Path != "/callback" {
-		return nil, &Error{"INVALID_CALLBACK", "回调地址无效", 400}
+		return nil, &Error{Code: "INVALID_CALLBACK", Message: "回调地址无效", Status: 400}
 	}
 	id, state := uuid(), token()
 	expires := time.Now().Add(5 * time.Minute)
@@ -151,7 +164,7 @@ func (s *Service) CreateDesktopSession(ctx context.Context, redirect string) (ma
 func (s *Service) Authorize(ctx context.Context, loginID, userID string) (map[string]string, error) {
 	if userID == "" {
 		if !s.demoMode {
-			return nil, &Error{"INVALID_TOKEN", "请先登录", 401}
+			return nil, &Error{Code: "INVALID_TOKEN", Message: "请先登录", Status: 401}
 		}
 		userID = DemoUserID
 	}
@@ -165,10 +178,10 @@ func (s *Service) Authorize(ctx context.Context, loginID, userID string) (map[st
 	var authorized *time.Time
 	err = tx.QueryRow(ctx, `SELECT redirect_uri,state_hash,expires_at,authorized_at FROM auth_requests WHERE id=$1 FOR UPDATE`, loginID).Scan(&redirect, &state, &expires, &authorized)
 	if err != nil || !time.Now().Before(expires) {
-		return nil, &Error{"SESSION_EXPIRED", "登录请求已过期", 400}
+		return nil, &Error{Code: "SESSION_EXPIRED", Message: "登录请求已过期", Status: 400}
 	}
 	if authorized != nil {
-		return nil, &Error{"AUTH_CODE_USED", "登录请求已完成", 400}
+		return nil, &Error{Code: "AUTH_CODE_USED", Message: "登录请求已完成", Status: 400}
 	}
 	code := token()
 	_, err = tx.Exec(ctx, `UPDATE auth_requests SET user_id=$2,authorized_at=now() WHERE id=$1`, loginID, userID)
@@ -202,19 +215,19 @@ func (s *Service) Exchange(ctx context.Context, code, state string, info DeviceI
 	var user User
 	err = tx.QueryRow(ctx, `SELECT c.id::text,c.expires_at,c.used_at,r.state_hash,u.id::text,u.email,coalesce(u.name,''),u.status FROM auth_codes c JOIN auth_requests r ON r.id=c.auth_request_id JOIN users u ON u.id=r.user_id WHERE c.code_hash=$1 FOR UPDATE`, digest(code)).Scan(&codeID, &expires, &used, &stateHash, &user.ID, &user.Email, &user.Name, &user.Status)
 	if err != nil {
-		return SessionResult{}, &Error{"INVALID_TOKEN", "授权码无效", 400}
+		return SessionResult{}, &Error{Code: "INVALID_TOKEN", Message: "授权码无效", Status: 400}
 	}
 	if used != nil {
-		return SessionResult{}, &Error{"AUTH_CODE_USED", "授权码已使用", 400}
+		return SessionResult{}, &Error{Code: "AUTH_CODE_USED", Message: "授权码已使用", Status: 400}
 	}
 	if !time.Now().Before(expires) {
-		return SessionResult{}, &Error{"AUTH_CODE_EXPIRED", "授权码已过期", 400}
+		return SessionResult{}, &Error{Code: "AUTH_CODE_EXPIRED", Message: "授权码已过期", Status: 400}
 	}
 	if !hmac.Equal([]byte(stateHash), []byte(state)) {
-		return SessionResult{}, &Error{"INVALID_STATE", "登录状态校验失败", 400}
+		return SessionResult{}, &Error{Code: "INVALID_STATE", Message: "登录状态校验失败", Status: 400}
 	}
 	if user.Status != "active" {
-		return SessionResult{}, &Error{"USER_DISABLED", "账户已停用", 403}
+		return SessionResult{}, &Error{Code: "USER_DISABLED", Message: "账户已停用", Status: 403}
 	}
 	_, err = tx.Exec(ctx, `UPDATE auth_codes SET used_at=now() WHERE id=$1`, codeID)
 	if err != nil {
@@ -238,10 +251,10 @@ func (s *Service) Refresh(ctx context.Context, value string) (SessionResult, err
 	var info DeviceInfo
 	err = tx.QueryRow(ctx, `SELECT s.id::text,s.refresh_expires_at,s.revoked_at,u.id::text,u.email,coalesce(u.name,''),u.status,d.device_fingerprint_hash,d.name,d.platform,coalesce(d.app_version,'') FROM sessions s JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id WHERE s.refresh_token_hash=$1 FOR UPDATE`, digest(value)).Scan(&sessionID, &expires, &revoked, &user.ID, &user.Email, &user.Name, &user.Status, &info.DeviceID, &info.DeviceName, &info.Platform, &info.AppVersion)
 	if err != nil || revoked != nil || !time.Now().Before(expires) {
-		return SessionResult{}, &Error{"REFRESH_FAILED", "登录已失效，请重新登录", 401}
+		return SessionResult{}, &Error{Code: "REFRESH_FAILED", Message: "登录已失效，请重新登录", Status: 401}
 	}
 	if user.Status != "active" {
-		return SessionResult{}, &Error{"USER_DISABLED", "账户已停用", 403}
+		return SessionResult{}, &Error{Code: "USER_DISABLED", Message: "账户已停用", Status: 403}
 	}
 	_, err = tx.Exec(ctx, `UPDATE sessions SET revoked_at=now(),updated_at=now() WHERE id=$1`, sessionID)
 	if err != nil {
@@ -260,7 +273,7 @@ func (s *Service) Me(ctx context.Context, value string) (User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.access_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.status='active'`, digest(value)).Scan(&u.ID, &u.Email, &u.Name, &u.Status)
 	if err != nil {
-		return User{}, &Error{"INVALID_TOKEN", "访问令牌无效", 401}
+		return User{}, &Error{Code: "INVALID_TOKEN", Message: "访问令牌无效", Status: 401}
 	}
 	return u, nil
 }
@@ -296,7 +309,7 @@ func (s *Service) RevokeDevice(ctx context.Context, userID, fingerprint string) 
 		return err
 	}
 	if count == 0 {
-		return &Error{"DEVICE_NOT_FOUND", "设备不存在", 404}
+		return &Error{Code: "DEVICE_NOT_FOUND", Message: "设备不存在", Status: 404}
 	}
 	return nil
 }

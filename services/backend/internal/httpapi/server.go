@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -657,11 +658,14 @@ func respond(w http.ResponseWriter, data any, err error) {
 func ok(w http.ResponseWriter, data any) { writeJSON(w, 200, map[string]any{"data": data}) }
 func writeError(w http.ResponseWriter, err error) {
 	code, message, status := "UNKNOWN", "服务暂时不可用", 500
-	switch typed := err.(type) {
-	case *auth.Error:
-		code, message, status = typed.Code, typed.Message, typed.Status
-	case *generation.APIError:
-		code, message, status = typed.Code, typed.Message, typed.Status
+	var authErr *auth.Error
+	if errors.As(err, &authErr) {
+		code, message, status = authErr.Code, authErr.Message, authErr.Status
+	} else {
+		switch typed := err.(type) {
+		case *generation.APIError:
+			code, message, status = typed.Code, typed.Message, typed.Status
+		}
 	}
 	writeJSON(w, status, map[string]any{"code": code, "message": message})
 }
