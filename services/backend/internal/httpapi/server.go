@@ -75,6 +75,9 @@ func (s *Server) Router() http.Handler {
 			r.Get("/credits/transactions", s.creditTransactions)
 			r.Post("/workspaces", s.createWorkspace)
 			r.Get("/workspaces", s.listWorkspaces)
+			r.Get("/projects", s.listProjects)
+			r.Get("/assets", s.listAssets)
+			r.Get("/assets/{assetID}/preview", s.assetPreview)
 			r.Post("/workspaces/{workspaceID}/projects", s.createProject)
 			r.Post("/projects/{projectID}/products", s.createProduct)
 			r.Post("/products/{productID}/skus", s.createSKU)
@@ -99,8 +102,14 @@ func (s *Server) Router() http.Handler {
 			r.Get("/ai/routing", s.adminRouting)
 			r.Get("/ai/usage", s.adminUsage)
 			r.Get("/users", s.adminUsers)
+			r.Get("/overview", s.adminOverview)
+			r.Get("/plans", s.adminPlans)
+			r.Get("/orders", s.adminOrders)
+			r.Get("/payments", s.adminPayments)
+			r.Get("/devices", s.adminDevices)
 			r.Get("/credits/transactions", s.adminCreditTransactions)
 			r.Get("/tasks", s.adminTasks)
+			r.Get("/task-runs", s.adminTaskRuns)
 		})
 		r.With(s.requirePermission("provider.write")).Patch("/ai/providers/{providerID}", s.patchProvider)
 		r.With(s.requirePermission("credits.write")).Post("/credits/adjust", s.adminAdjustCredits)
@@ -329,6 +338,38 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Commercial.ListWorkspaces(r.Context(), currentUser(r).ID)
 	respond(w, data, err)
+}
+func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.ListProjects(r.Context(), currentUser(r).ID)
+	respond(w, data, err)
+}
+func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.ListAssets(r.Context(), currentUser(r).ID)
+	respond(w, data, err)
+}
+func (s *Server) assetPreview(w http.ResponseWriter, r *http.Request) {
+	preview, err := s.Commercial.GetAssetPreview(r.Context(), currentUser(r).ID, chi.URLParam(r, "assetID"))
+	if err != nil {
+		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "素材预览不可用", Status: 404})
+		return
+	}
+	var dataURL string
+	if preview.Kind == "generated" {
+		dataURL, err = s.Assets.GeneratedDataURL(preview.ObjectKey, preview.MimeType)
+	} else if strings.HasPrefix(preview.ObjectKey, "references/") {
+		var found bool
+		dataURL, found = s.Assets.DataURL(preview.ObjectKey, preview.MimeType)
+		if !found {
+			err = fmt.Errorf("asset preview missing")
+		}
+	} else {
+		err = fmt.Errorf("asset preview unavailable")
+	}
+	if err != nil {
+		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "素材预览不可用", Status: 404})
+		return
+	}
+	ok(w, map[string]string{"dataUrl": dataURL})
 }
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var b struct {
@@ -606,8 +647,17 @@ func (s *Server) adminModels(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) adminRouting(w http.ResponseWriter, _ *http.Request) {
 	ok(w, map[string]any{"logicalModels": generation.LogicalModels, "bindings": generation.Bindings})
 }
-func (s *Server) adminUsage(w http.ResponseWriter, _ *http.Request) {
-	ok(w, map[string]any{"usage": []any{}, "estimatedCost": 0})
+func (s *Server) adminUsage(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.AdminUsage(r.Context())
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	var estimatedCost float64
+	for _, item := range data {
+		estimatedCost += item.EstimatedCost
+	}
+	ok(w, map[string]any{"usage": data, "estimatedCost": estimatedCost})
 }
 func (s *Server) patchProvider(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "providerID")

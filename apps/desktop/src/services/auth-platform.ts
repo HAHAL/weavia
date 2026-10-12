@@ -1,5 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { DeviceInfo } from '@weavia/shared';
 
@@ -85,6 +85,10 @@ export const desktopPlatform: DesktopPlatform = isTauri()
       onDeepLink: (handler) =>
         onOpenUrl((urls) => {
           for (const url of urls) handler(url);
+        }).then(async (unlisten) => {
+          const urls = await getCurrent().catch(() => null);
+          for (const url of urls ?? []) handler(url);
+          return unlisten;
         }),
     }
   : new BrowserDevelopmentPlatform();

@@ -31,7 +31,7 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
   const [result, setResult] = useState<GeneratedResult>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [mode, setMode] = useState<'mock' | 'cloud'>('mock');
+  const [mode] = useState<'mock' | 'cloud'>('mock');
   const [stage, setStage] = useState<CloudGenerationStage>();
   const [models, setModels] = useState<AIModelCatalogItem[]>([]);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
@@ -308,12 +308,10 @@ export function CreationPage({ kind }: { kind: 'model' | 'commercial' }) {
         </div>
         <footer className="generate-footer">
           <div className="segments generation-mode">
-            <button className={mode === 'mock' ? 'active' : ''} onClick={() => setMode('mock')}>
+            <button className="active" type="button">
               Local Mock
             </button>
-            <button className={mode === 'cloud' ? 'active' : ''} onClick={() => setMode('cloud')}>
-              WEAVIA 专业 <Badge tone="accent">DEV</Badge>
-            </button>
+            <span className="future-provider">AI Provider · 即将接入</span>
           </div>
           <div>
             <span>{mode === 'cloud' ? '本次预计消耗' : '执行模式'}</span>

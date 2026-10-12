@@ -2,6 +2,7 @@ import '@weavia/ui/styles.css';
 import './web.css';
 import './marketing.css';
 import './auth.css';
+import './workbench.css';
 import type { Metadata } from 'next';
 import { SiteChrome } from './site-chrome';
 

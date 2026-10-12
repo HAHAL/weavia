@@ -1,4 +1,2 @@
-import { AIAdminView } from '../../components/ai-admin';
-export default function Page() {
-  return <AIAdminView view="routing" />;
-}
+import { ConsolePage } from '../../components/console-page';
+export default function Page() { return <ConsolePage section="ai" initialTab="routing"/>; }

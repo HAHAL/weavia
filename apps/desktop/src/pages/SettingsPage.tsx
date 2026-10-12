@@ -104,8 +104,8 @@ export function SettingsPage() {
         </Card>
         <Card>
           <h2>AI Provider</h2>
-          <p>本阶段仅使用 MockProvider 生成本地真实结果文件。</p>
-          <Badge>Mock only</Badge>
+          <p>商业 Demo 使用本地 Mock 任务；模型 Provider 接口保留为后续接入点。</p>
+          <Badge>Demo mode</Badge>
         </Card>
         <Card>
           <h2>账户授权</h2>

@@ -1,2 +1,2 @@
-import { Card, PageHeader } from '@weavia/ui';
-export default function AdminHome(){return <><PageHeader eyebrow="OPERATIONS" title="系统概览" description="WEAVIA V1.0 运营数据接口骨架"/><section className="stats">{[['用户','—'],['活跃会员','—'],['Credits 消耗','—'],['运行任务','—']].map(([label,value])=><Card className="stat" key={label}><span>{label}</span><strong>{value}</strong></Card>)}</section><Card className="placeholder">后端连接后显示真实业务指标；Phase 0 不生成伪造运营数据。</Card></>}
+import { ConsolePage } from '../components/console-page';
+export default function Page() { return <ConsolePage section="dashboard"/>; }

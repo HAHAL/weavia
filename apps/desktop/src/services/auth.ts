@@ -4,6 +4,7 @@ import type { DesktopPlatform, SecureTokenStore } from './auth-platform';
 
 export interface AuthSnapshot {
   status: AuthStatus;
+  loginUrl?: string | undefined;
   user?: User | undefined;
   device?: Device | undefined;
   error?: AuthErrorShape | undefined;
@@ -16,6 +17,27 @@ export interface AuthDependencies {
 export interface ParsedCallback {
   code: string;
   state: string;
+}
+
+const pendingLoginKey = 'weavia.desktop.pendingLogin';
+
+function savePendingLogin(state: string, expiresAt: string) {
+  if (typeof localStorage !== 'undefined')
+    localStorage.setItem(pendingLoginKey, JSON.stringify({ state, expiresAt }));
+}
+
+function readPendingLogin(): { state: string; expiresAt: string } | undefined {
+  if (typeof localStorage === 'undefined') return undefined;
+  try {
+    const value = localStorage.getItem(pendingLoginKey);
+    return value ? JSON.parse(value) as { state: string; expiresAt: string } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function clearPendingLoginStorage() {
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(pendingLoginKey);
 }
 
 export function parseAuthCallback(value: string): ParsedCallback {
@@ -49,26 +71,33 @@ export class DesktopAuthController {
   };
 
   async login() {
-    this.update({ status: 'starting', user: undefined, device: undefined, error: undefined });
+    this.update({ status: 'starting', user: undefined, device: undefined, loginUrl: undefined, error: undefined });
     try {
       const session = await this.dependencies.api.createDesktopSession('weavia://auth/callback');
       this.expectedState = session.state;
+      savePendingLogin(session.state, session.expiresAt);
+      this.update({ status: 'waiting_browser', loginUrl: session.loginUrl });
       this.loginTimeout = setTimeout(
         () => {
-          this.expectedState = undefined;
-          this.loginTimeout = undefined;
+          this.clearPendingLogin();
           this.update({
             status: 'error',
+            loginUrl: undefined,
             error: { code: 'SESSION_EXPIRED', message: '登录请求已超时，请重新登录' },
           });
         },
         Math.max(0, new Date(session.expiresAt).getTime() - Date.now()),
       );
       await this.dependencies.platform.openExternal(session.loginUrl);
-      this.update({ status: 'waiting_browser' });
     } catch (error) {
       this.fail(error);
     }
+  }
+
+  async reopenBrowser() {
+    if (this.snapshot.loginUrl && this.expectedState)
+      await this.dependencies.platform.openExternal(this.snapshot.loginUrl);
+    else await this.login();
   }
 
   async handleCallback(value: string) {
@@ -76,7 +105,11 @@ export class DesktopAuthController {
       if (this.handledCallbacks.has(value))
         throw { code: 'INVALID_CALLBACK', message: '该登录回调已处理' } satisfies AuthErrorShape;
       const callback = parseAuthCallback(value);
-      if (!this.expectedState || callback.state !== this.expectedState)
+      const pending = readPendingLogin();
+      const expectedState = this.expectedState ?? pending?.state;
+      if (pending && Date.parse(pending.expiresAt) <= Date.now())
+        throw { code: 'SESSION_EXPIRED', message: '登录请求已超时，请重新登录' } satisfies AuthErrorShape;
+      if (!expectedState || callback.state !== expectedState)
         throw {
           code: 'INVALID_STATE',
           message: '登录状态校验失败，请重新登录',
@@ -93,6 +126,7 @@ export class DesktopAuthController {
       this.clearPendingLogin();
       this.update({
         status: 'authenticated',
+        loginUrl: undefined,
         user: session.user,
         device: session.device,
         error: undefined,
@@ -131,6 +165,7 @@ export class DesktopAuthController {
     this.handledCallbacks.clear();
     this.update({
       status: 'unauthenticated',
+      loginUrl: undefined,
       user: undefined,
       device: undefined,
       error: undefined,
@@ -139,7 +174,7 @@ export class DesktopAuthController {
 
   cancelLogin() {
     this.clearPendingLogin();
-    this.update({ status: 'unauthenticated', error: undefined });
+    this.update({ status: 'unauthenticated', loginUrl: undefined, error: undefined });
   }
 
   private async performRefresh() {
@@ -173,7 +208,7 @@ export class DesktopAuthController {
   }
   private fail(error: unknown) {
     this.clearPendingLogin();
-    this.update({ status: 'error', user: undefined, device: undefined, error: asError(error) });
+    this.update({ status: 'error', user: undefined, device: undefined, loginUrl: undefined, error: asError(error) });
   }
   private update(next: Partial<AuthSnapshot>) {
     this.snapshot = { ...this.snapshot, ...next };
@@ -181,6 +216,7 @@ export class DesktopAuthController {
   }
   private clearPendingLogin() {
     this.expectedState = undefined;
+    clearPendingLoginStorage();
     if (this.loginTimeout) clearTimeout(this.loginTimeout);
     this.loginTimeout = undefined;
   }

@@ -8,9 +8,12 @@ import {
   RotateCcw,
   ShieldCheck,
   UserRound,
+  Wallet,
+  Crown,
 } from 'lucide-react';
 import { Button } from '@weavia/ui';
 import { authController, useAuthStore } from '../stores/auth';
+import { useAccountSummary } from '../services/account-summary';
 
 const statusCopy = {
   starting: ['正在启动登录', '正在创建安全登录请求…'],
@@ -21,6 +24,7 @@ const statusCopy = {
 
 export function AccountPage() {
   const auth = useAuthStore();
+  const { summary, error: summaryError } = useAccountSummary();
   if (auth.status === 'authenticated' && auth.user && auth.device)
     return (
       <div className="auth-page">
@@ -36,7 +40,7 @@ export function AccountPage() {
           <article>
             <UserRound />
             <small>当前用户</small>
-            <strong>{auth.user.name}</strong>
+            <strong>{auth.user.name || auth.user.email}</strong>
             <p>{auth.user.email}</p>
           </article>
           <article>
@@ -46,6 +50,18 @@ export function AccountPage() {
             <p>
               {auth.device.platform} · WEAVIA {auth.device.appVersion}
             </p>
+          </article>
+          <article>
+            <Crown />
+            <small>会员等级</small>
+            <strong>{summary?.planName ?? '—'}</strong>
+            <p>{summaryError ?? '与 Web 用户中心保持同步'}</p>
+          </article>
+          <article>
+            <Wallet />
+            <small>Credits 余额</small>
+            <strong>{summary ? summary.credits.toLocaleString('zh-CN') : '—'}</strong>
+            <p>可用 Credits</p>
           </article>
         </div>
         <Button variant="secondary" onClick={() => void authController.logout()}>
@@ -68,10 +84,11 @@ export function AccountPage() {
         </section>
         {auth.status === 'waiting_browser' && (
           <div className="auth-actions">
-            <Button onClick={() => void authController.login()}>
+            <Button onClick={() => void authController.reopenBrowser()}>
               <ExternalLink size={15} />
               重新打开浏览器
             </Button>
+            {auth.loginUrl && <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(auth.loginUrl!)}>复制登录链接</Button>}
             <Button variant="secondary" onClick={() => authController.cancelLogin()}>
               取消
             </Button>

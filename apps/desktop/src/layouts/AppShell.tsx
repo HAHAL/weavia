@@ -1,6 +1,5 @@
 import {
   Archive,
-  Camera,
   FolderKanban,
   History,
   Home,
@@ -12,11 +11,11 @@ import {
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Badge } from '@weavia/ui';
 import { useAuthStore } from '../stores/auth';
+import { useAccountSummary } from '../services/account-summary';
 const primary = [
   [Home, '首页', '/'],
   [FolderKanban, '项目', '/projects'],
-  [Sparkles, 'AI 模特', '/create/model'],
-  [Camera, 'AI 商拍', '/create/commercial'],
+  [Sparkles, '创建任务', '/create'],
   [Archive, '任务中心', '/tasks'],
   [Image, '素材库', '/assets'],
   [History, '作品中心', '/results'],
@@ -24,6 +23,7 @@ const primary = [
 export function AppShell() {
   const location = useLocation();
   const auth = useAuthStore();
+  const { summary } = useAccountSummary();
   const title =
     primary.find(([, , href]) => href === location.pathname)?.[1] ??
     (location.pathname === '/settings'
@@ -52,7 +52,6 @@ export function AppShell() {
             <NavLink key={href} to={href} end={href === '/'}>
               <Icon size={17} />
               <span>{label}</span>
-              {label === '任务中心' && <i>2</i>}
             </NavLink>
           ))}
         </nav>
@@ -67,8 +66,8 @@ export function AppShell() {
           </NavLink>
           <div className="plan-card">
             <div>
-              <Badge tone="accent">PRO</Badge>
-              <span>12,850 Credits</span>
+              <Badge tone="accent">{summary?.planCode?.toUpperCase() ?? 'WEAVIA'}</Badge>
+              <span>{summary ? `${summary.credits.toLocaleString('zh-CN')} Credits` : '— Credits'}</span>
             </div>
             <small>
               {auth.status === 'authenticated' ? auth.user?.email : '登录后同步会员状态'}
@@ -84,7 +83,7 @@ export function AppShell() {
           </div>
           <div className="top-actions">
             <span className="sync-dot" />
-            本地已同步 <Badge tone="accent">12,850</Badge>
+            本地工作区 <Badge tone="accent">{summary ? summary.planName : 'WEAVIA'}</Badge>
             <NavLink to="/account" className="avatar">
               {initials}
             </NavLink>

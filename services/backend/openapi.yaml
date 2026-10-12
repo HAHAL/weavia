@@ -100,6 +100,22 @@ paths:
       parameters: [{ name: workspaceId, in: path, required: true, schema: { type: string, format: uuid } }]
       requestBody: { $ref: '#/components/requestBodies/JSON' }
       responses: { '200': { $ref: '#/components/responses/Success' } }
+  /projects:
+    get:
+      operationId: listProjects
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets:
+    get:
+      operationId: listAssets
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets/{assetId}/preview:
+    get:
+      operationId: getAssetPreview
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: assetId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
   /projects/{projectId}/products:
     post:
       operationId: createProduct
@@ -217,6 +233,31 @@ paths:
       operationId: adminUsers
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/overview:
+    get:
+      operationId: adminOverview
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/plans:
+    get:
+      operationId: adminPlans
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/orders:
+    get:
+      operationId: adminOrders
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/payments:
+    get:
+      operationId: adminPayments
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/devices:
+    get:
+      operationId: adminDevices
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/credits/transactions:
     get:
       operationId: adminCreditTransactions
@@ -225,6 +266,11 @@ paths:
   /admin/tasks:
     get:
       operationId: adminTasks
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/task-runs:
+    get:
+      operationId: adminTaskRuns
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/credits/adjust:

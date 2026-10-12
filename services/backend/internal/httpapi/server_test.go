@@ -117,7 +117,22 @@ func TestProductionRejectsAnonymousDesktopAuthorizationAndAdmin(t *testing.T) {
 	}{
 		{"POST", "/api/auth/desktop/authorize", map[string]string{"loginSessionId": "login"}, "", 401},
 		{"GET", "/api/admin/ai/catalog", nil, "", 401},
+		{"GET", "/api/admin/overview", nil, "", 401},
+		{"GET", "/api/admin/orders", nil, "", 401},
+		{"GET", "/api/admin/payments", nil, "", 401},
+		{"GET", "/api/admin/devices", nil, "", 401},
+		{"GET", "/api/admin/plans", nil, "", 401},
+		{"GET", "/api/admin/task-runs", nil, "", 401},
+		{"GET", "/api/projects", nil, "", 401},
+		{"GET", "/api/assets", nil, "", 401},
+		{"GET", "/api/assets/00000000-0000-4000-8000-000000000001/preview", nil, "", 401},
 		{"GET", "/api/admin/ai/catalog", nil, "valid", 403},
+		{"GET", "/api/admin/overview", nil, "valid", 403},
+		{"GET", "/api/admin/orders", nil, "valid", 403},
+		{"GET", "/api/admin/payments", nil, "valid", 403},
+		{"GET", "/api/admin/devices", nil, "valid", 403},
+		{"GET", "/api/admin/plans", nil, "valid", 403},
+		{"GET", "/api/admin/task-runs", nil, "valid", 403},
 		{"PATCH", "/api/admin/ai/providers/00000000-0000-4000-8000-000000000101", map[string]bool{"enabled": true}, "valid", 403},
 	} {
 		encoded, _ := json.Marshal(test.body)

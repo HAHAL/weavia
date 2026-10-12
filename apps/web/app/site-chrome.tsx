@@ -3,12 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { WorkbenchShell } from '../components/dashboard/shell';
 
 const links = [['/product', '产品能力'], ['/pricing', '定价'], ['/download', '下载客户端']] as const;
 
 export function SiteChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   if (pathname === '/login' || pathname === '/signup') return <>{children}</>;
+  if (['/account', '/credits', '/projects', '/assets', '/create', '/membership', '/orders', '/settings'].some((route) => pathname === route || pathname.startsWith(`${route}/`))) return <WorkbenchShell>{children}</WorkbenchShell>;
 
   return <>
     <header className="site-nav"><Link className="wordmark" href="/" aria-label="WEAVIA 首页">WEAVIA <span>织维</span></Link><nav aria-label="主导航">{links.map(([href, label]) => <Link key={href} href={href}>{label}</Link>)}</nav><Link className="login-link" href="/login">登录 / 注册</Link></header>

@@ -65,7 +65,7 @@ export function DesktopLogin({ mode }: { mode: Mode }) {
           </Link></div>
         </form>
       )}
-      {view === 'success' && <p>{loginSessionId ? '正在返回 WEAVIA Desktop…' : '正在进入账户中心…'}</p>}
+      {view === 'success' && <p>{loginSessionId ? '正在返回 WEAVIA Desktop…' : '正在进入创作工作台…'}</p>}
     </Card>
   );
 }

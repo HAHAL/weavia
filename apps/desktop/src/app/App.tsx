@@ -5,7 +5,8 @@ import { HomePage } from '../pages/HomePage';
 import { ProjectsPage } from '../pages/ProjectsPage';
 import { CreationPage } from '../pages/CreationPage';
 import { TasksPage } from '../pages/TasksPage';
-import { PlaceholderPage } from '../pages/PlaceholderPage';
+import { AssetsPage } from '../pages/AssetsPage';
+import { CreateTaskPage } from '../pages/CreateTaskPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { AccountPage } from '../pages/AccountPage';
 import { AuthBootstrap } from '../components/AuthBootstrap';
@@ -26,19 +27,12 @@ export function App() {
             element={<CreationPage kind="commercial" />}
           />
           <Route path="/projects/:projectId/tasks" element={<TasksPage />} />
+          <Route path="/create" element={<CreateTaskPage />} />
           <Route path="/create/model" element={<Navigate to="/projects" replace />} />
           <Route path="/create/commercial" element={<Navigate to="/projects" replace />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/results" element={<ResultCenterPage />} />
-          <Route
-            path="/assets"
-            element={
-              <PlaceholderPage
-                title="素材库"
-                description="项目素材将在接入本地数据库后显示在这里。"
-              />
-            }
-          />
+          <Route path="/assets" element={<AssetsPage />} />
           <Route path="/history" element={<Navigate to="/results" replace />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/settings" element={<SettingsPage />} />

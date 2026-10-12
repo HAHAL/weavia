@@ -65,11 +65,15 @@ type Workspace struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 type Project struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspaceId"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID           string    `json:"id"`
+	WorkspaceID  string    `json:"workspaceId"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	ProductCount int64     `json:"productCount"`
+	ImageCount   int64     `json:"imageCount"`
+	VideoCount   int64     `json:"videoCount"`
 }
 type Product struct {
 	ID          string    `json:"id"`
@@ -99,6 +103,11 @@ type Asset struct {
 	Size        int64     `json:"size"`
 	ObjectKey   *string   `json:"objectKey,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+}
+type AssetPreview struct {
+	ObjectKey string
+	MimeType  string
+	Kind      string
 }
 
 func (s *Service) Plans(ctx context.Context) ([]Plan, error) {
@@ -405,6 +414,51 @@ func (s *Service) ListWorkspaces(ctx context.Context, userID string) ([]Workspac
 func (s *Service) CreateProject(ctx context.Context, userID, workspaceID, name, description string) (Project, error) {
 	var p Project
 	err := s.pool.QueryRow(ctx, `INSERT INTO projects(workspace_id,name,description) SELECT $1,$2,$3 WHERE EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id=$1 AND user_id=$4) RETURNING id::text,workspace_id::text,name,coalesce(description,''),created_at`, workspaceID, name, description, userID).Scan(&p.ID, &p.WorkspaceID, &p.Name, &p.Description, &p.CreatedAt)
+	p.UpdatedAt = p.CreatedAt
+	return p, err
+}
+func (s *Service) ListProjects(ctx context.Context, userID string) ([]Project, error) {
+	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.workspace_id::text,p.name,coalesce(p.description,''),p.created_at,
+		greatest(p.updated_at,coalesce(max(a.created_at),p.updated_at)),
+		count(DISTINCT product.id),count(DISTINCT a.id) FILTER (WHERE a.mime_type LIKE 'image/%' AND a.kind='generated'),
+		count(DISTINCT a.id) FILTER (WHERE a.mime_type LIKE 'video/%' AND a.kind='generated')
+		FROM projects p JOIN workspace_members m ON m.workspace_id=p.workspace_id AND m.user_id=$1
+		LEFT JOIN products product ON product.project_id=p.id LEFT JOIN assets a ON a.project_id=p.id::text
+		GROUP BY p.id ORDER BY greatest(p.updated_at,coalesce(max(a.created_at),p.updated_at)) DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Project{}
+	for rows.Next() {
+		var p Project
+		if err = rows.Scan(&p.ID, &p.WorkspaceID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.ProductCount, &p.ImageCount, &p.VideoCount); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+func (s *Service) ListAssets(ctx context.Context, userID string) ([]Asset, error) {
+	rows, err := s.pool.Query(ctx, `SELECT a.id::text,coalesce(a.workspace_id::text,''),a.project_id,coalesce(a.product_id::text,''),coalesce(a.sku_id::text,''),a.task_id::text,coalesce(a.kind,'source'),a.mime_type,a.size,a.object_key,a.created_at
+		FROM assets a WHERE a.user_id=$1 AND a.upload_status='UPLOADED' ORDER BY a.created_at DESC LIMIT 200`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Asset{}
+	for rows.Next() {
+		var a Asset
+		if err = rows.Scan(&a.ID, &a.WorkspaceID, &a.ProjectID, &a.ProductID, &a.SKUID, &a.TaskID, &a.Kind, &a.MimeType, &a.Size, &a.ObjectKey, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+func (s *Service) GetAssetPreview(ctx context.Context, userID, assetID string) (AssetPreview, error) {
+	var p AssetPreview
+	err := s.pool.QueryRow(ctx, `SELECT object_key,mime_type,kind FROM assets WHERE id=$1 AND user_id=$2 AND upload_status='UPLOADED' AND mime_type LIKE 'image/%'`, assetID, userID).Scan(&p.ObjectKey, &p.MimeType, &p.Kind)
 	return p, err
 }
 func (s *Service) CreateProduct(ctx context.Context, userID, workspaceID, projectID, name, description string) (Product, error) {
@@ -482,20 +536,21 @@ func (s *Service) ListSKUAssets(ctx context.Context, userID, skuID string) ([]As
 }
 
 func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(c.available_balance,0),u.created_at FROM users u LEFT JOIN LATERAL(SELECT plan_id FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at FROM users u LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, email, name, status, plan string
+		var id, email, name, status, plan, membershipStatus string
+		var membershipExpiresAt *time.Time
 		var balance int64
 		var created time.Time
-		if err = rows.Scan(&id, &email, &name, &status, &plan, &balance, &created); err != nil {
+		if err = rows.Scan(&id, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "credits": balance, "createdAt": created})
+		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created})
 	}
 	return out, rows.Err()
 }
@@ -518,21 +573,21 @@ func (s *Service) AdminCreditTransactions(ctx context.Context) ([]map[string]any
 	return out, rows.Err()
 }
 func (s *Service) AdminTasks(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id::text,user_id::text,status,coalesce(provider,''),coalesce(model,''),cost,workspace_id::text,product_id::text,sku_id::text,created_at FROM tasks ORDER BY created_at DESC LIMIT 500`)
+	rows, err := s.pool.Query(ctx, `SELECT id::text,user_id::text,type::text,status,coalesce(provider,''),coalesce(model,''),cost,workspace_id::text,product_id::text,sku_id::text,created_at FROM tasks ORDER BY created_at DESC LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, userID, status, provider, model string
+		var id, userID, taskType, status, provider, model string
 		var cost int64
 		var workspaceID, productID, skuID *string
 		var created time.Time
-		if err = rows.Scan(&id, &userID, &status, &provider, &model, &cost, &workspaceID, &productID, &skuID, &created); err != nil {
+		if err = rows.Scan(&id, &userID, &taskType, &status, &provider, &model, &cost, &workspaceID, &productID, &skuID, &created); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "userId": userID, "status": status, "provider": provider, "model": model, "cost": cost, "workspaceId": workspaceID, "productId": productID, "skuId": skuID, "createdAt": created})
+		out = append(out, map[string]any{"id": id, "userId": userID, "type": taskType, "status": status, "provider": provider, "model": model, "cost": cost, "workspaceId": workspaceID, "productId": productID, "skuId": skuID, "createdAt": created})
 	}
 	return out, rows.Err()
 }

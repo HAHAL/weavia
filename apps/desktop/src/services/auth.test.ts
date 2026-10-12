@@ -116,6 +116,25 @@ describe('desktop auth controller', () => {
     const { platform } = setup();
     expect(await platform.getDeviceInfo()).toEqual(await platform.getDeviceInfo());
   });
+  it('accepts a callback after the desktop webview restarts', async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    });
+    try {
+      const { controller, api, tokens, platform } = setup();
+      await controller.login();
+      const restarted = new DesktopAuthController({ api, tokens, platform });
+      await restarted.handleCallback('weavia://auth/callback?code=one-time&state=expected');
+      expect(restarted.getSnapshot().status).toBe('authenticated');
+      expect(values.size).toBe(0);
+      controller.cancelLogin();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('clears pending state when the browser login expires', async () => {
     vi.useFakeTimers();
     const { controller } = setup({

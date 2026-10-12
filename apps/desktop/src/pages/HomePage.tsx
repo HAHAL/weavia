@@ -29,7 +29,7 @@ export function HomePage() {
       />
       <section className="quick-grid">
         <Link
-          to={projects[0] ? `/projects/${projects[0].id}/create/model` : '/projects'}
+          to="/create"
           className="quick-card quick-model"
         >
           <div>
