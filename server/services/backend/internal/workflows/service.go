@@ -59,6 +59,11 @@ func (s *Service) Save(ctx context.Context, userID, id, name string, graph json.
 	return item, err
 }
 
+func (s *Service) Delete(ctx context.Context, userID, id string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM workflows WHERE id=$1 AND user_id=$2`, id, userID)
+	return err
+}
+
 func (s *Service) StartRun(ctx context.Context, userID, workflowID string, graph json.RawMessage) (Run, error) {
 	var run Run
 	err := s.pool.QueryRow(ctx, `INSERT INTO workflow_runs(workflow_id,user_id,status,graph) SELECT id,$2,'running',$3 FROM workflows WHERE id=$1 AND user_id=$2 RETURNING id::text,workflow_id::text,status,started_at`, workflowID, userID, graph).Scan(&run.ID, &run.WorkflowID, &run.Status, &run.StartedAt)

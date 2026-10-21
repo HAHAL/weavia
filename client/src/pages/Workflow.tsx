@@ -5,7 +5,7 @@ import { CheckCircle2, CircleDashed, LoaderCircle, Play, Plus, Save, Trash2, XCi
 import { Badge, Button, Card, Field, StatePanel } from '../components/ui';
 import { useApp } from '../stores/app';
 import { createTask } from '../services/tasks';
-import { listWorkflows, listWorkflowRuns, saveWorkflow, startWorkflowRun, finishWorkflowRun, type WorkflowRecord, type WorkflowRun } from '../services/workflows';
+import { deleteWorkflow, listWorkflows, listWorkflowRuns, saveWorkflow, startWorkflowRun, finishWorkflowRun, type WorkflowRecord, type WorkflowRun } from '../services/workflows';
 
 type Kind = 'input' | 'prompt' | 'image' | 'output';
 type RunState = 'idle' | 'queued' | 'running' | 'success' | 'error';
@@ -88,6 +88,7 @@ export function WorkflowPage() {
   const [workflowName, setWorkflowName] = useState('商品主图工作流');
   const [saved, setSaved] = useState(false);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const node = nodes.find(item => item.id === selected);
   const nodeTypesMemo = useMemo(() => nodeTypes, []);
@@ -108,23 +109,29 @@ export function WorkflowPage() {
   async function saveRemote() {
     try {
       const record = await saveWorkflow(workflowId, workflowName, snapshot());
-      setWorkflowId(record.id); setSaved(true); notify('工作流已保存到云端');
+      setWorkflowId(record.id); setSaved(true); setWorkflows(current => [record, ...current.filter(item => item.id !== record.id)]); notify('工作流已保存到云端');
     } catch (error) { notify(error instanceof Error ? error.message : '保存失败'); }
   }
   async function loadRemote() {
     try {
       const items = await listWorkflows();
+      setWorkflows(items);
       if (!items.length) { notify('还没有云端工作流'); return; }
       const record = items[0];
       applyRecord(record); notify(`已载入 ${record.name}`);
     } catch (error) { notify(error instanceof Error ? error.message : '载入失败'); }
+  }
+  async function removeWorkflow() {
+    if (!workflowId) return;
+    try { await deleteWorkflow(workflowId); setWorkflows(current => current.filter(item => item.id !== workflowId)); const next = workflows.find(item => item.id !== workflowId); if (next) applyRecord(next); else { setWorkflowId(null); setWorkflowName('未命名工作流'); setSaved(false); setRuns([]); } notify('工作流已删除'); }
+    catch (error) { notify(error instanceof Error ? error.message : '删除失败'); }
   }
   function applyRecord(record: WorkflowRecord) {
     setWorkflowId(record.id); setWorkflowName(record.name);
     void listWorkflowRuns(record.id).then(setRuns).catch(() => setRuns([]));
     setNodes((record.graph.nodes || []) as WFNode[]); setEdges((record.graph.edges || []) as Edge[]); setStatus('idle'); setLog([]); setSaved(true);
   }
-  useEffect(() => { void listWorkflows().then(items => { if (items[0]) applyRecord(items[0]); }).catch(() => {}); }, []);
+  useEffect(() => { void listWorkflows().then(items => { setWorkflows(items); if (items[0]) applyRecord(items[0]); }).catch(() => {}); }, []);
   function resetRuns() {
     setNodes(current => current.map(item => ({ ...item, data: { ...item.data, run: 'queued', result: undefined, error: undefined } })));
     setLog([]); setStatus('running');
@@ -196,13 +203,13 @@ export function WorkflowPage() {
   }
 
   return <div className="page workflow-page">
-    <div className="page-header"><div><span className="home-eyebrow">Workflow Studio</span><h1>DAG 工作流</h1><p>连接节点，按依赖顺序执行；保存工作流图与每次运行记录。</p></div><div className="header-actions"><Button variant="secondary" onClick={() => void loadRemote()}>载入</Button><Button variant="secondary" onClick={() => void saveRemote()}><Save size={15} /> 保存</Button><Button onClick={() => void execute()} disabled={status === 'running'}><Play size={15} /> {status === 'running' ? '运行中…' : '运行 DAG'}</Button></div></div>
+    <div className="page-header"><div><span className="home-eyebrow">Workflow Studio</span><h1>DAG 工作流</h1><p>连接节点，按依赖顺序执行；保存工作流图与每次运行记录。</p></div><div className="header-actions"><select className="workflow-select" aria-label="选择工作流" value={workflowId || ''} onChange={event => { const record = workflows.find(item => item.id === event.target.value); if (record) applyRecord(record); }}><option value="">新工作流</option>{workflows.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><Button variant="secondary" onClick={() => void loadRemote()}>刷新</Button><Button variant="ghost" onClick={() => void removeWorkflow()} disabled={!workflowId}>删除</Button><Button variant="secondary" onClick={() => void saveRemote()}><Save size={15} /> 保存</Button><Button onClick={() => void execute()} disabled={status === 'running'}><Play size={15} /> {status === 'running' ? '运行中…' : '运行 DAG'}</Button></div></div>
     <div className="workflow-layout">
       <Card className="node-library"><h2>节点库</h2><p className="node-library-hint">添加节点后拖动连接</p>{kinds.map(item => <button type="button" key={item.kind} onClick={() => add(item.kind)}><Plus size={15} /><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}<div className="workflow-legend"><span><i className="legend-dot queued" />待执行</span><span><i className="legend-dot running" />执行中</span><span><i className="legend-dot success" />成功</span><span><i className="legend-dot error" />失败</span></div></Card>
       <div className="flow-canvas" aria-label="工作流画布"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypesMemo} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, next) => setSelected(next.id)} fitView><Background gap={22} size={1} /><MiniMap /><Controls /></ReactFlow></div>
       <Card className="node-inspector"><div className="workflow-name-row"><input aria-label="工作流名称" value={workflowName} onChange={event => { setWorkflowName(event.target.value); setSaved(false); }} /><Badge tone={saved ? 'success' : 'neutral'}>{saved ? '已保存' : '未保存'}</Badge></div><h2>节点参数</h2>{node ? <><div className="wf-inspector-kind"><Badge>{kinds.find(item => item.kind === node.data.kind)?.label}</Badge><small>{node.id}</small></div><Field label="节点名称"><input value={node.data.label} onChange={event => patchNode(node.id, { label: event.target.value })} /></Field>{node.data.kind === 'input' && <Field label="输入内容"><textarea rows={4} value={node.data.value || ''} onChange={event => patchNode(node.id, { value: event.target.value })} placeholder="商品名或创作要求" /></Field>}{node.data.kind === 'prompt' && <Field label="提示词模板"><textarea rows={5} value={node.data.prompt || ''} onChange={event => patchNode(node.id, { prompt: event.target.value })} placeholder="使用 {{input}} 引用上游内容" /></Field>}{node.data.kind === 'image' && <Field label="图片模型"><select value={node.data.modelId || 'image-balanced'} onChange={event => patchNode(node.id, { modelId: event.target.value })}><option value="image-balanced">WEAVIA Pro</option><option value="image-detail">WEAVIA Detail</option></select></Field>}{node.data.result && <div className="wf-node-result"><small>最近结果</small><strong>{node.data.result}</strong></div>}{node.data.error && <p className="form-error" role="alert">{node.data.error}</p>}<Button variant="danger" onClick={() => { setNodes(current => current.filter(item => item.id !== node.id)); setEdges(current => current.filter(edge => edge.source !== node.id && edge.target !== node.id)); setSelected(null); }}><Trash2 size={15} /> 删除节点</Button></> : <StatePanel type="empty" title="选择节点" detail="单击画布中的节点查看参数。" />}
         <div className="execution-result"><h3>运行日志 <Badge tone={status === 'success' ? 'success' : status === 'error' ? 'danger' : status === 'running' ? 'info' : 'neutral'}>{status === 'success' ? '完成' : status === 'error' ? '失败' : status === 'running' ? '运行中' : '待运行'}</Badge></h3>{log.length ? <div className="wf-log">{log.map((line, index) => <p key={`${line}-${index}`} className={line.startsWith('✗') ? 'error' : line.startsWith('✓') ? 'success' : ''}>{line}</p>)}</div> : <p className="muted">运行后会显示每个节点的状态与结果。</p>}</div>
-        <div className="workflow-run-history"><h3>最近运行 <Badge>{runs.length}</Badge></h3>{runs.length ? runs.slice(0, 5).map(run => <div key={run.id} className="workflow-run-row"><Badge tone={run.status === 'success' ? 'success' : run.status === 'failed' ? 'danger' : 'info'}>{run.status === 'success' ? '成功' : run.status === 'failed' ? '失败' : '运行中'}</Badge><span>{new Date(run.startedAt).toLocaleString('zh-CN')}</span></div>) : <p className="muted">还没有运行记录。</p>}</div>
+        <div className="workflow-run-history"><h3>最近运行 <Badge>{runs.length}</Badge></h3>{runs.length ? runs.slice(0, 5).map(run => <div key={run.id} className="workflow-run-row"><div><Badge tone={run.status === 'success' ? 'success' : run.status === 'failed' ? 'danger' : 'info'}>{run.status === 'success' ? '成功' : run.status === 'failed' ? '失败' : '运行中'}</Badge>{run.error && <small>{run.error}</small>}</div><span>{new Date(run.startedAt).toLocaleString('zh-CN')}</span></div>) : <p className="muted">还没有运行记录。</p>}</div>
       </Card>
     </div>
   </div>;

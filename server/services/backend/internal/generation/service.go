@@ -275,6 +275,25 @@ func (s *Service) Get(ctx context.Context, userID, taskID string) (Task, bool, e
 func (s *Service) List(ctx context.Context, userID string) ([]Task, error) {
 	return s.repository.List(ctx, userID)
 }
+func (s *Service) CleanupStaleVideo(ctx context.Context, olderThan time.Duration) (int, error) {
+	tasks, err := s.repository.ListRunningVideo(ctx)
+	if err != nil {
+		return 0, err
+	}
+	cleaned := 0
+	for _, task := range tasks {
+		created, parseErr := time.Parse(time.RFC3339Nano, task.CreatedAt)
+		if parseErr != nil || time.Since(created) < olderThan {
+			continue
+		}
+		if err := s.fail(ctx, &task, "TIMEOUT", "视频任务超时，已自动关闭"); err != nil {
+			return cleaned, err
+		}
+		cleaned++
+	}
+	return cleaned, nil
+}
+
 func (s *Service) ResumeVideoTasks(ctx context.Context) {
 	tasks, err := s.repository.ListRunningVideo(ctx)
 	if err != nil {

@@ -99,3 +99,15 @@ func (s *Server) finishWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]bool{"saved": true})
 }
+
+func (s *Server) deleteWorkflow(w http.ResponseWriter, r *http.Request) {
+	if s.Workflows == nil {
+		writeError(w, &generation.APIError{Code: "UNAVAILABLE", Message: "工作流服务未初始化", Status: 503})
+		return
+	}
+	if err := s.Workflows.Delete(r.Context(), currentUser(r).ID, chi.URLParam(r, "workflowID")); err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]bool{"deleted": true})
+}

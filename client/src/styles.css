@@ -474,3 +474,7 @@ button,a,select{touch-action:manipulation}h1,h2,h3{text-wrap:balance}.search-box
 .workflow-run-history h3{display:flex;align-items:center;justify-content:space-between;margin:0 0 7px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
 .workflow-run-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:9px;color:var(--muted)}
 .workflow-run-row:last-child{border-bottom:0}
+
+.workflow-select{max-width:190px;min-height:32px;padding:4px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);font-size:10px}
+.workflow-run-row>div{display:flex;align-items:center;gap:6px;min-width:0}
+.workflow-run-row small{font-size:8px;color:var(--danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px}
