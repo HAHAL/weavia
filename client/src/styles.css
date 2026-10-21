@@ -478,3 +478,7 @@ button,a,select{touch-action:manipulation}h1,h2,h3{text-wrap:balance}.search-box
 .workflow-select{max-width:190px;min-height:32px;padding:4px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);font-size:10px}
 .workflow-run-row>div{display:flex;align-items:center;gap:6px;min-width:0}
 .workflow-run-row small{font-size:8px;color:var(--danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px}
+
+.wf-state-skipped{opacity:.62;border-style:dashed}
+.wf-state-skipped .wf-node-state{color:var(--faint)}
+.legend-dot.skipped{background:var(--faint);opacity:.5}
