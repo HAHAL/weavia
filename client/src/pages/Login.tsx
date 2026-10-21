@@ -11,6 +11,7 @@ export function LoginPage() {
   const { user, status, login } = useAuth();
   const [email, setEmail] = useState(import.meta.env.DEV ? 'dev@weavia.local' : '');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const busy = status === 'loading';
 
@@ -18,7 +19,7 @@ export function LoginPage() {
     event.preventDefault();
     if (!email.trim() || !password) { setError('请输入邮箱和密码'); return; }
     setError('');
-    try { await login(email.trim(), password); navigate('/'); }
+    try { await login(email.trim(), password, remember); navigate('/'); }
     catch (err) { setError(err instanceof Error ? err.message : '登录失败'); }
   }
 
@@ -30,6 +31,7 @@ export function LoginPage() {
     <form className="auth-form" onSubmit={submit}>
       <Field label="邮箱"><input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></Field>
       <Field label="密码"><input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="输入密码" /></Field>
+      <label className="auth-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /><span>10 天内自动登录</span><small>仅保存登录会话，不保存密码</small></label>
       {error && <p className="form-error auth-error" role="alert">{error}</p>}
       <Button className="auth-submit" type="submit" disabled={busy}>{busy ? '登录中…' : '登录'}</Button>
     </form>

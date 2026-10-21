@@ -1,13 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpRight, Ban, RotateCcw } from 'lucide-react';
+import { ArrowUpRight, Ban, Copy, Image as ImageIcon, RotateCcw, Search, Video, XCircle } from 'lucide-react';
 import { Badge, Button, Card, Dialog, StatePanel } from '../components/ui';
 import { useAssetPreview } from '../hooks/useAssetPreview';
 import { cancelTask, runMockTask } from '../services/tasks';
 import { useApp } from '../stores/app';
 import type { Task } from '../types';
 
-const tone = (status: Task['status']) => status === 'Succeeded' ? 'success' : status === 'Failed' ? 'danger' : status === 'Running' ? 'info' : status === 'Cancelled' ? 'warning' : 'neutral';
+const statusMeta: Record<Task['status'], { label: string; tone: 'success' | 'danger' | 'warning' | 'neutral' | 'info' }> = {
+  Succeeded: { label: '已完成', tone: 'success' },
+  Failed: { label: '失败', tone: 'danger' },
+  Running: { label: '生成中', tone: 'info' },
+  Queued: { label: '排队中', tone: 'neutral' },
+  Cancelled: { label: '已取消', tone: 'warning' },
+};
 
 function TaskAsset({ id, label }: { id: string; label: string }) {
   const asset = useApp(state => state.assets.find(item => item.id === id));
@@ -18,30 +24,79 @@ function TaskAsset({ id, label }: { id: string; label: string }) {
   </div>;
 }
 
+function CopyId({ value, label }: { value: string; label: string }) {
+  const notify = useApp(state => state.notify);
+  async function copy() {
+    try { await navigator.clipboard.writeText(value); notify(`${label}已复制`); }
+    catch { notify('复制失败，请手动选择'); }
+  }
+  return <button type="button" className="task-id-copy" onClick={() => void copy()} title={`复制${label}`}>
+    <code>{value}</code><Copy size={13} aria-hidden="true" />
+  </button>;
+}
+
+function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
+  const navigate = useNavigate();
+  const { notify } = useApp();
+  const meta = statusMeta[task.status];
+  const running = task.status === 'Running' || task.status === 'Queued';
+  function retry() {
+    onClose();
+    navigate('/', { state: { retryPrompt: task.prompt } });
+  }
+  return <Dialog title="任务详情" onClose={onClose} wide><div className="dialog-content task-detail">
+    <div className="task-detail-head"><div><Badge tone={meta.tone}>{meta.label}</Badge><h2>{task.title}</h2><p>{task.mode === 'image' ? '图片创作' : '视频创作'} · {new Date(task.createdAt).toLocaleString('zh-CN')}</p></div><div className="task-detail-result">{task.outputDataUrl && task.mode === 'video' ? <video controls src={task.outputDataUrl} /> : task.mode === 'video' ? <div className="task-result-placeholder"><Video size={22} /><span>{running ? '视频生成中' : '暂无视频结果'}</span></div> : <div className="task-result-placeholder"><ImageIcon size={22} /><span>{running ? '图片生成中' : '结果在作品中心'}</span></div>}</div></div>
+    <div className="task-facts"><div><small>执行来源</small><strong>{task.source === 'live' ? '云端' : '演示'}</strong></div><div><small>进度</small><strong>{task.progress}%</strong></div><div><small>类型</small><strong>{task.mode === 'image' ? '图片' : '视频'}</strong></div><div><small>创建时间</small><strong>{new Date(task.createdAt).toLocaleDateString('zh-CN')}</strong></div></div>
+    <section className="task-detail-section"><h3>任务标识</h3><div className="task-id-grid"><div><span>平台任务 ID</span><CopyId value={task.id} label="平台任务 ID" /></div></div></section>
+    <section className="task-detail-section"><h3>创作描述</h3><p className="task-prompt-full">{task.prompt}</p></section>
+    {task.error && <section className="task-detail-section task-error-block"><h3><XCircle size={15} /> 失败原因</h3><p><b>{task.errorCode || 'ERROR'}</b> · {task.error}</p></section>}
+    {Boolean(task.referenceAssetIds?.length) && <section className="task-detail-section"><h3>参考素材</h3><div className="task-reference-list">{task.referenceAssetIds?.map(id => <TaskAsset key={id} id={id} label="创作参考图" />)}</div></section>}
+    {task.product && <section className="task-detail-section"><h3>商品依据</h3><p><b>{task.product.name}</b> · SKU {task.product.sku}</p>{task.product.description && <p>{task.product.description}</p>}</section>}
+    <div className="dialog-actions task-detail-actions">
+      {task.status === 'Succeeded' && <Button onClick={() => { onClose(); navigate('/works'); }}><ArrowUpRight size={16} /> 查看作品</Button>}
+      {(task.status === 'Failed' || task.status === 'Cancelled') && <Button onClick={retry}><RotateCcw size={16} /> 重新提交</Button>}
+      {running && task.source !== 'live' && <Button variant="secondary" onClick={() => { cancelTask(task.id); notify('任务已取消'); onClose(); }}><Ban size={16} /> 取消任务</Button>}
+      <Button variant="ghost" onClick={onClose}>关闭</Button>
+    </div>
+  </div></Dialog>;
+}
+
 export function Tasks() {
   const { tasks, updateTask, notify } = useApp();
   const navigate = useNavigate();
-  const [selected, setSelected] = useState<Task | null>(null);
-  const [filter, setFilter] = useState('全部');
-  const visible = tasks.filter(task => filter === '全部' || task.status === filter);
-  const current = selected ? tasks.find(task => task.id === selected.id) : undefined;
-
-  return <div className="page">
-    <div className="page-header"><div><h1>任务中心</h1><p>查看任务的排队、执行和完成状态。</p></div><Button onClick={() => navigate('/create')}>创建任务</Button></div>
-    <div className="filter-bar"><select aria-label="任务状态筛选" value={filter} onChange={event => setFilter(event.target.value)}>{['全部', 'Queued', 'Running', 'Succeeded', 'Failed', 'Cancelled'].map(value => <option key={value}>{value}</option>)}</select><Badge>{tasks.some(task => task.source === 'live') ? '云端执行' : 'Mock 执行'}</Badge></div>
-    {visible.length ? <div className="list-stack">{visible.map(task => <Card key={task.id} className="task-row">
-      <div className="task-main"><div><Badge tone={tone(task.status)}>{task.status}</Badge><h2>{task.title}</h2><p>{task.mode === 'image' ? '图片' : '视频'}创作 · {task.product ? `${task.product.name} / ${task.product.sku} · ` : ''}{task.source === 'live' ? '云端执行' : '演示执行'} · {new Date(task.createdAt).toLocaleString('zh-CN')}</p></div>
-        <div className="task-actions"><Button variant="secondary" onClick={() => setSelected(task)}>详情</Button>{task.status === 'Succeeded' && <Button onClick={() => navigate('/works')}>查看作品</Button>}{['Queued', 'Running'].includes(task.status) && task.source !== 'live' && <Button variant="ghost" onClick={() => { cancelTask(task.id); notify('任务已取消'); }}><Ban size={14} /> 取消</Button>}{['Failed', 'Cancelled'].includes(task.status) && task.source !== 'live' && <Button variant="secondary" onClick={() => { updateTask(task.id, { status: 'Queued', progress: 0, error: undefined }); runMockTask(task.id); }}><RotateCcw size={14} /> 重试</Button>}</div>
-      </div>
-      <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress} aria-label={`进度 ${task.progress}%`}><span style={{ width: `${task.progress}%` }} /></div><small>进度 {task.progress}%</small>
-    </Card>)}</div> : <StatePanel type="empty" title={tasks.length ? '没有匹配状态的任务' : '还没有任务'} detail="从首页填写创作描述后可启动任务。" action={<Button onClick={() => navigate('/create')}>前往创作</Button>} />}
-    {selected && <Dialog title="任务详情" onClose={() => setSelected(null)} wide><div className="dialog-content form-stack">
-      <p><b>创作描述：</b>{selected.prompt}</p>
-      {selected.product && <div className="task-product-brief"><h3>商品依据</h3><p><b>{selected.product.name}</b> · SKU {selected.product.sku}</p>{selected.product.description && <p>商品描述：{selected.product.description}</p>}{selected.product.verifiedFacts && <p>已核实事实：{selected.product.verifiedFacts}</p>}{selected.product.forbiddenClaims && <p>不可添加：{selected.product.forbiddenClaims}</p>}<TaskAsset id={selected.product.sourceAssetId} label="商品依据图" /></div>}
-      {Boolean(selected.referenceAssetIds?.length) && <div className="task-product-brief"><h3>参考图</h3><div className="task-reference-list">{selected.referenceAssetIds?.map(id => <TaskAsset key={id} id={id} label="创作参考图" />)}</div></div>}
-      <p><b>状态：</b>{current?.status}</p><p><b>进度：</b>{current?.progress}%</p>{current?.error && <p role="alert">失败原因：{current.error}</p>}
-      <p className="muted">任务 ID：{selected.id} · {selected.source === 'live' ? '云端执行' : '演示执行'}</p>
-      {current?.workId && <Button onClick={() => { setSelected(null); navigate('/works'); }}><ArrowUpRight size={16} /> 查看作品</Button>}
-    </div></Dialog>}
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [status, setStatus] = useState('全部');
+  const [kind, setKind] = useState('全部');
+  const [query, setQuery] = useState('');
+  const selected = selectedId ? tasks.find(task => task.id === selectedId) : undefined;
+  const counts = { all: tasks.length, running: tasks.filter(item => item.status === 'Running' || item.status === 'Queued').length, success: tasks.filter(item => item.status === 'Succeeded').length, failed: tasks.filter(item => item.status === 'Failed').length };
+  const visible = useMemo(() => tasks.filter(task => {
+    if (status !== '全部' && task.status !== status) return false;
+    if (kind !== '全部' && task.mode !== kind) return false;
+    const needle = query.trim().toLowerCase();
+    return !needle || [task.title, task.prompt, task.id, task.error || ''].some(value => value.toLowerCase().includes(needle));
+  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [tasks, status, kind, query]);
+  return <div className="page tasks-page">
+    <div className="page-header"><div><h1>任务中心</h1><p>按状态定位任务，查看平台任务编号、失败原因和结果。</p></div><Button onClick={() => navigate('/create')}>创建任务</Button></div>
+    <div className="task-stats">
+      <button type="button" onClick={() => setStatus('全部')} className={status === '全部' ? 'selected' : ''}><span>全部任务</span><strong>{counts.all}</strong></button>
+      <button type="button" onClick={() => setStatus('Running')} className={status === 'Running' ? 'selected' : ''}><span>处理中</span><strong>{counts.running}</strong></button>
+      <button type="button" onClick={() => setStatus('Succeeded')} className={status === 'Succeeded' ? 'selected' : ''}><span>已完成</span><strong>{counts.success}</strong></button>
+      <button type="button" onClick={() => setStatus('Failed')} className={status === 'Failed' ? 'selected' : ''}><span>失败</span><strong>{counts.failed}</strong></button>
+    </div>
+    <div className="task-toolbar">
+      <div className="search-box"><Search size={16} /><input aria-label="搜索任务" placeholder="搜索描述或平台任务 ID" value={query} onChange={event => setQuery(event.target.value)} /></div>
+      <div className="task-filter-pills" role="group" aria-label="任务类型">{[['全部', '全部'], ['image', '图片'], ['video', '视频']].map(([value, label]) => <button type="button" key={value} className={kind === value ? 'selected' : ''} onClick={() => setKind(value)}>{label}</button>)}</div>
+      <select aria-label="任务状态筛选" value={status} onChange={event => setStatus(event.target.value)}><option value="全部">全部状态</option>{Object.entries(statusMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}</select>
+    </div>
+    {visible.length ? <div className="task-list">{visible.map(task => {
+      const meta = statusMeta[task.status]; const running = task.status === 'Running' || task.status === 'Queued';
+      return <Card key={task.id} className={`task-card task-${task.status.toLowerCase()}`}>
+        <div className="task-card-status"><Badge tone={meta.tone}>{meta.label}</Badge><small>{task.mode === 'image' ? '图片' : '视频'}</small></div>
+        <div className="task-card-main"><div className="task-card-title"><h2>{task.title}</h2><span>{new Date(task.createdAt).toLocaleString('zh-CN')}</span></div><p>{task.prompt}</p><div className="task-card-ids"><span>平台 <code>{task.id.slice(0, 8)}</code></span></div>{task.error && <p className="task-card-error">{task.errorCode ? `${task.errorCode} · ` : ''}{task.error}</p>}{running && <div className="task-card-progress"><div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div><small>{task.progress}%</small></div>}</div>
+        <div className="task-card-actions"><Button variant="secondary" onClick={() => setSelectedId(task.id)}>详情</Button>{task.status === 'Succeeded' && <Button onClick={() => navigate('/works')}>作品 <ArrowUpRight size={14} /></Button>}{running && task.source !== 'live' && <Button variant="ghost" aria-label="取消任务" onClick={() => { cancelTask(task.id); notify('任务已取消'); }}><Ban size={14} /></Button>}{['Failed', 'Cancelled'].includes(task.status) && task.source !== 'live' && <Button variant="ghost" aria-label="重试任务" onClick={() => { updateTask(task.id, { status: 'Queued', progress: 0, error: undefined }); runMockTask(task.id); }}><RotateCcw size={14} /></Button>}</div>
+      </Card>;
+    })}</div> : <StatePanel type="empty" title={tasks.length ? '没有匹配的任务' : '还没有任务'} detail={tasks.length ? '换个状态、类型或搜索词试试。' : '从首页填写创作描述后可启动任务。'} action={!tasks.length ? <Button onClick={() => navigate('/create')}>前往创作</Button> : <Button variant="secondary" onClick={() => { setStatus('全部'); setKind('全部'); setQuery(''); }}>清除筛选</Button>} />}
+    {selected && <TaskDetail task={selected} onClose={() => setSelectedId(null)} />}
   </div>;
 }

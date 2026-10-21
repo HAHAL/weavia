@@ -25,12 +25,12 @@ type Worker struct {
 func (w *Worker) Work(ctx context.Context, job *river.Job[GenerationArgs]) error {
 	return w.Service.Execute(ctx, job.Args.TaskID)
 }
-func (w *Worker) Timeout(*river.Job[GenerationArgs]) time.Duration { return 3 * time.Minute }
+func (w *Worker) Timeout(*river.Job[GenerationArgs]) time.Duration { return 15 * time.Minute }
 
 type Enqueuer struct{ Client *river.Client[pgx.Tx] }
 
 func (e Enqueuer) Enqueue(ctx context.Context, taskID string) error {
-	_, err := e.Client.Insert(ctx, GenerationArgs{TaskID: taskID}, &river.InsertOpts{Queue: Queue, MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByArgs: true}})
+	_, err := e.Client.Insert(ctx, GenerationArgs{TaskID: taskID}, &river.InsertOpts{Queue: Queue, MaxAttempts: 1, UniqueOpts: river.UniqueOpts{ByArgs: true}})
 	return err
 }
 func Workers(service *generation.Service) *river.Workers {

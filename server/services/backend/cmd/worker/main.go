@@ -55,6 +55,21 @@ func main() {
 	if err = client.Start(ctx); err != nil {
 		fatal(err)
 	}
+	if os.Getenv("VIDEO_RECONCILE_ENABLED") == "true" {
+		go func() {
+			service.ResumeVideoTasks(ctx)
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					service.ResumeVideoTasks(ctx)
+				}
+			}
+		}()
+	}
 	slog.Info("WEAVIA worker started", "queue", jobs.Queue, "ai_mode", cfg.AIMode, "real_ai_enabled", realEnabled)
 	<-ctx.Done()
 	stopCtx, stop := context.WithTimeout(context.Background(), 20*time.Second)

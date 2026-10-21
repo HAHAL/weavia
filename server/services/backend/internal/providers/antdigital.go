@@ -20,6 +20,7 @@ type ImageRequest struct {
 	Watermark                                                                                       bool
 	ReferenceStrength                                                                               float64
 	Duration                                                                                        int
+	OnSubmitted                                                                                     func(string)
 }
 type ImageResult struct {
 	ProviderRequestID string

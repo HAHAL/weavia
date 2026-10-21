@@ -71,6 +71,9 @@ func (p *DashScopeVideo) Generate(ctx context.Context, input ImageRequest) (Imag
 		return ImageResult{}, mapHTTPError(resp.StatusCode, map[string]any{"message": submitted.Message, "code": submitted.Code})
 	}
 	slog.Info("dashscope video submitted", "task", submitted.Output.TaskID, "model", model)
+	if submitted.Output.TaskID != "" && input.OnSubmitted != nil {
+		input.OnSubmitted(submitted.Output.TaskID)
+	}
 	if submitted.Output.TaskID == "" {
 		return ImageResult{}, &Error{"GENERATION_FAILED", "Video provider did not return a task id", false, 502}
 	}
@@ -157,6 +160,24 @@ func (p *DashScopeVideo) result(ctx context.Context, client *http.Client, taskID
 		return ImageResult{}, &Error{"GENERATION_FAILED", "Video result missing URL", false, 502}
 	}
 	return ImageResult{ProviderRequestID: payload.RequestID, Outputs: []Output{{URI: uri, MediaType: "video/mp4"}}}, nil
+}
+
+func (p *DashScopeVideo) Resume(ctx context.Context, taskID string) (ImageResult, error) {
+	client := p.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	status, err := p.poll(ctx, client, taskID)
+	if err != nil {
+		return ImageResult{}, err
+	}
+	if status == "RUNNING" || status == "PENDING" {
+		return ImageResult{}, &Error{"TASK_RUNNING", "Video task is still running", true, 409}
+	}
+	if status != "SUCCEEDED" {
+		return ImageResult{}, &Error{"GENERATION_FAILED", "Video task did not succeed", false, 502}
+	}
+	return p.result(ctx, client, taskID)
 }
 
 func (p *DashScopeVideo) String() string { return fmt.Sprintf("dashscope-video(%s)", p.BaseURL) }

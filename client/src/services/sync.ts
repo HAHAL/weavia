@@ -17,10 +17,10 @@ export type SyncSnapshot = {
   syncedAt: string;
 };
 type ServerTask = {
-  id: string; status: string; prompt?: string; mode?: string; model?: string; cost?: number;
-  createdAt?: string; outputs?: { objectKey?: string; mimeType?: string }[]; error?: { message?: string };
+  id: string; status: string; prompt?: string; mode?: string; model?: string; provider?: string; providerTaskId?: string; cost?: number;
+  createdAt?: string; outputs?: { objectKey?: string; mimeType?: string }[]; error?: { code?: string; message?: string };
 };
-const CACHE_KEY = 'weavia.sync.v2';
+const CACHE_KEY = 'weavia.sync.v3';
 let snapshot: SyncSnapshot | null = null;
 let inflight: Promise<SyncSnapshot | null> | null = null;
 let state: SyncState = 'idle';
@@ -60,9 +60,10 @@ function mapStatus(status: string): TaskStatus {
 function toTask(server: ServerTask): Task {
   const prompt = server.prompt || '历史生成任务';
   return {
-    id: server.id, title: prompt.slice(0, 28), prompt, mode: 'image',
+    id: server.id, title: prompt.slice(0, 28), prompt, mode: server.mode?.includes('video') ? 'video' : 'image',
     status: mapStatus(server.status), progress: server.status === 'success' ? 100 : mapStatus(server.status) === 'Running' ? 60 : 20,
-    createdAt: server.createdAt || new Date().toISOString(), source: 'live', error: server.error?.message,
+    createdAt: server.createdAt || new Date().toISOString(), source: 'live', error: server.error?.message, errorCode: server.error?.code,
+    provider: server.provider, providerTaskId: server.providerTaskId, model: server.model,
   };
 }
 

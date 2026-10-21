@@ -4,44 +4,60 @@ import { apiRequest, setApiSession } from '../services/api';
 export type AuthUser = { id: string; email: string; name?: string };
 type LoginResponse = { accessToken: string; refreshToken: string; expiresAt: string; user: AuthUser };
 type AuthStatus = 'anonymous' | 'loading' | 'authenticated';
+type SavedSession = { token: string; refreshToken?: string; user: AuthUser; rememberedUntil?: string };
 type AuthState = {
   user: AuthUser | null;
   token: string | null;
   status: AuthStatus;
   error: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, remember?: boolean) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   restore: () => Promise<void>;
 };
 
 const STORAGE_KEY = 'weavia.session';
+const REMEMBER_KEY = 'weavia.remembered';
+const REMEMBER_DAYS = 10;
 
-function readSession(): { token: string; user: AuthUser } | null {
+function readSession(): SavedSession | null {
   try {
+    const rememberedRaw = localStorage.getItem(REMEMBER_KEY);
+    if (rememberedRaw) {
+      const saved = JSON.parse(rememberedRaw) as SavedSession;
+      if (saved.rememberedUntil && new Date(saved.rememberedUntil).getTime() > Date.now()) return saved;
+      localStorage.removeItem(REMEMBER_KEY);
+    }
     const raw = sessionStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) as { token: string; user: AuthUser } : null;
+    return raw ? JSON.parse(raw) as SavedSession : null;
   } catch {
     return null;
   }
 }
 
-function saveSession(token: string, user: AuthUser) {
-  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user })); } catch { /* session storage may be unavailable */ }
+function saveSession(token: string, refreshToken: string | undefined, user: AuthUser, remember = false) {
+  const saved: SavedSession = remember
+    ? { token, refreshToken, user, rememberedUntil: new Date(Date.now() + REMEMBER_DAYS * 86400_000).toISOString() }
+    : { token, refreshToken, user };
+  try {
+    if (remember) localStorage.setItem(REMEMBER_KEY, JSON.stringify(saved));
+    else sessionStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+  } catch { /* storage may be unavailable */ }
 }
 
 function clearSession() {
   setApiSession(null);
   try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(REMEMBER_KEY); } catch { /* ignore */ }
 }
 
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   token: null,
-  status: 'anonymous',
+  status: 'loading',
   error: null,
 
-  async login(email, password) {
+  async login(email, password, remember = false) {
     set({ status: 'loading', error: null });
     try {
       const data = await apiRequest<LoginResponse>('/api/auth/login', {
@@ -53,7 +69,7 @@ export const useAuth = create<AuthState>((set) => ({
         }),
       }, { auth: false });
       setApiSession(data.accessToken);
-      saveSession(data.accessToken, data.user);
+      saveSession(data.accessToken, data.refreshToken, data.user, remember);
       set({ user: data.user, token: data.accessToken, status: 'authenticated' });
     } catch (error) {
       set({ status: 'anonymous', error: error instanceof Error ? error.message : '登录失败' });
@@ -74,7 +90,7 @@ export const useAuth = create<AuthState>((set) => ({
         }),
       }, { auth: false });
       setApiSession(data.accessToken);
-      saveSession(data.accessToken, data.user);
+      saveSession(data.accessToken, data.refreshToken, data.user, false);
       set({ user: data.user, token: data.accessToken, status: 'authenticated' });
     } catch (error) {
       set({ status: 'anonymous', error: error instanceof Error ? error.message : '注册失败' });
@@ -83,7 +99,8 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   async logout() {
-    try { await apiRequest('/api/auth/logout', { method: 'POST' }); } catch { /* best effort */ }
+    const saved = readSession();
+    try { await apiRequest('/api/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken: saved?.refreshToken || '' }) }); } catch { /* best effort */ }
     clearSession();
     set({ user: null, token: null, status: 'anonymous' });
   },
@@ -95,7 +112,21 @@ export const useAuth = create<AuthState>((set) => ({
     try {
       const user = await apiRequest<AuthUser>('/api/auth/me');
       set({ user, token: saved.token, status: 'authenticated' });
-      saveSession(saved.token, user);
+      saveSession(saved.token, saved.refreshToken, user, Boolean(saved.rememberedUntil));
+      return;
+    } catch {
+      // Access tokens live for 15 minutes. Fall back to the refresh token
+      // before asking the user to sign in again.
+    }
+    if (!saved.refreshToken) { clearSession(); set({ user: null, token: null, status: 'anonymous' }); return; }
+    try {
+      const refreshed = await apiRequest<LoginResponse>('/api/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken: saved.refreshToken }),
+      }, { auth: false });
+      setApiSession(refreshed.accessToken);
+      saveSession(refreshed.accessToken, refreshed.refreshToken, refreshed.user, Boolean(saved.rememberedUntil));
+      set({ user: refreshed.user, token: refreshed.accessToken, status: 'authenticated' });
     } catch {
       clearSession();
       set({ user: null, token: null, status: 'anonymous' });

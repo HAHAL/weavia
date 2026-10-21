@@ -31,6 +31,8 @@ func (r *MemoryRepository) Get(_ context.Context, id string) (Task, bool, error)
 	t, ok := r.tasks[id]
 	return t, ok, nil
 }
+func (r *MemoryRepository) ListRunningVideo(_ context.Context) ([]Task, error) { return nil, nil }
+
 func (r *MemoryRepository) List(_ context.Context, userID string) ([]Task, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

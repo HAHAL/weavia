@@ -10,6 +10,9 @@ export type ServerTask = {
   outputs?: { base64Data?: string; objectKey?: string; mimeType?: string }[];
   error?: { code?: string; message?: string };
   model?: string;
+  mode?: string;
+  provider?: string;
+  providerTaskId?: string;
   cost?: number;
   createdAt?: string;
 };
@@ -36,12 +39,16 @@ export function toTask(server: ServerTask, prompt: string): Task {
     id: server.id,
     title: prompt.slice(0, 28),
     prompt,
-    mode: 'image',
+    mode: server.mode?.includes('video') ? 'video' : 'image',
     status: mapStatus(server.status),
     progress: server.status === 'success' ? 100 : mapStatus(server.status) === 'Running' ? 60 : 20,
     createdAt: server.createdAt || new Date().toISOString(),
     source: 'live',
     error: server.error?.message,
+    errorCode: server.error?.code,
+    providerTaskId: server.providerTaskId,
+    provider: server.provider,
+    model: server.model,
   };
 }
 
@@ -119,7 +126,7 @@ function poll(id: string) {
         attempts.delete(id);
         return;
       }
-      useApp.getState().updateTask(id, { status, progress: status === 'Running' ? 60 : 20 });
+      useApp.getState().updateTask(id, { status, progress: status === 'Running' ? 60 : 20, providerTaskId: server.providerTaskId, provider: server.provider, model: server.model });
       if (count > 120) {
         useApp.getState().updateTask(id, { status: 'Failed', error: '任务超时，请稍后重试' });
         timers.delete(id);

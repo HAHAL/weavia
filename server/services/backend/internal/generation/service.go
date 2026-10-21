@@ -89,6 +89,7 @@ type Task struct {
 	Count               int        `json:"count,omitempty"`
 	Outputs             []Output   `json:"outputs"`
 	ProviderRequestID   string     `json:"providerRequestId,omitempty"`
+	ProviderTaskID      string     `json:"providerTaskId,omitempty"`
 	Error               *TaskError `json:"error,omitempty"`
 	CreatedAt           string     `json:"createdAt"`
 	UpdatedAt           string     `json:"updatedAt"`
@@ -109,6 +110,7 @@ type Repository interface {
 	Get(context.Context, string) (Task, bool, error)
 	List(context.Context, string) ([]Task, error)
 	Update(context.Context, Task) error
+	ListRunningVideo(context.Context) ([]Task, error)
 }
 type Credits interface {
 	Reserve(context.Context, string, string, string, int64) (string, error)
@@ -273,6 +275,36 @@ func (s *Service) Get(ctx context.Context, userID, taskID string) (Task, bool, e
 func (s *Service) List(ctx context.Context, userID string) ([]Task, error) {
 	return s.repository.List(ctx, userID)
 }
+func (s *Service) ResumeVideoTasks(ctx context.Context) {
+	tasks, err := s.repository.ListRunningVideo(ctx)
+	if err != nil {
+		return
+	}
+	resumer, ok := s.provider.(interface {
+		Resume(context.Context, string) (providers.ImageResult, error)
+	})
+	if !ok {
+		return
+	}
+	for _, task := range tasks {
+		if task.ProviderTaskID == "" {
+			continue
+		}
+		result, err := resumer.Resume(ctx, task.ProviderTaskID)
+		if err != nil {
+			continue
+		}
+		task.Outputs = make([]Output, len(result.Outputs))
+		for i, output := range result.Outputs {
+			task.Outputs[i] = Output{TemporaryURL: output.URI, MimeType: output.MediaType}
+		}
+		task.ProviderRequestID = result.ProviderRequestID
+		if err := s.finalize(ctx, &task); err != nil {
+			_ = s.fail(ctx, &task, "GENERATION_FAILED", "视频结果保存失败")
+		}
+	}
+}
+
 func (s *Service) Execute(ctx context.Context, taskID string) error {
 	task, ok, err := s.repository.Get(ctx, taskID)
 	if err != nil || !ok {
@@ -314,7 +346,11 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if (input.Mode == "image_edit" || input.Mode == "image_to_image") && ref == "" {
 		return s.fail(ctx, &task, "INVALID_REQUEST", "参考素材不可用")
 	}
-	result, err := s.generate(ctx, &task, providers.ImageRequest{Model: input.Model, Provider: task.Provider, Prompt: input.Prompt, ReferenceImage: ref, MaskImage: maskRef, Size: input.Size, Count: input.NumberOfImages, PromptExtend: input.PromptExtend, NegativePrompt: input.NegativePrompt, Seed: input.Seed, OutputFormat: input.OutputFormat, Watermark: input.Watermark, ReferenceStrength: input.ReferenceStrength, ReferenceURL: input.ReferenceURL, IdempotencyKey: input.IdempotencyKey, Mode: input.Mode, Duration: input.Duration})
+	result, err := s.generate(ctx, &task, providers.ImageRequest{Model: input.Model, Provider: task.Provider, Prompt: input.Prompt, ReferenceImage: ref, MaskImage: maskRef, Size: input.Size, Count: input.NumberOfImages, PromptExtend: input.PromptExtend, NegativePrompt: input.NegativePrompt, Seed: input.Seed, OutputFormat: input.OutputFormat, Watermark: input.Watermark, ReferenceStrength: input.ReferenceStrength, ReferenceURL: input.ReferenceURL, IdempotencyKey: input.IdempotencyKey, Mode: input.Mode, Duration: input.Duration, OnSubmitted: func(providerTaskID string) {
+		task.ProviderTaskID = providerTaskID
+		task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		_ = s.repository.Update(ctx, task)
+	}})
 	if err != nil {
 		code := "GENERATION_FAILED"
 		message := err.Error()
@@ -357,39 +393,34 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 	}
 	bindings, err := s.router.BindingsFor(ctx, task.LogicalModel)
 	if err != nil || len(bindings) == 0 {
-		return providers.ImageResult{}, &providers.Error{Code: "NO_CHANNEL", Message: "no available channel", Retryable: true, Status: 503}
+		return providers.ImageResult{}, &providers.Error{Code: "NO_CHANNEL", Message: "no available channel", Retryable: false, Status: 503}
 	}
-	var last error
-	for i, binding := range bindings {
-		request := base
-		request.Provider = binding.Provider
-		request.Model = binding.ProviderModelID
-		request.APIKey = binding.APIKey
-		request.BaseURL = binding.BaseURL
-		started := time.Now()
-		result, callErr := s.provider.Generate(ctx, request)
-		s.router.RecordRoute(ctx, binding.ID, callErr)
-		status, code := "success", ""
-		if callErr != nil {
-			status, code, last = "failed", "PROVIDER_ERROR", callErr
-			if pe, ok := callErr.(*providers.Error); ok {
-				code = pe.Code
-			}
-		}
-		s.router.LogRoute(ctx, task.ID, task.LogicalModel, binding.ChannelID, binding.ChannelModelID, binding.ProviderModelID, i+1, status, code, time.Since(started))
-		if callErr == nil {
-			task.Provider = binding.Provider
-			task.Model = binding.ProviderModelID
-			return result, nil
-		}
-		if !s.router.Retryable(callErr) {
-			break
+	// One task submits to exactly one provider. A failed task must be retried by
+	// the customer as a new task; we never resubmit automatically.
+	binding := bindings[0]
+	request := base
+	request.Provider = binding.Provider
+	request.Model = binding.ProviderModelID
+	request.APIKey = binding.APIKey
+	request.BaseURL = binding.BaseURL
+	started := time.Now()
+	result, callErr := s.provider.Generate(ctx, request)
+	s.router.RecordRoute(ctx, binding.ID, callErr)
+	status, code := "success", ""
+	if callErr != nil {
+		status = "failed"
+		code = "PROVIDER_ERROR"
+		if pe, ok := callErr.(*providers.Error); ok {
+			code = pe.Code
 		}
 	}
-	if last == nil {
-		last = &providers.Error{Code: "GENERATION_UNAVAILABLE", Message: "all channels failed", Retryable: false, Status: 503}
+	s.router.LogRoute(ctx, task.ID, task.LogicalModel, binding.ChannelID, binding.ChannelModelID, binding.ProviderModelID, 1, status, code, time.Since(started))
+	if callErr != nil {
+		return providers.ImageResult{}, callErr
 	}
-	return providers.ImageResult{}, last
+	task.Provider = binding.Provider
+	task.Model = binding.ProviderModelID
+	return result, nil
 }
 
 func (s *Service) finalize(ctx context.Context, task *Task) error {

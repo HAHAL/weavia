@@ -125,6 +125,19 @@ type Router struct {
 	KeyLookup      func(context.Context, string) (string, error)
 }
 
+func (r *Router) Resume(ctx context.Context, taskID string) (ImageResult, error) {
+	if r.DashScopeVideo == nil {
+		return ImageResult{}, &Error{"NO_CHANNEL", "Video provider unavailable", false, 503}
+	}
+	provider := *r.DashScopeVideo
+	if r.KeyLookup != nil {
+		if value, err := r.KeyLookup(ctx, "dashscope"); err == nil && value != "" {
+			provider.APIKey = value
+		}
+	}
+	return provider.Resume(ctx, taskID)
+}
+
 func (r *Router) Generate(ctx context.Context, input ImageRequest) (ImageResult, error) {
 	key := func(code, fallback string) string {
 		if input.APIKey != "" {

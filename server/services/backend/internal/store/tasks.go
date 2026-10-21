@@ -80,6 +80,29 @@ func (r *TaskRepository) List(ctx context.Context, userID string) ([]generation.
 	}
 	return result, nil
 }
+func (r *TaskRepository) ListRunningVideo(ctx context.Context) ([]generation.Task, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id::text,user_id::text,status::text,idempotency_key,input,output,error,created_at,updated_at FROM tasks WHERE status IN ('reserved','running') AND input->>'mode' LIKE '%video%' ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []generation.Task{}
+	for rows.Next() {
+		var id, userID, status, idem string
+		var input, output, errorJSON []byte
+		var created, updated pgtype.Timestamptz
+		if err = rows.Scan(&id, &userID, &status, &idem, &input, &output, &errorJSON, &created, &updated); err != nil {
+			return nil, err
+		}
+		task, err := decodeRow(id, userID, status, idem, input, output, errorJSON, created, updated)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, task)
+	}
+	return items, rows.Err()
+}
+
 func (r *TaskRepository) Update(ctx context.Context, task generation.Task) error {
 	status := db.TaskStatus(task.Status)
 	if status == "generated" {
@@ -88,7 +111,8 @@ func (r *TaskRepository) Update(ctx context.Context, task generation.Task) error
 	output, _ := json.Marshal(struct {
 		Outputs           []generation.Output `json:"outputs"`
 		ProviderRequestID string              `json:"providerRequestId,omitempty"`
-	}{task.Outputs, task.ProviderRequestID})
+		ProviderTaskID    string              `json:"providerTaskId,omitempty"`
+	}{task.Outputs, task.ProviderRequestID, task.ProviderTaskID})
 	var errorJSON []byte
 	if task.Error != nil {
 		errorJSON, _ = json.Marshal(task.Error)
@@ -118,11 +142,13 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 	var envelope struct {
 		Outputs           []generation.Output `json:"outputs"`
 		ProviderRequestID string              `json:"providerRequestId"`
+		ProviderTaskID    string              `json:"providerTaskId"`
 	}
 	if len(output) > 0 {
 		_ = json.Unmarshal(output, &envelope)
 		task.Outputs = envelope.Outputs
 		task.ProviderRequestID = envelope.ProviderRequestID
+		task.ProviderTaskID = envelope.ProviderTaskID
 	}
 	if len(errorJSON) > 0 {
 		task.Error = &generation.TaskError{}

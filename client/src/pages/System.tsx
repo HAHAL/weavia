@@ -6,6 +6,7 @@ import { useApp } from '../stores/app';
 import { useAuth } from '../stores/auth';
 import { clearLogs, exportLogs, readLogs, type LogEntry } from '../lib/logger';
 import { apiConfig, apiRequest } from '../services/api';
+import { AvatarPicker } from '../components/AvatarPicker';
 
 const accountSections = [
   { id: 'overview', label: '账户概览', icon: UserRound, group: 'account' },
@@ -43,7 +44,7 @@ export function AccountPage() {
     <div className="page-header"><div><h1>账户与设置</h1><p>管理账户信息和客户端偏好。</p></div><Badge>{auth.user ? '已连接云端' : '演示模式 · 未登录'}</Badge></div>
     <div className="account-layout"><nav className="account-section-nav" aria-label="账户与设置分区">{(['account', 'app'] as const).map(group => <div className="account-nav-group" key={group}><h2>{group === 'account' ? '账户' : '应用设置'}</h2>{accountSections.filter(item => item.group === group).map(item => <button type="button" key={item.id} className={section === item.id ? 'selected' : ''} aria-current={section === item.id ? 'page' : undefined} onClick={() => select(item.id)}><item.icon size={17} aria-hidden="true" />{item.label}</button>)}</div>)}</nav>
     <section className="section-content" aria-label={active.label}>
-      {section === 'overview' && (auth.user ? <><Card className="settings-card"><h2>已连接云端</h2><p>{auth.user.email}</p><p className="muted">Credits 余额：{account ? account.available : '读取中…'}{account ? ` · 冻结 ${account.reserved}` : ''}</p><div className="header-actions"><Button onClick={() => select('credits')}>查看明细</Button><Button variant="secondary" onClick={() => void auth.logout()}>退出登录</Button></div></Card><Card className="settings-card"><h2>账户 ID</h2><p className="muted">{auth.user.id}</p></Card></> : <><Card className="settings-card"><h2>访客工作区</h2><p>当前为演示模式，尚未连接真实账户。登录后可读取真实余额和任务。</p><div className="header-actions"><Button onClick={() => navigate('/login')}>登录</Button></div></Card><EmptyService title="尚无真实账户数据" detail="登录后这里会显示真实余额、任务和订单。" /></>)}
+      {section === 'overview' && (auth.user ? <><AvatarPicker /><Card className="settings-card"><h2>已连接云端</h2><p>{auth.user.email}</p><p className="muted">Credits 余额：{account ? account.available : '读取中…'}{account ? ` · 冻结 ${account.reserved}` : ''}</p><div className="header-actions"><Button onClick={() => select('credits')}>查看明细</Button><Button variant="secondary" onClick={() => void auth.logout()}>退出登录</Button></div></Card><Card className="settings-card"><h2>账户 ID</h2><p className="muted">{auth.user.id}</p></Card></> : <><Card className="settings-card"><h2>访客工作区</h2><p>当前为演示模式，尚未连接真实账户。登录后可读取真实余额和任务。</p><div className="header-actions"><Button onClick={() => navigate('/login')}>登录</Button></div></Card><EmptyService title="尚无真实账户数据" detail="登录后这里会显示真实余额、任务和订单。" /></>)}
       {section === 'subscription' && <><h2>会员套餐</h2><EmptyService title="会员信息待接入" detail="订阅状态、套餐权益和续费信息需要从服务端读取。" /></>}
       {section === 'credits' && <><h2>Credits 明细</h2>{auth.user ? <Card className="settings-card"><h2>当前余额</h2><p><b>{account ? account.available : '读取中…'}</b> Credits · 冻结 {account?.reserved ?? 0}</p><p className="muted">每次生成先预占，成功后确认扣费，失败自动释放。</p></Card> : <Card className="settings-card"><h2>登录后查看</h2><p>真实余额与流水以服务端账本为准。</p><Button onClick={() => navigate('/login')}>登录</Button></Card>}</>}
       {section === 'orders' && <><h2>订单记录</h2><EmptyService title="暂无真实订单" detail="支付尚未接入，演示模式不会生成真实订单。" /></>}

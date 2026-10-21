@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Boxes, Check, ChevronDown, Crown, Image as ImageIcon, SlidersHorizontal, Sparkles, Video, WandSparkles } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Card, Dialog, Field } from '../components/ui';
 import { AssetPicker } from '../components/AssetPicker';
 import { useApp } from '../stores/app';
@@ -53,6 +53,7 @@ function sizeFor(ratio: string, resolution: string) {
 
 export function HomePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { tasks, works } = useApp();
   const user = useAuth(state => state.user);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -60,6 +61,7 @@ export function HomePage() {
   const paramWrapRef = useRef<HTMLDivElement>(null);
   const paramButtonRef = useRef<HTMLButtonElement>(null);
   const [prompt, setPrompt] = useState('');
+  useEffect(() => { const retryPrompt = (location.state as { retryPrompt?: string } | null)?.retryPrompt; if (retryPrompt) setPrompt(retryPrompt); }, [location.state]);
   const [mode, setMode] = useState<Mode>('image');
   const [modelId, setModelId] = useState(apiConfig.mode === 'live' ? 'qwen-image-2.0' : 'image-balanced');
   const [busy, setBusy] = useState(false);

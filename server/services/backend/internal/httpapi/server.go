@@ -27,6 +27,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/recipes"
 	"github.com/weavia/weavia/services/backend/internal/routing"
 	"github.com/weavia/weavia/services/backend/internal/showcase"
+	"github.com/weavia/weavia/services/backend/internal/workflows"
 )
 
 type Server struct {
@@ -40,6 +41,7 @@ type Server struct {
 	Models               *modelcatalog.Service
 	Routing              *routing.Service
 	Recipes              *recipes.Service
+	Workflows            *workflows.Service
 	Assets               *assets.Storage
 	AntDigitalConfigured bool
 	ComputrixConfigured  bool
@@ -136,6 +138,16 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 	r.Put("/api/assets/upload/{token}", s.upload)
+	r.Route("/api/workflows", func(r chi.Router) {
+		r.Use(s.requireUser)
+		r.Get("/", s.listWorkflows)
+		r.Post("/", s.saveWorkflow)
+		r.Get("/{workflowID}", s.getWorkflow)
+		r.Put("/{workflowID}", s.saveWorkflow)
+		r.Get("/{workflowID}/runs", s.listWorkflowRuns)
+		r.Post("/{workflowID}/runs", s.startWorkflowRun)
+		r.Put("/{workflowID}/runs/{runID}", s.finishWorkflowRun)
+	})
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(s.requireUser)
 		r.Group(func(r chi.Router) {

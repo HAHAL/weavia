@@ -71,5 +71,4 @@ root.render(
 // Render first, hydrate local state afterwards: a stuck SQLite open must not
 // leave the window blank.
 void initDatabase();
-try { sessionStorage.removeItem('weavia.session'); } catch { /* ignore */ }
-useAuth.setState({ user: null, token: null, status: 'anonymous' });
+void useAuth.getState().restore();
