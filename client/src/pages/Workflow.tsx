@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, addEdge, useNodesState, useEdgesState, Handle, Position, type Connection, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CheckCircle2, CircleDashed, LoaderCircle, Play, Plus, Save, Trash2, XCircle } from 'lucide-react';
@@ -8,14 +8,15 @@ import { createTask } from '../services/tasks';
 import { useAssetPreview } from '../hooks/useAssetPreview';
 import { deleteWorkflow, listWorkflows, listWorkflowRuns, saveWorkflow, startWorkflowRun, finishWorkflowRun, type WorkflowRecord, type WorkflowRun } from '../services/workflows';
 
-type Kind = 'input' | 'prompt' | 'condition' | 'image' | 'output';
-type RunState = 'idle' | 'queued' | 'running' | 'success' | 'error' | 'skipped';
+type Kind = 'input' | 'prompt' | 'condition' | 'review' | 'image' | 'output';
+type RunState = 'idle' | 'queued' | 'running' | 'waiting' | 'success' | 'error' | 'skipped';
 type WFData = { label: string; kind: Kind; value?: string; prompt?: string; condition?: string; modelId?: string; run?: RunState; result?: string; error?: string; assetId?: string } & Record<string, unknown>;
 type WFNode = Node<WFData>;
 const kinds: { kind: Kind; label: string; hint: string }[] = [
   { kind: 'input', label: '输入', hint: '商品名或创作要求' },
   { kind: 'prompt', label: '提示词', hint: '把上游内容组织成提示词' },
   { kind: 'condition', label: '条件', hint: '包含关键词才继续' },
+  { kind: 'review', label: '人工审核', hint: '暂停等待确认' },
   { kind: 'image', label: '图片生成', hint: '真实调用图片模型' },
   { kind: 'output', label: '输出', hint: '收集最终结果' },
 ];
@@ -33,6 +34,7 @@ const initialEdges: Edge[] = [
 
 function statusIcon(state: RunState) {
   if (state === 'skipped') return <CircleDashed size={13} />;
+  if (state === 'waiting') return <CircleDashed size={13} />;
   if (state === 'running' || state === 'queued') return <LoaderCircle size={13} className="wf-spin" />;
   if (state === 'success') return <CheckCircle2 size={13} />;
   if (state === 'error') return <XCircle size={13} />;
@@ -94,6 +96,8 @@ export function WorkflowPage() {
   const [saved, setSaved] = useState(false);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
+  const [pendingReview, setPendingReview] = useState<string | null>(null);
+  const reviewResolve = useRef<null | (() => void)>(null);
   const [log, setLog] = useState<string[]>([]);
   const node = nodes.find(item => item.id === selected);
   const nodeTypesMemo = useMemo(() => nodeTypes, []);
@@ -142,6 +146,8 @@ export function WorkflowPage() {
     setLog([]); setStatus('running');
   }
 
+  function approveReview() { const resolve = reviewResolve.current; if (!resolve) return; reviewResolve.current = null; setPendingReview(null); setStatus('running'); resolve(); }
+
   async function waitFor(taskId: string): Promise<string> {
     for (let i = 0; i < 600; i++) {
       const task = useApp.getState().tasks.find(item => item.id === taskId);
@@ -156,6 +162,7 @@ export function WorkflowPage() {
     const data = current.data;
     if (data.kind === 'input') return data.value || '';
     if (data.kind === 'output') return inputs[0] || '';
+    if (data.kind === 'review') return new Promise<string>(resolve => { setPendingReview(current.id); setStatus('waiting'); reviewResolve.current = () => resolve(inputs.join('\n')); });
     if (data.kind === 'prompt') return (data.prompt || '{{input}}').replace(/\{\{input\}\}/g, inputs.join('\n')) || inputs.join('\n');
     if (data.kind === 'condition') { const text = inputs.join('\n'); const keyword = (data.condition || '').trim(); if (keyword && !text.includes(keyword)) throw new Error(`__SKIP__条件不满足：${keyword}`); return text; }
     const prompt = inputs.filter(Boolean).join('\n') || data.prompt || '';
@@ -214,11 +221,12 @@ export function WorkflowPage() {
   }
 
   return <div className="page workflow-page">
-    <div className="page-header"><div><span className="home-eyebrow">Workflow Studio</span><h1>DAG 工作流</h1><p>连接节点，按依赖顺序执行；保存工作流图与每次运行记录。</p></div><div className="header-actions"><select className="workflow-select" aria-label="选择工作流" value={workflowId || ''} onChange={event => { const record = workflows.find(item => item.id === event.target.value); if (record) applyRecord(record); }}><option value="">新工作流</option>{workflows.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><Button variant="secondary" onClick={() => void loadRemote()}>刷新</Button><Button variant="ghost" onClick={() => void removeWorkflow()} disabled={!workflowId}>删除</Button><Button variant="secondary" onClick={() => void saveRemote()}><Save size={15} /> 保存</Button><Button onClick={() => void execute()} disabled={status === 'running'}><Play size={15} /> {status === 'running' ? '运行中…' : '运行 DAG'}</Button></div></div>
+    <div className="page-header"><div><span className="home-eyebrow">Workflow Studio</span><h1>DAG 工作流</h1><p>连接节点，按依赖顺序执行；保存工作流图与每次运行记录。</p></div><div className="header-actions"><select className="workflow-select" aria-label="选择工作流" value={workflowId || ''} onChange={event => { const record = workflows.find(item => item.id === event.target.value); if (record) applyRecord(record); }}><option value="">新工作流</option>{workflows.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><Button variant="secondary" onClick={() => void loadRemote()}>刷新</Button><Button variant="ghost" onClick={() => void removeWorkflow()} disabled={!workflowId}>删除</Button><Button variant="secondary" onClick={() => void saveRemote()}><Save size={15} /> 保存</Button>{pendingReview && <Button onClick={approveReview}>通过审核并继续</Button>}<Button onClick={() => void execute()} disabled={status === 'running' || status === 'waiting'}><Play size={15} /> {status === 'running' ? '运行中…' : status === 'waiting' ? '等待审核' : '运行 DAG'}</Button></div></div>
     <div className="workflow-layout">
       <Card className="node-library"><h2>节点库</h2><p className="node-library-hint">添加节点后拖动连接</p>{kinds.map(item => <button type="button" key={item.kind} onClick={() => add(item.kind)}><Plus size={15} /><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}<div className="workflow-legend"><span><i className="legend-dot queued" />待执行</span><span><i className="legend-dot running" />执行中</span><span><i className="legend-dot success" />成功</span><span><i className="legend-dot error" />失败</span><span><i className="legend-dot skipped" />跳过</span></div></Card>
       <div className="flow-canvas" aria-label="工作流画布"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypesMemo} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, next) => setSelected(next.id)} fitView><Background gap={22} size={1} /><MiniMap /><Controls /></ReactFlow></div>
-      <Card className="node-inspector"><div className="workflow-name-row"><input aria-label="工作流名称" value={workflowName} onChange={event => { setWorkflowName(event.target.value); setSaved(false); }} /><Badge tone={saved ? 'success' : 'neutral'}>{saved ? '已保存' : '未保存'}</Badge></div><h2>节点参数</h2>{node ? <><div className="wf-inspector-kind"><Badge>{kinds.find(item => item.kind === node.data.kind)?.label}</Badge><small>{node.id}</small></div><Field label="节点名称"><input value={node.data.label} onChange={event => patchNode(node.id, { label: event.target.value })} /></Field>{node.data.kind === 'input' && <Field label="输入内容"><textarea rows={4} value={node.data.value || ''} onChange={event => patchNode(node.id, { value: event.target.value })} placeholder="商品名或创作要求" /></Field>}{node.data.kind === 'prompt' && <Field label="提示词模板"><textarea rows={5} value={node.data.prompt || ''} onChange={event => patchNode(node.id, { prompt: event.target.value })} placeholder="使用 {{input}} 引用上游内容" /></Field>}{node.data.kind === 'condition' && <Field label="继续条件"><input value={node.data.condition || ''} onChange={event => patchNode(node.id, { condition: event.target.value })} placeholder="上游内容包含此关键词才继续" /><small className="muted">不满足时只跳过下游节点，不判整个工作流失败。</small></Field>}
+      <Card className="node-inspector"><div className="workflow-name-row"><input aria-label="工作流名称" value={workflowName} onChange={event => { setWorkflowName(event.target.value); setSaved(false); }} /><Badge tone={saved ? 'success' : 'neutral'}>{saved ? '已保存' : '未保存'}</Badge></div><h2>节点参数</h2>{node ? <><div className="wf-inspector-kind"><Badge>{kinds.find(item => item.kind === node.data.kind)?.label}</Badge><small>{node.id}</small></div><Field label="节点名称"><input value={node.data.label} onChange={event => patchNode(node.id, { label: event.target.value })} /></Field>{node.data.kind === 'input' && <Field label="输入内容"><textarea rows={4} value={node.data.value || ''} onChange={event => patchNode(node.id, { value: event.target.value })} placeholder="商品名或创作要求" /></Field>}{node.data.kind === 'prompt' && <Field label="提示词模板"><textarea rows={5} value={node.data.prompt || ''} onChange={event => patchNode(node.id, { prompt: event.target.value })} placeholder="使用 {{input}} 引用上游内容" /></Field>}{node.data.kind === 'review' && <p className="muted">执行到此节点会暂停，等待你点击「通过审核并继续」。</p>}
+      {node.data.kind === 'condition' && <Field label="继续条件"><input value={node.data.condition || ''} onChange={event => patchNode(node.id, { condition: event.target.value })} placeholder="上游内容包含此关键词才继续" /><small className="muted">不满足时只跳过下游节点，不判整个工作流失败。</small></Field>}
       {node.data.kind === 'image' && <Field label="图片模型"><select value={node.data.modelId || 'image-balanced'} onChange={event => patchNode(node.id, { modelId: event.target.value })}><option value="image-balanced">WEAVIA Pro</option><option value="image-detail">WEAVIA Detail</option></select></Field>}{node.data.result && <div className="wf-node-result"><small>最近结果</small><strong>{node.data.result}</strong></div>}{node.data.error && <p className="form-error" role="alert">{node.data.error}</p>}<Button variant="danger" onClick={() => { setNodes(current => current.filter(item => item.id !== node.id)); setEdges(current => current.filter(edge => edge.source !== node.id && edge.target !== node.id)); setSelected(null); }}><Trash2 size={15} /> 删除节点</Button></> : <StatePanel type="empty" title="选择节点" detail="单击画布中的节点查看参数。" />}
         <div className="execution-result"><h3>运行日志 <Badge tone={status === 'success' ? 'success' : status === 'error' ? 'danger' : status === 'running' ? 'info' : 'neutral'}>{status === 'success' ? '完成' : status === 'error' ? '失败' : status === 'running' ? '运行中' : '待运行'}</Badge></h3>{log.length ? <div className="wf-log">{log.map((line, index) => <p key={`${line}-${index}`} className={line.startsWith('✗') ? 'error' : line.startsWith('✓') ? 'success' : ''}>{line}</p>)}</div> : <p className="muted">运行后会显示每个节点的状态与结果。</p>}</div>
         <div className="workflow-run-history"><h3>最近运行 <Badge>{runs.length}</Badge></h3>{runs.length ? runs.slice(0, 5).map(run => <div key={run.id} className="workflow-run-row"><div><Badge tone={run.status === 'success' ? 'success' : run.status === 'failed' ? 'danger' : 'info'}>{run.status === 'success' ? '成功' : run.status === 'failed' ? '失败' : '运行中'}</Badge>{run.error && <small>{run.error}</small>}</div><span>{new Date(run.startedAt).toLocaleString('zh-CN')}</span></div>) : <p className="muted">还没有运行记录。</p>}</div>
