@@ -482,3 +482,5 @@ button,a,select{touch-action:manipulation}h1,h2,h3{text-wrap:balance}.search-box
 .wf-state-skipped{opacity:.62;border-style:dashed}
 .wf-state-skipped .wf-node-state{color:var(--faint)}
 .legend-dot.skipped{background:var(--faint);opacity:.5}
+
+.wf-node-image-preview{display:block;width:100%;height:74px;object-fit:cover;border-radius:6px;margin:5px 0 2px}

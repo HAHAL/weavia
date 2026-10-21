@@ -5,11 +5,12 @@ import { CheckCircle2, CircleDashed, LoaderCircle, Play, Plus, Save, Trash2, XCi
 import { Badge, Button, Card, Field, StatePanel } from '../components/ui';
 import { useApp } from '../stores/app';
 import { createTask } from '../services/tasks';
+import { useAssetPreview } from '../hooks/useAssetPreview';
 import { deleteWorkflow, listWorkflows, listWorkflowRuns, saveWorkflow, startWorkflowRun, finishWorkflowRun, type WorkflowRecord, type WorkflowRun } from '../services/workflows';
 
 type Kind = 'input' | 'prompt' | 'condition' | 'image' | 'output';
 type RunState = 'idle' | 'queued' | 'running' | 'success' | 'error' | 'skipped';
-type WFData = { label: string; kind: Kind; value?: string; prompt?: string; condition?: string; modelId?: string; run?: RunState; result?: string; error?: string } & Record<string, unknown>;
+type WFData = { label: string; kind: Kind; value?: string; prompt?: string; condition?: string; modelId?: string; run?: RunState; result?: string; error?: string; assetId?: string } & Record<string, unknown>;
 type WFNode = Node<WFData>;
 const kinds: { kind: Kind; label: string; hint: string }[] = [
   { kind: 'input', label: '输入', hint: '商品名或创作要求' },
@@ -40,10 +41,12 @@ function statusIcon(state: RunState) {
 
 function WeaviaNode({ data, selected }: NodeProps<WFNode>) {
   const state = data.run || 'idle';
+  const { url } = useAssetPreview(data.kind === 'image' ? data.assetId : undefined);
   return <div className={`wf-node wf-node-${data.kind} ${selected ? 'selected' : ''} wf-state-${state}`}>
     {data.kind !== 'input' && <Handle type="target" position={Position.Left} />}
     <div className="wf-node-head"><span className="wf-node-kind">{kinds.find(item => item.kind === data.kind)?.label}</span><span className="wf-node-state">{statusIcon(state)}</span></div>
     <strong>{data.label}</strong>
+    {data.kind === 'image' && url && <img className="wf-node-image-preview" src={url} alt="" />}
     <small>{data.kind === 'image' ? (data.modelId || '图片模型') : data.kind === 'prompt' ? (data.prompt || '未配置提示词') : data.kind === 'input' ? (data.value || '未配置输入') : (data.result || '等待上游结果')}</small>
     {data.kind !== 'output' && <Handle type="source" position={Position.Right} />}
   </div>;
@@ -185,7 +188,9 @@ export function WorkflowPage() {
             const inputs = upstream.map(edge => outputs.get(edge.source) || '').filter(Boolean);
             const result = await executeNode(current, inputs);
             outputs.set(current.id, result);
-            patchNode(current.id, { run: 'success', result });
+            const task = useApp.getState().tasks.find(item => result.endsWith(item.id.slice(0, 8)) || result.endsWith(item.workId?.slice(0, 8) || ''));
+            const work = task?.workId ? useApp.getState().works.find(item => item.id === task.workId) : undefined;
+            patchNode(current.id, { run: 'success', result, assetId: work?.versions.at(-1)?.assetId });
             setLog(lines => [...lines, `✓ ${current.data.label} · ${result}`]);
           } catch (error) {
             const message = error instanceof Error ? error.message : '执行失败';
