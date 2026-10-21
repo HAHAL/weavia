@@ -1,0 +1,23 @@
+import { useEffect, useRef, useState } from 'react';
+import { ImagePlus, Search, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Badge, Button, Card, Dialog, StatePanel } from '../components/ui';
+import { useApp } from '../stores/app';
+import { importAsset, loadAssetPreview, removeAssetFile } from '../services/assets';
+import type { Asset } from '../types';
+const categories=['全部','商品图','参考图','品牌素材','作品'];
+export function Assets(){
+  const {assets,addAsset,deleteAsset,notify}=useApp();const ref=useRef<HTMLInputElement>(null);
+  const [search,setSearch]=useState('');const [category,setCategory]=useState('全部');const [preview,setPreview]=useState<string|null>(null);const [deleting,setDeleting]=useState<string|null>(null);const [urls,setUrls]=useState<Record<string,string>>({});const [missing,setMissing]=useState<string[]>([]);const [loading,setLoading]=useState(false);
+  const visible=assets.filter(a=>(category==='全部'||a.category===category)&&a.name.toLowerCase().includes(search.toLowerCase()));
+  useEffect(()=>{let active=true;const temporary:string[]=[];Promise.all(assets.map(async a=>{try{const url=await loadAssetPreview(a);if(url.startsWith('blob:'))temporary.push(url);return [a.id,url] as const;}catch{return [a.id,''] as const;}})).then(entries=>{if(active){setUrls(Object.fromEntries(entries));setMissing(entries.filter(([,url])=>!url).map(([id])=>id));}});return()=>{active=false;temporary.forEach(URL.revokeObjectURL);};},[assets]);
+  async function importFiles(files:FileList|null){if(!files)return;setLoading(true);let completed=0;for(const file of Array.from(files)){try{addAsset(await importAsset(file));completed++;}catch(error){notify(error instanceof Error?error.message:'素材导入失败');}}setLoading(false);if(completed)notify(`已导入 ${completed} 份素材`);}
+  async function confirmDelete(){const asset=assets.find(a=>a.id===deleting);if(!asset)return;try{await removeAssetFile(asset);deleteAsset(asset.id);notify('素材与关联文件已删除');setDeleting(null);setPreview(null);}catch(error){notify(error instanceof Error?error.message:'删除失败');}}
+  function changeCategory(asset:Asset,next:string){useApp.setState(s=>({assets:s.assets.map(a=>a.id===asset.id?{...a,category:next}:a)}));notify('素材分类已更新');}
+  return <div className="page"><div className="page-header"><div><h1>素材中心</h1><p>导入、分类和预览本地图片。</p></div><Button disabled={loading} onClick={()=>ref.current?.click()}><ImagePlus size={16}/>{loading?'导入中…':'导入素材'}</Button><input ref={ref} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={e=>{void importFiles(e.target.files);e.target.value='';}}/></div>
+    <div className="filter-bar"><div className="search-box"><Search size={16}/><input aria-label="搜索素材" placeholder="搜索文件名" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="素材分类" value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(x=><option key={x}>{x}</option>)}</select><Badge>本地存储</Badge></div>
+    {visible.length?<div className="asset-grid">{visible.map(a=><Card key={a.id} className="asset-card"><button className="asset-preview" onClick={()=>setPreview(a.id)} disabled={!urls[a.id]}>{urls[a.id]?<img src={urls[a.id]} alt={a.name}/>:<span role="alert">文件丢失或校验失败</span>}</button><div className="asset-meta"><strong title={a.name}>{a.name}</strong><small>{a.mime} · {a.size?`${Math.ceil(a.size/1024)} KB`:'旧版记录'}</small><select aria-label={`${a.name} 分类`} value={a.category} onChange={e=>changeCategory(a,e.target.value)}>{categories.slice(1).map(x=><option key={x}>{x}</option>)}</select><button className="icon-btn" aria-label={`删除 ${a.name}`} onClick={()=>setDeleting(a.id)}><Trash2 size={16}/></button></div></Card>)}</div>:<StatePanel type="empty" title={assets.length?'没有匹配的素材':'还没有素材'} detail={assets.length?'调整搜索条件。':'导入图片后可在这里预览。'} action={!assets.length?<Button onClick={()=>ref.current?.click()}><ImageIcon size={16}/> 导入图片</Button>:undefined}/>}
+    <p className="footnote">Tauri 将图片复制到应用本地数据目录的 assets/；数据库保存相对路径、大小与 SHA-256。{missing.length?`当前有 ${missing.length} 份素材文件不可读取，可删除记录后重新导入。`:''}浏览器预览使用本地存储回退。</p>
+    {preview&&urls[preview]&&<Dialog title="素材预览" onClose={()=>setPreview(null)} wide><div className="dialog-content preview-content"><img src={urls[preview]} alt={assets.find(a=>a.id===preview)?.name||'素材预览'}/></div></Dialog>}
+    {deleting&&<Dialog title="删除素材" onClose={()=>setDeleting(null)}><div className="dialog-content"><p>确定删除这份素材吗？Tauri 会同时删除应用数据目录中的关联文件。</p><div className="dialog-actions"><Button variant="secondary" onClick={()=>setDeleting(null)}>取消</Button><Button variant="danger" onClick={()=>void confirmDelete()}>确认删除</Button></div></div></Dialog>}
+  </div>;
+}

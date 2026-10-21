@@ -1,0 +1,16 @@
+.DS_Store
+*.log
+**/node_modules/
+**/dist/
+**/.turbo/
+**/output/
+**/.cache/
+**/var/
+**/test-results/
+**/playwright-report/
+client/src-tauri/target/
+client/src-tauri/gen/
+server/.env
+client/.env
+.env.local
+.env.*.local

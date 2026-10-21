@@ -1,0 +1,537 @@
+openapi: 3.1.0
+info:
+  title: WEAVIA Desktop API Proposal
+  version: 0.1.0
+  description: PROPOSED contract. No endpoint is verified against the Go backend.
+servers:
+  - url: https://api.example.invalid/v1
+    description: Placeholder only; configure a real URL explicitly.
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Account
+  - name: Catalog
+  - name: Library
+  - name: Generation
+  - name: Task
+  - name: Work
+  - name: Workflow
+  - name: Billing
+  - name: Diagnostics
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Create a session
+      x-contract-status: PROPOSED
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200': { description: Session, content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh a session
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Session, content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: End a session
+      x-contract-status: PROPOSED
+      responses:
+        '204': { description: Logged out }
+        default: { $ref: '#/components/responses/Error' }
+  /me:
+    get:
+      tags: [Account]
+      summary: Get profile
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Profile, content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Account]
+      summary: Update profile
+      x-contract-status: PROPOSED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProfilePatch' } } } }
+      responses:
+        '200': { description: Profile, content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /subscription:
+    get:
+      tags: [Billing]
+      summary: Get subscription
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Subscription, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /credits/balance:
+    get:
+      tags: [Billing]
+      summary: Get authoritative balance
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Balance, content: { application/json: { schema: { $ref: '#/components/schemas/CreditBalance' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /credits/ledger:
+    get:
+      tags: [Billing]
+      summary: List credit ledger events
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Ledger, content: { application/json: { schema: { $ref: '#/components/schemas/LedgerPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /models:
+    get:
+      tags: [Catalog]
+      summary: List models and capabilities
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Models, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Model' } } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /skills:
+    get:
+      tags: [Catalog]
+      summary: List trusted skill catalog
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Skills, content: { application/json: { schema: { $ref: '#/components/schemas/SkillPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /products:
+    get:
+      tags: [Library]
+      summary: List synchronized products
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Products, content: { application/json: { schema: { $ref: '#/components/schemas/ProductPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Library]
+      summary: Create synchronized product
+      x-contract-status: PROPOSED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductInput' } } } }
+      responses:
+        '201': { description: Product, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /products/{id}:
+    parameters: [ { $ref: '#/components/parameters/Id' } ]
+    get:
+      tags: [Library]
+      summary: Get product
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Product, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Library]
+      summary: Update product with version check
+      x-contract-status: PROPOSED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductInput' } } } }
+      responses:
+        '200': { description: Product, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /assets:
+    get:
+      tags: [Library]
+      summary: List synchronized assets
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Assets, content: { application/json: { schema: { $ref: '#/components/schemas/AssetPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Library]
+      summary: Register uploaded asset metadata
+      x-contract-status: PROPOSED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AssetInput' } } } }
+      responses:
+        '202': { description: Asset pending processing, content: { application/json: { schema: { $ref: '#/components/schemas/Asset' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /generations/images:
+    post:
+      tags: [Generation]
+      summary: Queue image generation
+      x-contract-status: PROPOSED
+      x-async: true
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ImageGenerationRequest' } } } }
+      responses:
+        '202': { description: Queued task and credit reservation, content: { application/json: { schema: { $ref: '#/components/schemas/GenerationAccepted' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /generations/videos:
+    post:
+      tags: [Generation]
+      summary: Queue video generation
+      x-contract-status: PROPOSED
+      x-async: true
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/VideoGenerationRequest' } } } }
+      responses:
+        '202': { description: Queued task and credit reservation, content: { application/json: { schema: { $ref: '#/components/schemas/GenerationAccepted' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /tasks:
+    get:
+      tags: [Task]
+      summary: List tasks
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Tasks, content: { application/json: { schema: { $ref: '#/components/schemas/TaskPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /tasks/{id}:
+    parameters: [ { $ref: '#/components/parameters/Id' } ]
+    get:
+      tags: [Task]
+      summary: Get task status
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Task, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /tasks/{id}/cancel:
+    parameters: [ { $ref: '#/components/parameters/Id' } ]
+    post:
+      tags: [Task]
+      summary: Request cancellation
+      x-contract-status: PROPOSED
+      x-async: true
+      responses:
+        '202': { description: Cancellation requested, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /works:
+    get:
+      tags: [Work]
+      summary: List works
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Works, content: { application/json: { schema: { $ref: '#/components/schemas/WorkPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /works/{id}:
+    parameters: [ { $ref: '#/components/parameters/Id' } ]
+    get:
+      tags: [Work]
+      summary: Get work and versions
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Work, content: { application/json: { schema: { $ref: '#/components/schemas/Work' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /works/{id}/versions:
+    parameters: [ { $ref: '#/components/parameters/Id' } ]
+    post:
+      tags: [Work]
+      summary: Create a work version
+      x-contract-status: PROPOSED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WorkVersionInput' } } } }
+      responses:
+        '201': { description: Version, content: { application/json: { schema: { $ref: '#/components/schemas/WorkVersion' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /workflows:
+    get:
+      tags: [Workflow]
+      summary: List workflows
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Workflows, content: { application/json: { schema: { $ref: '#/components/schemas/WorkflowPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Workflow]
+      summary: Save workflow
+      x-contract-status: PROPOSED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WorkflowInput' } } } }
+      responses:
+        '201': { description: Workflow, content: { application/json: { schema: { $ref: '#/components/schemas/Workflow' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /workflows/{id}/runs:
+    parameters: [ { $ref: '#/components/parameters/Id' } ]
+    post:
+      tags: [Workflow]
+      summary: Queue workflow execution
+      x-contract-status: PROPOSED
+      x-async: true
+      responses:
+        '202': { description: Task, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /orders:
+    get:
+      tags: [Billing]
+      summary: List orders
+      x-contract-status: PROPOSED
+      parameters: [ { $ref: '#/components/parameters/Cursor' }, { $ref: '#/components/parameters/Limit' } ]
+      responses:
+        '200': { description: Orders, content: { application/json: { schema: { $ref: '#/components/schemas/OrderPage' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /orders/{id}:
+    parameters: [ { $ref: '#/components/parameters/Id' } ]
+    get:
+      tags: [Billing]
+      summary: Get order
+      x-contract-status: PROPOSED
+      responses:
+        '200': { description: Order, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+        default: { $ref: '#/components/responses/Error' }
+  /client/diagnostics:
+    post:
+      tags: [Diagnostics]
+      summary: Upload redacted diagnostics after user consent
+      x-contract-status: PROPOSED
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DiagnosticReport' } } } }
+      responses:
+        '202': { description: Accepted }
+        default: { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string } }
+    Cursor: { name: cursor, in: query, schema: { type: string } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+  schemas:
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        requestId: { type: string }
+        retryable: { type: boolean }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    Session:
+      type: object
+      required: [userId, expiresAt]
+      properties:
+        userId: { type: string }
+        expiresAt: { type: string, format: date-time }
+        accessToken: { type: string, description: Store only in approved secure session storage. }
+    ProfilePatch:
+      type: object
+      properties:
+        displayName: { type: string }
+    Profile:
+      allOf:
+        - { $ref: '#/components/schemas/ProfilePatch' }
+        - { type: object, required: [id], properties: { id: { type: string }, email: { type: string, format: email } } }
+    Subscription:
+      type: object
+      required: [plan, status]
+      properties:
+        plan: { type: string }
+        status: { type: string, enum: [active, trial, cancelled, expired] }
+        renewsAt: { type: [string, 'null'], format: date-time }
+    CreditBalance:
+      type: object
+      required: [available, reserved, updatedAt]
+      properties:
+        available: { type: integer, minimum: 0 }
+        reserved: { type: integer, minimum: 0 }
+        updatedAt: { type: string, format: date-time }
+    LedgerEvent:
+      type: object
+      required: [id, kind, amount, createdAt]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [RESERVED, CHARGED, RELEASED, PURCHASED, REFUNDED, ADJUSTED] }
+        amount: { type: integer }
+        taskId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    LedgerPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/LedgerEvent' } }
+        nextCursor: { type: [string, 'null'] }
+    Model:
+      type: object
+      required: [id, name, modes, ratios, resolutions, creditBase]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        modes: { type: array, items: { type: string, enum: [image, video] } }
+        ratios: { type: array, items: { type: string } }
+        resolutions: { type: array, items: { type: string } }
+        maxCount: { type: integer, minimum: 1 }
+        durations: { type: array, items: { type: integer } }
+        creditBase: { type: integer, minimum: 0 }
+    Skill:
+      type: object
+      required: [id, name, kind, inputRequirement]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [template, controlled, external] }
+        inputRequirement: { type: string }
+        modelRequirement: { type: string }
+    SkillPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Skill' } }
+        nextCursor: { type: [string, 'null'] }
+    ProductInput:
+      type: object
+      required: [name, sku, category]
+      properties:
+        name: { type: string }
+        sku: { type: string }
+        category: { type: string }
+        description: { type: string }
+        version: { type: integer, description: Optimistic lock for updates. }
+    Product:
+      allOf:
+        - { $ref: '#/components/schemas/ProductInput' }
+        - { type: object, required: [id, updatedAt], properties: { id: { type: string }, updatedAt: { type: string, format: date-time } } }
+    ProductPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        nextCursor: { type: [string, 'null'] }
+    AssetInput:
+      type: object
+      required: [name, mimeType, sha256]
+      properties:
+        name: { type: string }
+        mimeType: { type: string }
+        sha256: { type: string }
+        size: { type: integer, minimum: 0 }
+    Asset:
+      allOf:
+        - { $ref: '#/components/schemas/AssetInput' }
+        - { type: object, required: [id, status], properties: { id: { type: string }, status: { type: string, enum: [processing, ready, failed] }, url: { type: [string, 'null'], format: uri } } }
+    AssetPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Asset' } }
+        nextCursor: { type: [string, 'null'] }
+    ImageGenerationRequest:
+      type: object
+      required: [prompt, modelId, ratio, resolution, count]
+      properties:
+        prompt: { type: string, minLength: 1 }
+        modelId: { type: string }
+        ratio: { type: string }
+        resolution: { type: string }
+        count: { type: integer, minimum: 1 }
+        productId: { type: string }
+        assetIds: { type: array, items: { type: string } }
+        skillId: { type: string }
+    VideoGenerationRequest:
+      type: object
+      required: [prompt, modelId, ratio, resolution, duration]
+      properties:
+        prompt: { type: string, minLength: 1 }
+        modelId: { type: string }
+        ratio: { type: string }
+        resolution: { type: string }
+        duration: { type: integer, minimum: 1 }
+        productId: { type: string }
+        assetIds: { type: array, items: { type: string } }
+    GenerationAccepted:
+      type: object
+      required: [taskId, creditReservationId, estimatedCredits]
+      properties:
+        taskId: { type: string }
+        creditReservationId: { type: string }
+        estimatedCredits: { type: integer, minimum: 0 }
+    Task:
+      type: object
+      required: [id, status, progress, updatedAt]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [Queued, Running, Succeeded, Failed, Cancelled] }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        errorCode: { type: [string, 'null'] }
+        errorMessage: { type: [string, 'null'] }
+        workId: { type: [string, 'null'] }
+        updatedAt: { type: string, format: date-time }
+    TaskPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Task' } }
+        nextCursor: { type: [string, 'null'] }
+    WorkVersionInput:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: { type: string }
+    WorkVersion:
+      allOf:
+        - { $ref: '#/components/schemas/WorkVersionInput' }
+        - { type: object, required: [id, createdAt], properties: { id: { type: string }, createdAt: { type: string, format: date-time }, assetId: { type: [string, 'null'] } } }
+    Work:
+      type: object
+      required: [id, title, versions]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        versions: { type: array, items: { $ref: '#/components/schemas/WorkVersion' } }
+    WorkPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Work' } }
+        nextCursor: { type: [string, 'null'] }
+    WorkflowInput:
+      type: object
+      required: [name, graph]
+      properties:
+        name: { type: string }
+        graph: { type: object, additionalProperties: true }
+        version: { type: integer }
+    Workflow:
+      allOf:
+        - { $ref: '#/components/schemas/WorkflowInput' }
+        - { type: object, required: [id, updatedAt], properties: { id: { type: string }, updatedAt: { type: string, format: date-time } } }
+    WorkflowPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Workflow' } }
+        nextCursor: { type: [string, 'null'] }
+    Order:
+      type: object
+      required: [id, status, amount, currency, createdAt]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [pending, paid, refunded, failed] }
+        amount: { type: integer }
+        currency: { type: string }
+        createdAt: { type: string, format: date-time }
+    OrderPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Order' } }
+        nextCursor: { type: [string, 'null'] }
+    DiagnosticReport:
+      type: object
+      required: [appVersion, events]
+      properties:
+        appVersion: { type: string }
+        events: { type: array, items: { type: object, additionalProperties: true } }

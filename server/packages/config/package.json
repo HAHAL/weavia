@@ -1,0 +1,9 @@
+{
+  "name": "@weavia/config",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["tsconfig"],
+  "exports": { "./tsconfig/*.json": "./tsconfig/*.json" },
+  "scripts": { "build": "node -e \"\"", "lint": "node -e \"\"", "typecheck": "node -e \"\"", "test": "vitest run --passWithNoTests" },
+  "devDependencies": { "typescript": "^5.9.3" }
+}

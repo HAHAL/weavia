@@ -1,0 +1,97 @@
+/* WEAVIA UI Foundation V1.0. Legacy aliases below keep existing surfaces compatible. */
+:root {
+  color-scheme: light;
+  --wv-color-canvas: #f7f6f2;
+  --wv-color-surface: #ffffff;
+  --wv-color-text-primary: #252522;
+  --wv-color-text-secondary: #6c6b64;
+  --wv-color-text-muted: #85847d;
+  --wv-color-border: #e7e5df;
+  --wv-color-accent: #9c8059;
+  --wv-color-action: #282924;
+  --wv-color-action-text: #ffffff;
+  --wv-color-success: #53775e;
+  --wv-color-warning: #8a681d;
+  --wv-color-danger: #a34539;
+  --wv-color-info: #526b78;
+  --wv-color-focus: #9c8059;
+  --wv-color-overlay: rgb(25 27 24 / 55%);
+  --wv-color-badge-neutral: #f0efeb;
+  --wv-color-badge-success: #edf4ee;
+  --wv-color-badge-warning: #f8f1df;
+  --wv-color-badge-error: #f8eae8;
+  --wv-color-badge-accent: #f2ede6;
+  --wv-color-badge-info: #eaf0f3;
+
+  --wv-font-sans: Inter, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --wv-font-editorial: Georgia, 'Songti SC', serif;
+  --wv-font-size-display: 56px;
+  --wv-font-size-h1: 25px;
+  --wv-font-size-h2: 20px;
+  --wv-font-size-h3: 14px;
+  --wv-font-size-body-lg: 14px;
+  --wv-font-size-body: 13px;
+  --wv-font-size-small: 12px;
+  --wv-font-size-caption: 11px;
+  --wv-font-size-label: 12px;
+  --wv-line-height-heading: 1.3;
+  --wv-line-height-body: 1.7;
+
+  --wv-space-1: 4px;
+  --wv-space-2: 8px;
+  --wv-space-3: 12px;
+  --wv-space-4: 16px;
+  --wv-space-6: 24px;
+  --wv-space-8: 32px;
+  --wv-space-12: 48px;
+  --wv-space-16: 64px;
+  --wv-space-24: 96px;
+  --wv-radius-control: 4px;
+  --wv-radius-image: 4px;
+  --wv-radius-card: 6px;
+  --wv-radius-modal: 8px;
+  --wv-shadow-overlay: 0 20px 90px rgb(0 0 0 / 13%);
+  --wv-motion-fast: 120ms;
+  --wv-motion-standard: 180ms;
+
+  --wv-background: var(--wv-color-canvas);
+  --wv-surface: var(--wv-color-surface);
+  --wv-text: var(--wv-color-text-primary);
+  --wv-secondary: var(--wv-color-text-secondary);
+  --wv-muted: var(--wv-color-text-muted);
+  --wv-border: var(--wv-color-border);
+  --wv-accent: var(--wv-color-accent);
+  --wv-primary: var(--wv-color-action);
+  --wv-success: var(--wv-color-success);
+  --wv-warning: var(--wv-color-warning);
+  --wv-error: var(--wv-color-danger);
+  --wv-information: var(--wv-color-info);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --wv-color-canvas: #242722;
+  --wv-color-surface: #30352e;
+  --wv-color-text-primary: #eeeee6;
+  --wv-color-text-secondary: #b8bcb0;
+  --wv-color-text-muted: #9da494;
+  --wv-color-border: #495044;
+  --wv-color-accent: #c2aa82;
+  --wv-color-action: #eeeee6;
+  --wv-color-action-text: #242722;
+  --wv-color-success: #96bb9c;
+  --wv-color-warning: #d6be7f;
+  --wv-color-danger: #dda097;
+  --wv-color-info: #a2bbc8;
+  --wv-color-focus: #c2aa82;
+  --wv-color-badge-neutral: #3a4037;
+  --wv-color-badge-success: #263d2e;
+  --wv-color-badge-warning: #4c3e23;
+  --wv-color-badge-error: #502f2e;
+  --wv-color-badge-accent: #514635;
+  --wv-color-badge-info: #2b3f47;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --wv-motion-fast: 0ms; --wv-motion-standard: 0ms; }
+}

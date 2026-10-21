@@ -1,0 +1,105 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: weavia
+      POSTGRES_USER: weavia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local Compose}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - weavia-postgres:/var/lib/postgresql/data
+      - ./packages/database/drizzle:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U weavia -d weavia']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command: ['migrate']
+    environment: &backend-env
+      DATABASE_URL: postgresql://weavia:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/weavia?sslmode=disable
+      APP_ENV: development
+      DEMO_MODE: 'false'
+      WEAVIA_WEB_ORIGIN: ${WEAVIA_WEB_ORIGIN:-http://localhost:3000}
+      ENABLE_REAL_AI: ${ENABLE_REAL_AI:-false}
+      AI_MODE: ${AI_MODE:-real}
+      ALLOW_OPEN_REGISTRATION: ${ALLOW_OPEN_REGISTRATION:-true}
+      ANTDIGITAL_BASE_URL: https://maas-api.antdigital.com/v1
+      ANTDIGITAL_API_KEY: ${ANTDIGITAL_API_KEY:-}
+      DASHSCOPE_BASE_URL: https://dashscope.aliyuncs.com/api/v1
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_IMAGE_EDIT_MODEL: qwen-image-edit-plus
+      DASHSCOPE_IMAGE_EDIT_BASE_URL: ${DASHSCOPE_IMAGE_EDIT_BASE_URL:-https://dashscope.aliyuncs.com/api/v1}
+      ASSET_STORAGE_DIR: /app/var/assets
+      STORAGE_SIGNING_KEY: ${STORAGE_SIGNING_KEY:?Set STORAGE_SIGNING_KEY}
+      AUTH_VERIFICATION_SECRET: ${AUTH_VERIFICATION_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seed:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command: ['seed']
+    environment: *backend-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  backend:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    environment: *backend-env
+    ports:
+      - '0.0.0.0:8080:8080'
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/api/readiness']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - weavia-assets:/app/var/assets
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    ports:
+      - '0.0.0.0:3001:80'
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command: ['worker']
+    restart: unless-stopped
+    environment: *backend-env
+    volumes:
+      - weavia-assets:/app/var/assets
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  weavia-postgres:
+  weavia-assets:

@@ -1,0 +1,26 @@
+# Secrets and local-only configuration
+.env
+.env.*
+**/.env
+**/.env.*
+.ai/
+
+# Source-control and dependency metadata that must never enter an image
+.git/
+**/.git/
+node_modules/
+**/node_modules/
+
+# Local build and test output
+.next/
+**/.next/
+dist/
+**/dist/
+build/
+**/build/
+coverage/
+.turbo/
+**/.turbo/
+target/
+**/target/
+*.log

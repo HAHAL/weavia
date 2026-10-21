@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Validate deployment configuration and shell scripts
+        env:
+          POSTGRES_PASSWORD: ci-local-only
+          STORAGE_SIGNING_KEY: ci-production-signing-key-at-least-32-characters
+          AUTH_VERIFICATION_SECRET: ci-verification-secret
+          DATABASE_URL: postgresql://ci:ci@db.example/weavia?sslmode=verify-full
+          WEAVIA_WEB_ORIGIN: https://weavia.com
+          SMTP_HOST: smtp.example
+          SMTP_USER: ci
+          SMTP_PASSWORD: ci
+          SMTP_FROM: ci@example.com
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.production.yml config --quiet
+          bash -n deploy/production/deploy.sh deploy/production/smoke.sh scripts/production-migrate.sh
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/backend/go.mod
+          cache-dependency-path: services/backend/go.sum
+      - run: go test ./...
+        working-directory: services/backend
+      - run: go vet ./...
+        working-directory: services/backend
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: weavia
+          POSTGRES_PASSWORD: weavia
+          POSTGRES_DB: weavia_acceptance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U weavia -d weavia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://weavia:weavia@localhost:5432/weavia_acceptance?sslmode=disable
+      ENABLE_REAL_AI: 'false'
+      WEAVIA_INTEGRATION_TEST_DB: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/backend/go.mod
+          cache-dependency-path: services/backend/go.sum
+      - run: pnpm install --frozen-lockfile
+      - name: Fresh database application and River migrations
+        run: |
+          pnpm db:migrate
+          (cd services/backend && go run ./cmd/migrate)
+      - name: Verify application migrations and preserve seed data
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO products (code,name,type,price_minor,currency) VALUES ('ci-product','CI Product','credits',100,'CNY');
+          SELECT 1 / (COUNT(*) = 1)::int FROM products WHERE code = 'ci-product';
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payments';
+          SELECT 1 / (COUNT(*) >= 1)::int FROM information_schema.tables WHERE table_schema = 'river' OR table_name LIKE 'river_%';
+          SELECT 1 / (COUNT(*) = 4)::int FROM plans WHERE code IN ('free','pro','studio','agency');
+          SELECT 1 / (COUNT(*) = 12)::int FROM entitlements e JOIN plans p ON p.id=e.plan_id WHERE p.code IN ('free','pro','studio','agency');
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='credit_reservations';
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.columns WHERE table_name='tasks' AND column_name='credit_reservation_id';
+          SELECT 1 / (COUNT(*) = 3)::int FROM roles WHERE code IN ('super_admin','operator','finance');
+          SELECT 1 / (COUNT(*) = 5)::int FROM permissions WHERE code IN ('admin.read','provider.write','credits.write','users.write','plans.write');
+          SELECT 1 / (COUNT(*) = 3)::int FROM ai_models WHERE model_name IN ('qwen-image-max','qwen-image-2.0','qwen-image-edit-plus') AND credit_cost > 0;
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='admin_audit_logs';
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='registration_requests';
+          SELECT 1 / (COUNT(*) = 1)::int FROM information_schema.tables WHERE table_schema='public' AND table_name='email_verifications';
+          SQL
+          pnpm db:migrate
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT 1 / (COUNT(*) = 1)::int FROM products WHERE code = 'ci-product'"
+      - name: Commercial E2E — Go API, PostgreSQL, River, Credits and Assets
+        run: go test -tags integration ./internal/jobs -run TestCommercialPostgresRiverE2E -count=1 -v
+        working-directory: services/backend
+      - name: Account E2E — registration, sessions and password reset
+        run: go test -tags integration ./internal/auth -run TestAccountFoundationPostgres -count=1 -v
+        working-directory: services/backend

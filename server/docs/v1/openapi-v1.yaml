@@ -1,0 +1,856 @@
+openapi: 3.0.3
+info:
+  title: WEAVIA V1 API
+  version: 1.0.0-p0
+  description: |
+    P0 contract for review. Existing auth endpoints are included for completeness.
+    All /api endpoints require Bearer auth unless explicitly marked otherwise.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local Go API
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: conversations
+  - name: generation
+  - name: billing
+  - name: cloud
+  - name: admin
+
+paths:
+  /api/auth/login:
+    post:
+      tags: [auth]
+      security: []
+      operationId: login
+      summary: Email and password login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Session issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: Current user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/conversations:
+    get:
+      tags: [conversations]
+      operationId: listConversations
+      summary: List conversations
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Conversations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationList' }
+    post:
+      tags: [conversations]
+      operationId: createConversation
+      summary: Create an empty conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateConversationRequest' }
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+  /api/conversations/{conversationId}:
+    get:
+      tags: [conversations]
+      operationId: getConversation
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Conversation with messages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/conversations/{conversationId}/messages:
+    post:
+      tags: [conversations]
+      operationId: appendMessage
+      summary: Append a user message and optional attachments
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMessageRequest' }
+      responses:
+        '200':
+          description: Message
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+
+  /api/assets/presign:
+    post:
+      tags: [generation]
+      operationId: presignAsset
+      summary: Get a signed upload URL for a reference image or mask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PresignRequest' }
+      responses:
+        '200':
+          description: Upload target
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresignResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/ai/estimate:
+    post:
+      tags: [generation]
+      operationId: createQuote
+      summary: Price a generation request and persist a short-lived quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateRequest' }
+      responses:
+        '200':
+          description: Quote
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+  /api/ai/tasks:
+    post:
+      tags: [generation]
+      operationId: createTask
+      summary: Create a generation task from a quote
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+      responses:
+        '200':
+          description: Task accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/ai/tasks/{taskId}:
+    get:
+      tags: [generation]
+      operationId: getTask
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Task with outputs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/ai/tasks/{taskId}/cancel:
+    post:
+      tags: [generation]
+      operationId: cancelTask
+      summary: Request cancellation; returns final or cancel_requested state
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/ai/tasks/{taskId}/retry:
+    post:
+      tags: [generation]
+      operationId: retryTask
+      summary: Create a new task linked to the failed parent
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '200':
+          description: New task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+
+  /api/credits:
+    get:
+      tags: [billing]
+      operationId: getCredits
+      responses:
+        '200':
+          description: Credit account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreditAccount' }
+  /api/credits/transactions:
+    get:
+      tags: [billing]
+      operationId: listCreditTransactions
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: Ledger
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CreditTransaction' }
+  /api/plans:
+    get:
+      tags: [billing]
+      operationId: listPlans
+      responses:
+        '200':
+          description: Plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Plan' }
+
+  /api/cloud/works:
+    get:
+      tags: [cloud]
+      operationId: listCloudWorks
+      responses:
+        '200':
+          description: Cloud works
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CloudWork' }
+    post:
+      tags: [cloud]
+      operationId: saveCloudWork
+      summary: Save a local work to OSS; requires storage quota
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCloudWorkRequest' }
+      responses:
+        '200':
+          description: Cloud work
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudWork' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/cloud/works/{cloudWorkId}:
+    get:
+      tags: [cloud]
+      operationId: getCloudWork
+      parameters:
+        - { name: cloudWorkId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Cloud work
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudWork' }
+    delete:
+      tags: [cloud]
+      operationId: deleteCloudWork
+      parameters:
+        - { name: cloudWorkId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletedResponse' }
+  /api/cloud/works/{cloudWorkId}/versions:
+    post:
+      tags: [cloud]
+      operationId: addCloudWorkVersion
+      parameters:
+        - { name: cloudWorkId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCloudWorkVersionRequest' }
+      responses:
+        '200':
+          description: Version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudWorkVersion' }
+  /api/cloud/works/{cloudWorkId}/restore:
+    post:
+      tags: [cloud]
+      operationId: restoreCloudWork
+      summary: Get signed download URLs to restore a cloud work locally
+      parameters:
+        - { name: cloudWorkId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Restore manifest
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RestoreResponse' }
+  /api/cloud/storage:
+    get:
+      tags: [cloud]
+      operationId: getStorageUsage
+      responses:
+        '200':
+          description: Storage usage and quota
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageUsage' }
+
+  /api/admin/invitations:
+    get:
+      tags: [admin]
+      operationId: listInvitations
+      responses:
+        '200':
+          description: Invitations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Invitation' }
+    post:
+      tags: [admin]
+      operationId: createInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInvitationRequest' }
+      responses:
+        '200':
+          description: Invitation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invitation' }
+  /api/admin/invitations/{invitationId}:
+    patch:
+      tags: [admin]
+      operationId: updateInvitation
+      parameters:
+        - { name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateInvitationRequest' }
+      responses:
+        '200':
+          description: Invitation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invitation' }
+  /api/admin/credits/adjust:
+    post:
+      tags: [admin]
+      operationId: adminAdjustCredits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminCreditAdjustRequest' }
+      responses:
+        '200':
+          description: Ledger entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreditTransaction' }
+  /api/admin/tasks:
+    get:
+      tags: [admin]
+      operationId: adminListTasks
+      responses:
+        '200':
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Task' }
+  /api/admin/storage/entitlements:
+    post:
+      tags: [admin]
+      operationId: adminGrantStorage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminStorageGrantRequest' }
+      responses:
+        '200':
+          description: Entitlement
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageEntitlement' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PaymentRequired:
+      description: Insufficient credits or storage quota
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Quote expired, task not cancellable, or storage quota exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    PresignRequest:
+      type: object
+      required: [assetId, contentType, size, role]
+      properties:
+        assetId: { type: string }
+        contentType: { type: string, enum: [image/png, image/jpeg, image/webp] }
+        size: { type: integer, minimum: 1, maximum: 10485760 }
+        role: { type: string, enum: [product, reference, mask, brand] }
+        conversationId: { type: string, format: uuid }
+    PresignResponse:
+      type: object
+      required: [uploadUrl, objectKey, expiresAt]
+      properties:
+        uploadUrl: { type: string }
+        objectKey: { type: string }
+        token: { type: string }
+        expiresAt: { type: string, format: date-time }
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: QUOTE_EXPIRED }
+        message: { type: string }
+        requestId: { type: string }
+        retryable: { type: boolean }
+    User:
+      type: object
+      required: [id, email]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        status: { type: string, example: active }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        deviceInfo:
+          type: object
+          properties:
+            deviceId: { type: string }
+            deviceName: { type: string }
+            platform: { type: string, example: desktop }
+            osVersion: { type: string }
+            appVersion: { type: string }
+    LoginResponse:
+      type: object
+      required: [accessToken, refreshToken, expiresAt, user]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+    Conversation:
+      type: object
+      required: [id, title, mode, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        mode: { type: string, enum: [image, video] }
+        status: { type: string, enum: [active, archived] }
+        lastMessageAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ConversationList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Conversation' }
+        nextCursor: { type: string, nullable: true }
+    ConversationDetail:
+      allOf:
+        - $ref: '#/components/schemas/Conversation'
+        - type: object
+          properties:
+            messages:
+              type: array
+              items: { $ref: '#/components/schemas/Message' }
+    CreateConversationRequest:
+      type: object
+      properties:
+        title: { type: string, maxLength: 120 }
+        workspaceId: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        mode: { type: string, enum: [image, video], default: image }
+    Message:
+      type: object
+      required: [id, conversationId, role, content, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid }
+        role: { type: string, enum: [user, assistant, system] }
+        content: { type: string }
+        params: { type: object, additionalProperties: true }
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/Attachment' }
+        taskId: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+    CreateMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, maxLength: 8000 }
+        params: { type: object, additionalProperties: true }
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/Attachment' }
+        clientMessageId: { type: string, maxLength: 128 }
+    Attachment:
+      type: object
+      required: [role, mime]
+      properties:
+        clientAssetId: { type: string }
+        uploadedAssetId: { type: string, format: uuid }
+        role: { type: string, enum: [product, reference, mask, brand] }
+        mime: { type: string }
+        size: { type: integer }
+        sha256: { type: string }
+    EstimateRequest:
+      type: object
+      required: [model, mode, prompt, size, numberOfImages]
+      properties:
+        conversationId: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        model: { type: string, example: qwen-image-max }
+        mode: { type: string, enum: [text_to_image, image_to_image, image_edit] }
+        editMode: { type: string, enum: [whole, region] }
+        prompt: { type: string, maxLength: 4000 }
+        size: { type: string, example: 1024x1024 }
+        numberOfImages: { type: integer, enum: [1] }
+        referenceAssets:
+          type: array
+          items: { $ref: '#/components/schemas/ReferenceAsset' }
+        maskAssetId: { type: string, format: uuid }
+    QuoteLineItem:
+      type: object
+      required: [model, quantity, unitCredits, totalCredits]
+      properties:
+        model: { type: string }
+        quantity: { type: integer }
+        unitCredits: { type: integer }
+        totalCredits: { type: integer }
+        note: { type: string }
+    Quote:
+      type: object
+      required: [id, totalCredits, currency, status, lineItems, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        totalCredits: { type: integer }
+        currency: { type: string, enum: [credits] }
+        status: { type: string, enum: [active, consumed, expired, cancelled] }
+        lineItems:
+          type: array
+          items: { $ref: '#/components/schemas/QuoteLineItem' }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    ReferenceAsset:
+      type: object
+      required: [assetId, role]
+      properties:
+        assetId: { type: string, format: uuid }
+        objectKey: { type: string }
+        role: { type: string, enum: [product, reference, mask, brand] }
+        mime: { type: string }
+    CreateTaskRequest:
+      type: object
+      required: [quoteId, model, mode, prompt, size, numberOfImages]
+      properties:
+        conversationId: { type: string, format: uuid }
+        messageId: { type: string, format: uuid }
+        quoteId: { type: string, format: uuid }
+        parentTaskId: { type: string, format: uuid }
+        model: { type: string }
+        mode: { type: string, enum: [text_to_image, image_to_image, image_edit] }
+        editMode: { type: string, enum: [whole, region], default: whole }
+        prompt: { type: string, maxLength: 4000 }
+        size: { type: string, example: 1024x1024 }
+        numberOfImages: { type: integer, enum: [1] }
+        referenceAssets:
+          type: array
+          items: { $ref: '#/components/schemas/ReferenceAsset' }
+        maskAssetId: { type: string, format: uuid }
+        outputFormat: { type: string, example: png }
+    TaskOutput:
+      type: object
+      required: [mimeType]
+      properties:
+        objectKey: { type: string }
+        base64Data: { type: string }
+        mimeType: { type: string }
+        size: { type: integer }
+    Task:
+      type: object
+      required: [id, status, cost, outputs, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid, nullable: true }
+        messageId: { type: string, format: uuid, nullable: true }
+        parentTaskId: { type: string, format: uuid, nullable: true }
+        status:
+          type: string
+          enum: [reserved, queued, uploading, running, downloading, reconciling, success, failed, cancelled]
+        mode: { type: string, enum: [text_to_image, image_to_image, image_edit] }
+        editMode: { type: string, enum: [whole, region], nullable: true }
+        model: { type: string }
+        provider: { type: string }
+        cost: { type: integer }
+        outputs:
+          type: array
+          items: { $ref: '#/components/schemas/TaskOutput' }
+        error:
+          type: object
+          nullable: true
+          properties:
+            code: { type: string }
+            message: { type: string }
+        cancellable: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        outputExpiresAt: { type: string, format: date-time, nullable: true }
+    CreditAccount:
+      type: object
+      required: [available, reserved, currency]
+      properties:
+        id: { type: string, format: uuid }
+        available: { type: integer }
+        reserved: { type: integer }
+        currency: { type: string, example: credits }
+        version: { type: integer }
+    CreditTransaction:
+      type: object
+      required: [id, type, availableDelta, reservedDelta, balanceAfter, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [reserve, confirm, release, grant, purchase, refund, adjust] }
+        availableDelta: { type: integer }
+        reservedDelta: { type: integer }
+        balanceAfter: { type: integer }
+        reservedAfter: { type: integer }
+        referenceType: { type: string }
+        referenceId: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    Plan:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        priceMinor: { type: integer }
+        includedCredits: { type: integer }
+        billingCycle: { type: string }
+    CloudWork:
+      type: object
+      required: [id, title, versions, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        localWorkId: { type: string }
+        title: { type: string }
+        coverUrl: { type: string, nullable: true }
+        status: { type: string, enum: [active, deleted] }
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/CloudWorkVersion' }
+        createdAt: { type: string, format: date-time }
+    CloudWorkVersion:
+      type: object
+      required: [id, versionNo, assetKey, mime, size, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        versionNo: { type: integer }
+        prompt: { type: string }
+        assetKey: { type: string }
+        mime: { type: string }
+        size: { type: integer }
+        createdAt: { type: string, format: date-time }
+    CreateCloudWorkRequest:
+      type: object
+      required: [localWorkId, title, versions]
+      properties:
+        localWorkId: { type: string }
+        workspaceId: { type: string, format: uuid }
+        title: { type: string }
+        coverKey: { type: string }
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/CreateCloudWorkVersionRequest' }
+    CreateCloudWorkVersionRequest:
+      type: object
+      required: [versionNo, assetKey, mime, size]
+      properties:
+        versionNo: { type: integer, minimum: 1 }
+        prompt: { type: string }
+        assetKey: { type: string }
+        mime: { type: string }
+        size: { type: integer, minimum: 1 }
+        sourceTaskId: { type: string, format: uuid }
+    RestoreResponse:
+      type: object
+      properties:
+        work:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            localWorkId: { type: string }
+            title: { type: string }
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              versionNo: { type: integer }
+              url: { type: string }
+              expiresAt: { type: string, format: date-time }
+    StorageUsage:
+      type: object
+      required: [bytesUsed, quotaBytes]
+      properties:
+        bytesUsed: { type: integer }
+        quotaBytes: { type: integer }
+        expiresAt: { type: string, format: date-time, nullable: true }
+    Invitation:
+      type: object
+      required: [id, code, maxUses, usedCount, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        maxUses: { type: integer }
+        usedCount: { type: integer }
+        disabled: { type: boolean }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        note: { type: string }
+        createdAt: { type: string, format: date-time }
+    CreateInvitationRequest:
+      type: object
+      required: [maxUses]
+      properties:
+        maxUses: { type: integer, minimum: 1, maximum: 1000 }
+        expiresAt: { type: string, format: date-time }
+        note: { type: string }
+    UpdateInvitationRequest:
+      type: object
+      properties:
+        disabled: { type: boolean }
+        expiresAt: { type: string, format: date-time }
+        note: { type: string }
+    AdminCreditAdjustRequest:
+      type: object
+      required: [userId, amount, reason, idempotencyKey]
+      properties:
+        userId: { type: string, format: uuid }
+        amount: { type: integer, description: Positive grants, negative deducts }
+        reason: { type: string, maxLength: 200 }
+        idempotencyKey: { type: string, maxLength: 128 }
+    AdminStorageGrantRequest:
+      type: object
+      required: [userId, packCode]
+      properties:
+        userId: { type: string, format: uuid }
+        packCode: { type: string, example: storage-10gb-30d }
+    StorageEntitlement:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        packCode: { type: string }
+        bytes: { type: integer }
+        startsAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        status: { type: string, enum: [active, expired, revoked] }
+    DeletedResponse:
+      type: object
+      properties:
+        deleted: { type: boolean }

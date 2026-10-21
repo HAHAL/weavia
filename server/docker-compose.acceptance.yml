@@ -1,0 +1,46 @@
+name: weavia-acceptance
+
+# Disposable local PostgreSQL/River test stack. No published ports or provider keys.
+services:
+  postgres-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: weavia_acceptance
+      POSTGRES_USER: weavia_test
+      POSTGRES_PASSWORD: local-acceptance-only
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./packages/database/drizzle:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U weavia_test -d weavia_acceptance']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  river-migrate:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command: ['migrate']
+    environment:
+      DATABASE_URL: postgresql://weavia_test:local-acceptance-only@postgres-test:5432/weavia_acceptance?sslmode=disable
+      APP_ENV: test
+      ENABLE_REAL_AI: 'false'
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+
+  integration-test:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+      target: integration-test
+    environment:
+      DATABASE_URL: postgresql://weavia_test:local-acceptance-only@postgres-test:5432/weavia_acceptance?sslmode=disable
+      APP_ENV: test
+      ENABLE_REAL_AI: 'false'
+      WEAVIA_INTEGRATION_TEST_DB: '1'
+    depends_on:
+      river-migrate:
+        condition: service_completed_successfully

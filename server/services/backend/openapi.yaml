@@ -1,0 +1,384 @@
+openapi: 3.1.0
+info:
+  title: WEAVIA Cloud API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api
+paths:
+  /health:
+    get:
+      operationId: health
+      responses: { '200': { description: Healthy } }
+  /readiness:
+    get:
+      operationId: readiness
+      responses: { '200': { description: Dependencies ready }, '503': { description: Dependency unavailable } }
+  /auth/desktop/session:
+    post:
+      operationId: createDesktopSession
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/register:
+    post:
+      operationId: legacyRegisterRejected
+      description: Direct registration is disabled; use registration requests and email verification.
+      responses: { '400': { description: Email verification required } }
+  /auth/registration-requests:
+    post:
+      operationId: requestRegistration
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/email-verifications/verify:
+    post:
+      operationId: verifyRegistration
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/email-verifications/resend:
+    post:
+      operationId: resendRegistrationCode
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/sessions:
+    get:
+      operationId: listSessions
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/sessions/{sessionID}:
+    delete:
+      operationId: revokeSession
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/sessions/revoke-all:
+    post:
+      operationId: revokeAllSessions
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /me/deletion-requests:
+    post:
+      operationId: requestDeletion
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /me/deletion-requests/current:
+    get:
+      operationId: currentDeletionRequest
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/users/deletion-requests:
+    get:
+      operationId: adminDeletionRequests
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/users/deletion-requests/{requestID}/approve:
+    post:
+      operationId: approveDeletionRequest
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/users/deletion-requests/{requestID}/reject:
+    post:
+      operationId: rejectDeletionRequest
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/login:
+    post:
+      operationId: login
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/desktop/authorize:
+    post:
+      operationId: authorizeDesktopSession
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/desktop/exchange:
+    post:
+      operationId: exchangeDesktopCode
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/refresh:
+    post:
+      operationId: refreshSession
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/logout:
+    post:
+      operationId: logout
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/me:
+    get:
+      operationId: currentUser
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/devices:
+    get:
+      operationId: listDevices
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/devices/{deviceId}:
+    delete:
+      operationId: revokeDevice
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: deviceId, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /plans:
+    get:
+      operationId: listPlans
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /membership:
+    get:
+      operationId: getMembership
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /credits:
+    get:
+      operationId: getCreditAccount
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /credits/transactions:
+    get:
+      operationId: listCreditTransactions
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /workspaces:
+    get:
+      operationId: listWorkspaces
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      operationId: createWorkspace
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /workspaces/{workspaceId}/projects:
+    post:
+      operationId: createProject
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: workspaceId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /projects:
+    get:
+      operationId: listProjects
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets:
+    get:
+      operationId: listAssets
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets/{assetId}/preview:
+    get:
+      operationId: getAssetPreview
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: assetId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /projects/{projectId}/products:
+    post:
+      operationId: createProduct
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: projectId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /products/{productId}/skus:
+    post:
+      operationId: createSku
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: productId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /skus/{skuId}/assets:
+    get:
+      operationId: listSkuAssets
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: skuId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      operationId: createSkuAsset
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: skuId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/catalog:
+    get:
+      operationId: modelCatalog
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/estimate:
+    post:
+      operationId: estimateCredits
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/templates:
+    get:
+      operationId: promptTemplates
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/tasks:
+    get:
+      operationId: listGenerationTasks
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      operationId: createGenerationTask
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /ai/tasks/{taskId}:
+    get:
+      operationId: getGenerationResult
+      description: Successful generated outputs include a WEAVIA objectKey and a base64Data data URI read from private durable storage. Provider URLs and data URIs are not persisted in task or asset records.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        [{ name: taskId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets/presign:
+    post:
+      operationId: presignReferenceAsset
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /assets/upload/{token}:
+    put:
+      operationId: uploadReferenceAsset
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '204': { description: Uploaded }
+  /admin/ai/catalog:
+    get:
+      operationId: adminCatalog
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/providers:
+    get:
+      operationId: adminProviders
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/providers/{providerId}:
+    patch:
+      operationId: updateProvider
+      security: [{ bearerAuth: [] }]
+      parameters:
+        [{ name: providerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/models:
+    get:
+      operationId: adminModels
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/routing:
+    get:
+      operationId: adminRouting
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/ai/usage:
+    get:
+      operationId: adminUsage
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/users:
+    get:
+      operationId: adminUsers
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/overview:
+    get:
+      operationId: adminOverview
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/plans:
+    get:
+      operationId: adminPlans
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/orders:
+    get:
+      operationId: adminOrders
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/payments:
+    get:
+      operationId: adminPayments
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/devices:
+    get:
+      operationId: adminDevices
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/credits/transactions:
+    get:
+      operationId: adminCreditTransactions
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/tasks:
+    get:
+      operationId: adminTasks
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/task-runs:
+    get:
+      operationId: adminTaskRuns
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/credits/adjust:
+    post:
+      operationId: adminAdjustCredits
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/users/{userId}/status:
+    patch:
+      operationId: adminSetUserStatus
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: userId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /admin/plans/{planId}:
+    patch:
+      operationId: adminUpdatePlan
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: planId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  requestBodies:
+    JSON:
+      required: true
+      content: { application/json: { schema: { type: object, additionalProperties: true } } }
+  responses:
+    Success:
+      description: Compatible WEAVIA response envelope
+      content: { application/json: { schema: { $ref: '#/components/schemas/Success' } } }
+  schemas:
+    Success:
+      type: object
+      required: [data]
+      properties: { data: {} }
+    Error:
+      type: object
+      required: [code, message]
+      properties: { code: { type: string }, message: { type: string } }

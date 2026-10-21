@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: DATABASE_URL=... $0 admin@example.com" >&2
+  exit 64
+fi
+
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  echo "DATABASE_URL is required" >&2
+  exit 64
+fi
+
+email="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+if [[ ! "$email" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
+  echo "Invalid administrator email: $1" >&2
+  exit 64
+fi
+
+psql_bin="${PSQL_BIN:-psql}"
+psql_args=(-X -v ON_ERROR_STOP=1 "$DATABASE_URL")
+
+user_id="$($psql_bin "${psql_args[@]}" -v "admin_email=$email" -Atqc \
+  "SELECT id::text FROM users WHERE lower(email) = lower(:'admin_email') LIMIT 1;")"
+
+if [[ -z "$user_id" ]]; then
+  echo "No user exists for $email. Register the account first, then rerun this command." >&2
+  exit 2
+fi
+
+role_id="$($psql_bin "${psql_args[@]}" -Atqc \
+  "SELECT id::text FROM roles WHERE code = 'super_admin' LIMIT 1;")"
+
+if [[ -z "$role_id" ]]; then
+  echo "The super_admin role is missing. Apply the production database migrations first." >&2
+  exit 1
+fi
+
+$psql_bin "${psql_args[@]}" -v "user_id=$user_id" -v "role_id=$role_id" -c \
+  "INSERT INTO user_roles(user_id, role_id) VALUES (:'user_id'::uuid, :'role_id'::uuid) ON CONFLICT (user_id, role_id) DO NOTHING;"
+
+echo "Granted super_admin to $email."

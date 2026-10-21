@@ -1,0 +1,27 @@
+/** Proposed server DTOs. Keep in sync with openapi/openapi.yaml after backend review. */
+export type ApiPage<T> = { items:T[]; nextCursor:string|null };
+export type ApiErrorDto = { code:string; message:string; requestId?:string; retryable?:boolean };
+export type SessionDto = { userId:string; expiresAt:string; accessToken?:string };
+export type ProfileDto = { id:string; email?:string; displayName?:string };
+export type SubscriptionDto = { plan:string; status:'active'|'trial'|'cancelled'|'expired'; renewsAt?:string|null };
+export type CreditBalanceDto = { available:number; reserved:number; updatedAt:string };
+export type LedgerKind = 'RESERVED'|'CHARGED'|'RELEASED'|'PURCHASED'|'REFUNDED'|'ADJUSTED';
+export type LedgerEventDto = { id:string; kind:LedgerKind; amount:number; taskId?:string|null; createdAt:string };
+export type ModelDto = { id:string; name:string; modes:('image'|'video')[]; ratios:string[]; resolutions:string[]; maxCount?:number; durations?:number[]; creditBase:number };
+export type SkillDto = { id:string; name:string; kind:'template'|'controlled'|'external'; inputRequirement:string; modelRequirement?:string };
+export type ProductInputDto = { name:string; sku:string; category:string; description?:string; version?:number };
+export type ProductDto = ProductInputDto & { id:string; updatedAt:string };
+export type AssetInputDto = { name:string; mimeType:string; sha256:string; size?:number };
+export type AssetDto = AssetInputDto & { id:string; status:'processing'|'ready'|'failed'; url?:string|null };
+export type ImageGenerationRequestDto = { prompt:string; modelId:string; ratio:string; resolution:string; count:number; productId?:string; assetIds?:string[]; skillId?:string };
+export type VideoGenerationRequestDto = { prompt:string; modelId:string; ratio:string; resolution:string; duration:number; productId?:string; assetIds?:string[] };
+export type GenerationAcceptedDto = { taskId:string; creditReservationId:string; estimatedCredits:number };
+export type TaskStatusDto = 'Queued'|'Running'|'Succeeded'|'Failed'|'Cancelled';
+export type TaskDto = { id:string; status:TaskStatusDto; progress:number; errorCode?:string|null; errorMessage?:string|null; workId?:string|null; updatedAt:string };
+export type WorkVersionInputDto = { prompt:string };
+export type WorkVersionDto = WorkVersionInputDto & { id:string; createdAt:string; assetId?:string|null };
+export type WorkDto = { id:string; title:string; versions:WorkVersionDto[] };
+export type WorkflowInputDto = { name:string; graph:Record<string,unknown>; version?:number };
+export type WorkflowDto = WorkflowInputDto & { id:string; updatedAt:string };
+export type OrderDto = { id:string; status:'pending'|'paid'|'refunded'|'failed'; amount:number; currency:string; createdAt:string };
+export type DiagnosticReportDto = { appVersion:string; events:Record<string,unknown>[] };

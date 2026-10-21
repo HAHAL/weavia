@@ -1,0 +1,63 @@
+name: weavia-production
+
+# Production uses an externally managed PostgreSQL database. Run the backed-up
+# application and River migrations before starting this stack.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    environment: &backend-env
+      APP_ENV: production
+      DEMO_MODE: 'false'
+      DATABASE_URL: ${DATABASE_URL:?Set a TLS PostgreSQL DATABASE_URL}
+      WEAVIA_WEB_ORIGIN: ${WEAVIA_WEB_ORIGIN:?Set the public HTTPS web origin}
+      ASSET_STORAGE_DIR: /app/var/assets
+      STORAGE_SIGNING_KEY: ${STORAGE_SIGNING_KEY:?Set a strong signing key}
+      AUTH_VERIFICATION_SECRET: ${AUTH_VERIFICATION_SECRET:?Set the verification secret}
+      SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:?Set SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?Set SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM:?Set SMTP_FROM}
+      ENABLE_REAL_AI: ${ENABLE_REAL_AI:-false}
+      AI_MODE: ${AI_MODE:-real}
+      ANTDIGITAL_API_KEY: ${ANTDIGITAL_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_IMAGE_EDIT_MODEL: ${DASHSCOPE_IMAGE_EDIT_MODEL:-qwen-image-edit-plus}
+      DASHSCOPE_IMAGE_EDIT_BASE_URL: ${DASHSCOPE_IMAGE_EDIT_BASE_URL:-https://dashscope.aliyuncs.com/api/v1}
+    ports:
+      - '127.0.0.1:8080:8080'
+    volumes:
+      - weavia-assets:/app/var/assets
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/api/readiness']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command: ['worker']
+    environment: *backend-env
+    volumes:
+      - weavia-assets:/app/var/assets
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  weavia-assets:

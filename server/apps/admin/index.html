@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WEAVIA 运营后台</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <section id="loginView" class="login-shell">
+    <form id="loginForm" class="login-card">
+      <span class="eyebrow">WEAVIA ADMIN</span>
+      <h1>运营管理后台</h1>
+      <p>用户、商业、AI、任务与客户端内容，在一个地方管理。</p>
+      <label>邮箱<input id="email" type="email" autocomplete="username" required /></label>
+      <label>密码<input id="password" type="password" autocomplete="current-password" required /></label>
+      <label>API 地址<input id="apiBase" value="http://127.0.0.1:8080" /></label>
+      <button class="primary" type="submit">进入后台</button>
+      <p id="loginError" class="form-error" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="adminView" class="admin-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">W</span><span>WEAVIA<small>ADMIN CONSOLE</small></span></div>
+      <nav id="nav" class="nav" aria-label="后台导航"></nav>
+      <div class="sidebar-foot">
+        <span class="avatar" id="avatar">A</span>
+        <span class="identity"><strong id="adminEmail">管理员</strong><small>运营工作区</small></span>
+        <button id="logout" class="text-button">退出</button>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div><span class="eyebrow" id="pageKicker">OVERVIEW</span><span class="topbar-note">WEAVIA 运营工作区</span></div>
+        <div class="topbar-actions"><span class="status-dot"></span><span id="serviceStatus">服务检查中</span><button id="refresh" class="ghost" type="button">刷新</button></div>
+      </header>
+      <main id="content" class="content" aria-live="polite"></main>
+    </div>
+  </div>
+
+  <dialog id="modal" class="modal"></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
