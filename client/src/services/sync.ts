@@ -4,6 +4,7 @@ import type { Task, TaskStatus } from '../types';
 import type { Model } from '../types';
 import type { Skill, App } from './recipes';
 import type { ShowcaseItem } from '../data/showcase';
+import { resumeLiveTasks } from './live';
 
 export type SyncState = 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
 export type SyncSnapshot = {
@@ -17,7 +18,7 @@ export type SyncSnapshot = {
   syncedAt: string;
 };
 type ServerTask = {
-  id: string; status: string; prompt?: string; mode?: string; model?: string; provider?: string; providerTaskId?: string; cost?: number;
+  id: string; status: string; prompt?: string; mode?: string; model?: string; provider?: string; providerTaskId?: string; cost?: number; creative?: Task['creative'];
   createdAt?: string; outputs?: { objectKey?: string; mimeType?: string }[]; error?: { code?: string; message?: string };
 };
 const CACHE_KEY = 'weavia.sync.v3';
@@ -59,11 +60,14 @@ function mapStatus(status: string): TaskStatus {
 }
 function toTask(server: ServerTask): Task {
   const prompt = server.prompt || '历史生成任务';
+  const product = server.creative?.product;
   return {
     id: server.id, title: prompt.slice(0, 28), prompt, mode: server.mode?.includes('video') ? 'video' : 'image',
     status: mapStatus(server.status), progress: server.status === 'success' ? 100 : mapStatus(server.status) === 'Running' ? 60 : 20,
     createdAt: server.createdAt || new Date().toISOString(), source: 'live', error: server.error?.message, errorCode: server.error?.code,
     provider: server.provider, providerTaskId: server.providerTaskId, model: server.model,
+    creative: server.creative,
+    product: product ? { id: product.localId || '', name: product.name, sku: product.sku || '', description: product.description || '', verifiedFacts: product.verifiedFacts || '', forbiddenClaims: product.forbiddenClaims || '', sourceAssetId: '' } : undefined,
   };
 }
 
@@ -71,9 +75,15 @@ function hydrate(snapshotValue: SyncSnapshot) {
   // Server tasks are the authoritative task history; keep local-only tasks
   // that were created before the sync cache existed.
   const local = useApp.getState().tasks;
-  const serverTasks = snapshotValue.tasks.map(toTask);
+  const localById = new Map(local.map(task => [task.id, task]));
+  const serverTasks = snapshotValue.tasks.map(server => {
+    const task = toTask(server);
+    const previous = localById.get(task.id);
+    return previous ? { ...task, product: previous.product || task.product, referenceAssetIds: previous.referenceAssetIds, workId: previous.workId } : task;
+  });
   const serverIds = new Set(serverTasks.map(task => task.id));
   useApp.setState({ tasks: [...serverTasks, ...local.filter(task => !serverIds.has(task.id) && task.source !== 'live')] });
+  resumeLiveTasks();
   window.dispatchEvent(new Event('weavia:credits'));
 }
 

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -130,6 +131,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/ai/tasks", s.createTask)
 			r.Get("/ai/tasks", s.listTasks)
 			r.Get("/ai/tasks/{taskID}", s.getTask)
+			r.Get("/ai/tasks/{taskID}/outputs/{index}", s.getTaskOutput)
 			r.Post("/assets/presign", s.presign)
 			r.Post("/conversations", s.createConversation)
 			r.Get("/conversations", s.listConversations)
@@ -601,10 +603,11 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := currentUser(r).ID
 	if len(input.ReferenceAssets) > 0 {
-		ref := input.ReferenceAssets[0]
-		if ref.AssetID != input.InputAssetID || !strings.HasPrefix(ref.ObjectKey, "references/"+userID+"/") {
-			writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "参考素材不属于当前用户", Status: 403})
-			return
+		for index, ref := range input.ReferenceAssets {
+			if ref.AssetID == "" || ref.ObjectKey == "" || !strings.HasPrefix(ref.ObjectKey, "references/"+userID+"/") || (index == 0 && ref.AssetID != input.InputAssetID) {
+				writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "参考素材不属于当前用户", Status: 403})
+				return
+			}
 		}
 	}
 	if len(input.ReferenceAssets) > 0 && input.ReferenceURL == "" && s.Assets != nil {
@@ -676,6 +679,34 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, task)
+}
+func (s *Server) getTaskOutput(w http.ResponseWriter, r *http.Request) {
+	task, found, err := s.Generation.Get(r.Context(), currentUser(r).ID, chi.URLParam(r, "taskID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	index, parseErr := strconv.Atoi(chi.URLParam(r, "index"))
+	if !found || parseErr != nil || index < 0 || index >= len(task.Outputs) || task.Status != "success" || s.Assets == nil {
+		writeError(w, &generation.APIError{Code: "NOT_FOUND", Message: "结果文件不存在", Status: 404})
+		return
+	}
+	output := task.Outputs[index]
+	file, err := s.Assets.OpenGenerated(output.ObjectKey)
+	if err != nil {
+		writeError(w, &generation.APIError{Code: "NOT_FOUND", Message: "结果文件不存在", Status: 404})
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", output.MimeType)
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, filepath.Base(output.ObjectKey), info.ModTime(), file)
 }
 func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -795,7 +826,7 @@ func (s *Server) listPlatformModels(w http.ResponseWriter, r *http.Request) {
 			if modality != "" && item.Modality != modality {
 				continue
 			}
-			out = append(out, map[string]any{"id": item.Key, "key": item.Key, "displayName": item.DisplayName, "icon": item.Icon, "modality": item.Modality, "capabilities": item.Capabilities, "creditsCost": item.CreditsCost, "params": item.Params, "channels": item.Channels, "available": item.Available})
+			out = append(out, map[string]any{"id": item.Key, "key": item.Key, "displayName": item.DisplayName, "icon": item.Icon, "modality": item.Modality, "capabilities": item.Capabilities, "creditsCost": item.CreditsCost, "params": item.Params, "channels": item.Channels, "available": item.Available && s.RealAIEnabled})
 		}
 		ok(w, map[string]any{"items": out})
 		return
@@ -812,6 +843,7 @@ func (s *Server) listPlatformModels(w http.ResponseWriter, r *http.Request) {
 	filtered := make([]modelcatalog.Model, 0, len(items))
 	for _, item := range items {
 		if modality == "" || item.Modality == modality {
+			item.Available = item.Available && s.RealAIEnabled
 			filtered = append(filtered, item)
 		}
 	}

@@ -5,11 +5,11 @@ import type { Asset } from '../types';
 import { log } from '../lib/logger';
 const DIR='assets';
 async function sha256(bytes:Uint8Array){const digest=await crypto.subtle.digest('SHA-256',bytes as BufferSource);return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');}
-function extension(mime:string){return ({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'} as Record<string,string>)[mime]||'bin';}
+function extension(mime:string){return ({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif','video/mp4':'mp4','video/webm':'webm'} as Record<string,string>)[mime]||'bin';}
 export async function importAsset(file:File):Promise<Asset>{
-  if(!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type))throw new Error('仅支持 PNG、JPEG、WebP、GIF 图片');
-  const maxMb=isTauri()?10:2;
-  if(file.size>maxMb*1024*1024)throw new Error(`单个图片不能超过 ${maxMb} MB`);
+  if(!['image/png','image/jpeg','image/webp','image/gif','video/mp4','video/webm'].includes(file.type))throw new Error('仅支持 PNG、JPEG、WebP、GIF 图片或 MP4、WebM 视频');
+  const maxMb=file.type.startsWith('video/')?(isTauri()?100:25):(isTauri()?10:2);
+  if(file.size>maxMb*1024*1024)throw new Error(`单个素材不能超过 ${maxMb} MB`);
   const id=crypto.randomUUID();const bytes=new Uint8Array(await file.arrayBuffer());const common={id,name:file.name,category:'商品图',mime:file.type,size:file.size,sha256:await sha256(bytes),createdAt:new Date().toISOString()};
   if(isTauri()) {const localPath=`${DIR}/${id}.${extension(file.type)}`;try{await mkdir(DIR,{baseDir:BaseDirectory.AppLocalData,recursive:true});await writeFile(localPath,bytes,{baseDir:BaseDirectory.AppLocalData});return {...common,localPath};}catch{log('error','asset.write');throw new Error('本地文件写入失败');}}
   return {...common,dataUrl:await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);})};

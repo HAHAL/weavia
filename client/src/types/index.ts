@@ -4,11 +4,12 @@ export type Product = { id: string; name: string; category: string; sku: string;
 export type Asset = { id: string; name: string; category: string; mime: string; dataUrl?: string; localPath?: string; size?: number; sha256?: string; createdAt: string };
 export type TaskSource = 'mock' | 'live';
 export type ProductBrief = { id: string; name: string; sku: string; description: string; verifiedFacts: string; forbiddenClaims: string; sourceAssetId: string };
-export type Task = { id: string; title: string; prompt: string; mode: Mode; status: TaskStatus; progress: number; createdAt: string; error?: string; errorCode?: string; workId?: string; source: TaskSource; product?: ProductBrief; referenceAssetIds?: string[]; outputDataUrl?: string; outputMimeType?: string; providerTaskId?: string; provider?: string; model?: string };
+export type CreativeBrief = { purpose: 'hero' | 'scene' | 'ad' | 'video'; channel: string; market: string; language: string; audience?: string; product?: { localId?: string; name: string; sku?: string; description?: string; verifiedFacts?: string; forbiddenClaims?: string } };
+export type Task = { id: string; title: string; prompt: string; mode: Mode; status: TaskStatus; progress: number; createdAt: string; error?: string; errorCode?: string; workId?: string; source: TaskSource; product?: ProductBrief; creative?: CreativeBrief; referenceAssetIds?: string[]; outputDataUrl?: string; outputMimeType?: string; providerTaskId?: string; provider?: string; model?: string };
 export type WorkVersion = { id: string; createdAt: string; prompt: string; assetId?: string; dataUrl?: string; mimeType?: string };
-export type Work = { id: string; title: string; mode: Mode; taskId: string; versions: WorkVersion[]; source: TaskSource; product?: ProductBrief };
+export type Work = { id: string; title: string; mode: Mode; taskId: string; versions: WorkVersion[]; source: TaskSource; product?: ProductBrief; reviewStatus?: 'pending' | 'approved' | 'changes_needed'; reviewNote?: string };
 export type Skill = { id: string; name: string; category: string; kind: 'template' | 'controlled' | 'external'; description: string; input: string; requirement: string };
-export type Model = { id: string; name: string; modes: Mode[]; ratios: string[]; resolutions: string[]; maxCount: number; durations?: number[]; creditBase: number; description: string; available?: boolean; provider?: string; icon?: string; logo?: string; channels?: number };
+export type Model = { id: string; name: string; modes: Mode[]; capabilities?: string[]; ratios: string[]; resolutions: string[]; maxCount: number; durations?: number[]; creditBase: number; description: string; available?: boolean; provider?: string; icon?: string; logo?: string; channels?: number };
 export const SKILLS: Skill[] = [
   { id: 'hero', name: '商品主图', category: '商品展示', kind: 'template', description: '将商品置于干净的电商主图构图。', input: '商品图、提示词', requirement: '图片生成模型' },
   { id: 'scene', name: '场景营销图', category: '营销', kind: 'template', description: '围绕商品生成真实使用场景。', input: '商品图、场景描述', requirement: '图片生成模型' },

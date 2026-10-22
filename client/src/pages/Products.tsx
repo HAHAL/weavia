@@ -105,7 +105,7 @@ export function Products() {
       ? <div className="product-grid">{visible.map(product => <Card key={product.id} className="product-card">
         <ProductPicture product={product} />
         <div className="product-info"><Badge>{product.category}</Badge><h2>{product.name}</h2><p>SKU {product.sku}</p><small>{product.verifiedFacts || product.description || '尚未填写商品信息'}</small>
-          <div className="card-actions"><Button variant="secondary" onClick={() => open(product)}><Pencil size={14} /> 编辑</Button><Button onClick={() => navigate('/create', { state: { productId: product.id, prompt: `为 ${product.name} 生成商品主图`, mode: 'image' } })}><Sparkles size={14} /> 发起创作</Button></div>
+          <div className="card-actions"><Button variant="secondary" onClick={() => open(product)}><Pencil size={14} /> 编辑</Button><Button onClick={() => navigate('/', { state: { productId: product.id, prompt: `为 ${product.name} 生成商品主图`, mode: 'image' } })}><Sparkles size={14} /> 发起创作</Button></div>
         </div>
       </Card>)}</div>
       : <StatePanel type="empty" title={products.length ? '没有匹配的商品' : '还没有商品'} detail={products.length ? '试试其他搜索词或分类。' : '创建第一件商品，记录 SKU 与创作依据。'} action={!products.length ? <Button onClick={() => open()}>创建商品</Button> : undefined} />}

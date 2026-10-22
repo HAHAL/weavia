@@ -36,6 +36,7 @@ function toModel(item: ServerModel): Model {
     id: item.id,
     name: item.displayName || item.id,
     modes: [item.modality === 'video' ? 'video' : 'image'],
+    capabilities: item.capabilities,
     ratios: item.modality === 'video' ? ['16:9', '9:16'] : ['1:1', '4:5', '3:4', '16:9', '9:16'],
     resolutions: ['1K', '2K'],
     maxCount: 4,
@@ -80,6 +81,6 @@ export async function loadPlatformModels(mode?: Mode): Promise<Model[]> {
     const items = dedupe((data.items || []).map(toModel));
     return items;
   } catch {
-    return MODELS;
+    return [];
   }
 }

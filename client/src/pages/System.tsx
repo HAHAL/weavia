@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Download, Trash2, Search, ShieldCheck, Coins, Crown, Receipt, UserRound, Settings, ScrollText, HardDrive, Cloud } from 'lucide-react';
-import { Badge, Button, Card, Dialog, StatePanel } from '../components/ui';
+import { Download, Trash2, Search, ShieldCheck, Coins, Crown, Receipt, UserRound, Settings, ScrollText, HardDrive, Cloud, Bot } from 'lucide-react';
+import { Badge, Button, Card, Dialog, Field, StatePanel } from '../components/ui';
 import { useApp } from '../stores/app';
 import { useAuth } from '../stores/auth';
 import { clearLogs, exportLogs, readLogs, type LogEntry } from '../lib/logger';
 import { apiConfig, apiRequest } from '../services/api';
 import { AvatarPicker } from '../components/AvatarPicker';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
+import { clearCodexKey, getCodexStatus, importCodexEngine, saveCodexSettings, testCodexConnection, type CodexStatus } from '../services/codex';
 
 const accountSections = [
   { id: 'overview', label: '账户概览', icon: UserRound, group: 'account' },
@@ -16,6 +18,7 @@ const accountSections = [
   { id: 'security', label: '登录与安全', icon: ShieldCheck, group: 'account' },
   { id: 'storage', label: '存储与备份', icon: HardDrive, group: 'account' },
   { id: 'settings', label: '偏好设置', icon: Settings, group: 'app' },
+  { id: 'ai', label: 'AI 助手服务', icon: Bot, group: 'app' },
   { id: 'diagnostics', label: '日志与诊断', icon: ScrollText, group: 'app' },
 ] as const;
 type AccountSection = typeof accountSections[number]['id'];
@@ -51,6 +54,7 @@ export function AccountPage() {
       {section === 'security' && <><h2>登录与安全</h2><Card className="settings-card"><h2>认证与设备</h2><p>登录、设备管理和安全设置需要服务端支持。</p></Card><Card className="settings-card"><h2>注销申请</h2><p>身份验证和注销申请接口接入后可在这里提交申请。</p><Button disabled>申请注销 · 待接入</Button></Card></>}
       {section === 'storage' && <StorageSettings />}
       {section === 'settings' && <GeneralSettings />}
+      {section === 'ai' && <CodexSettingsSection />}
       {section === 'diagnostics' && <DiagnosticsSection />}
     </section></div>
   </div>;
@@ -70,7 +74,55 @@ function StorageSettings() {
 
 function GeneralSettings() {
   const { theme, setTheme, collapsed, setCollapsed, notify } = useApp();
-  return <><h2>偏好设置</h2><Card className="settings-card"><h2>外观</h2><p>颜色来自 WEAVIA Design System 的 Figma 变量。</p><div className="theme-options">{(['light', 'cream', 'dark'] as const).map(value => <button type="button" key={value} className={theme === value ? 'selected' : ''} onClick={() => { setTheme(value); notify(`已切换到 ${value} 主题`); }}>{value === 'light' ? 'Light' : value === 'cream' ? 'Cream' : 'Dark'}</button>)}</div></Card><Card className="settings-card"><h2>导航</h2><label className="switch-row">默认收起 Sidebar <input type="checkbox" checked={collapsed} onChange={event => setCollapsed(event.target.checked)} /></label></Card><Card className="settings-card"><h2>服务连接</h2><p>当前模式：<Badge>{apiConfig.mode === 'mock' ? 'Mock' : 'Live'}</Badge></p><p>真实服务仅在明确设置 VITE_API_MODE=live 和 VITE_API_BASE_URL 后调用。登录与认证尚未接入。</p></Card></>;
+  return <><h2>偏好设置</h2><Card className="settings-card"><h2>外观</h2><p>颜色来自 WEAVIA Design System 的 Figma 变量。</p><div className="theme-options">{(['light', 'cream', 'dark'] as const).map(value => <button type="button" key={value} className={theme === value ? 'selected' : ''} onClick={() => { setTheme(value); notify(`已切换到 ${value} 主题`); }}>{value === 'light' ? 'Light' : value === 'cream' ? 'Cream' : 'Dark'}</button>)}</div></Card><Card className="settings-card"><h2>导航</h2><label className="switch-row">默认收起 Sidebar <input type="checkbox" checked={collapsed} onChange={event => setCollapsed(event.target.checked)} /></label></Card><Card className="settings-card"><h2>服务连接</h2><p>当前模式：<Badge>{apiConfig.mode === 'mock' ? 'Mock' : 'Live'}</Badge></p><p>API 地址：{apiConfig.baseUrl}</p><p>服务地址在构建客户端时由 VITE_API_BASE_URL 设置；Provider Key 只配置在服务端。真实模式需登录后使用。</p></Card></>;
+}
+
+function CodexSettingsSection() {
+  const [status, setStatus] = useState<CodexStatus | null>(null);
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    let active = true;
+    void getCodexStatus().then(next => { if (active) { setStatus(next); setBaseUrl(next.baseUrl); setModel(next.model); } })
+      .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
+    return () => { active = false; };
+  }, []);
+  async function save() {
+    setBusy(true); setError(''); setMessage('');
+    try { const next = await saveCodexSettings(baseUrl, model, key); setStatus(next); setBaseUrl(next.baseUrl); setModel(next.model); setKey(''); setMessage('配置已保存到本机'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  }
+  async function test() {
+    setBusy(true); setError(''); setMessage('');
+    try { const result = await testCodexConnection(); setMessage(result.trim() || '连接成功'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  }
+  async function removeKey() {
+    setBusy(true); setError(''); setMessage('');
+    try { setStatus(await clearCodexKey()); setKey(''); setMessage('本机服务 Key 已删除'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  }
+  async function installEngine() {
+    setError(''); setMessage('');
+    try {
+      const source = await openFileDialog({ title: '选择 Codex 执行程序', multiple: false, directory: false });
+      if (!source) return;
+      setBusy(true);
+      setStatus(await importCodexEngine(source));
+      setMessage('Codex 执行程序已复制到 WEAVIA 专属目录');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  }
+  const ready = Boolean(status?.keyConfigured && status.engineAvailable && status.baseUrl && status.model);
+  const savedForm = baseUrl === status?.baseUrl && model === status?.model && !key;
+  return <><h2>AI 助手服务</h2><Card className="settings-card codex-settings"><div className="storage-heading"><div><h2>Codex 模型网关</h2><p className="muted">配置一次后，可在视频工作台生成分镜草案。</p></div><Badge tone={ready ? 'success' : 'neutral'}>{ready ? '可使用' : '未就绪'}</Badge></div><div className="codex-settings-fields"><Field label="接口地址"><input type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://gateway.example.com/v1" autoComplete="url" /></Field><Field label="模型名称"><input value={model} onChange={event => setModel(event.target.value)} placeholder="网关支持的模型 ID" autoComplete="off" /></Field><Field label="服务 Key"><input type="password" value={key} onChange={event => setKey(event.target.value)} placeholder={status?.keyConfigured ? '已保存在系统凭据库，留空保持不变' : '输入服务 Key'} autoComplete="new-password" /></Field></div><p className="footnote">远程服务须使用 HTTPS，并支持 Responses API。Key 保存在本机系统凭据库，不会写入前端配置。</p>{status && !status.engineAvailable && <div className="codex-engine-setup"><p>尚未找到 WEAVIA 专用 Codex 执行程序。请只导入可信来源的 Codex 程序。WEAVIA 会复制一份到自己的目录，不修改原程序或其配置。</p><Button variant="secondary" disabled={busy} onClick={() => void installEngine()}>导入 Codex 执行程序</Button></div>}{error && <p className="form-error" role="alert">{error}</p>}{message && <p className="codex-success" role="status">{message}</p>}<div className="header-actions"><Button disabled={busy || !baseUrl.trim() || !model.trim()} onClick={() => void save()}>{busy ? '处理中…' : '保存配置'}</Button><Button variant="secondary" disabled={busy || !ready || !savedForm} onClick={() => void test()}>测试连接</Button>{status?.keyConfigured && <Button variant="secondary" disabled={busy} onClick={() => void removeKey()}>删除 Key</Button>}</div><p className="footnote">测试连接会发送一次简短模型请求，可能产生少量费用。WEAVIA 的 Codex 会话与设备上已有的 Codex 环境分开保存。</p></Card></>;
 }
 
 function DiagnosticsSection() {

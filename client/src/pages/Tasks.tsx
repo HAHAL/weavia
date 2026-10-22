@@ -4,6 +4,7 @@ import { ArrowUpRight, Ban, Copy, Image as ImageIcon, RotateCcw, Search, Video, 
 import { Badge, Button, Card, Dialog, StatePanel } from '../components/ui';
 import { useAssetPreview } from '../hooks/useAssetPreview';
 import { cancelTask, runMockTask } from '../services/tasks';
+import { retryLiveResult } from '../services/live';
 import { useApp } from '../stores/app';
 import type { Task } from '../types';
 
@@ -49,12 +50,14 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     <div className="task-facts"><div><small>执行来源</small><strong>{task.source === 'live' ? '云端' : '演示'}</strong></div><div><small>进度</small><strong>{task.progress}%</strong></div><div><small>类型</small><strong>{task.mode === 'image' ? '图片' : '视频'}</strong></div><div><small>创建时间</small><strong>{new Date(task.createdAt).toLocaleDateString('zh-CN')}</strong></div></div>
     <section className="task-detail-section"><h3>任务标识</h3><div className="task-id-grid"><div><span>平台任务 ID</span><CopyId value={task.id} label="平台任务 ID" /></div></div></section>
     <section className="task-detail-section"><h3>创作描述</h3><p className="task-prompt-full">{task.prompt}</p></section>
+    {task.creative && <section className="task-detail-section"><h3>投放资料</h3><p>{task.creative.purpose === 'video' ? '宣传视频' : task.creative.purpose === 'hero' ? '商品主图' : task.creative.purpose === 'scene' ? '场景图' : '宣传图'} · {task.creative.channel} · {task.creative.market} · {task.creative.language}{task.creative.audience ? ` · ${task.creative.audience}` : ''}</p></section>}
     {task.error && <section className="task-detail-section task-error-block"><h3><XCircle size={15} /> 失败原因</h3><p><b>{task.errorCode || 'ERROR'}</b> · {task.error}</p></section>}
     {Boolean(task.referenceAssetIds?.length) && <section className="task-detail-section"><h3>参考素材</h3><div className="task-reference-list">{task.referenceAssetIds?.map(id => <TaskAsset key={id} id={id} label="创作参考图" />)}</div></section>}
     {task.product && <section className="task-detail-section"><h3>商品依据</h3><p><b>{task.product.name}</b> · SKU {task.product.sku}</p>{task.product.description && <p>{task.product.description}</p>}</section>}
     <div className="dialog-actions task-detail-actions">
       {task.status === 'Succeeded' && <Button onClick={() => { onClose(); navigate('/works'); }}><ArrowUpRight size={16} /> 查看作品</Button>}
       {(task.status === 'Failed' || task.status === 'Cancelled') && <Button onClick={retry}><RotateCcw size={16} /> 重新提交</Button>}
+      {task.source === 'live' && task.errorCode === 'RESULT_SAVE_FAILED' && <Button variant="secondary" onClick={() => { retryLiveResult(task.id); onClose(); }}><RotateCcw size={16} /> 重新获取结果</Button>}
       {running && task.source !== 'live' && <Button variant="secondary" onClick={() => { cancelTask(task.id); notify('任务已取消'); onClose(); }}><Ban size={16} /> 取消任务</Button>}
       <Button variant="ghost" onClick={onClose}>关闭</Button>
     </div>
@@ -77,7 +80,7 @@ export function Tasks() {
     return !needle || [task.title, task.prompt, task.id, task.error || ''].some(value => value.toLowerCase().includes(needle));
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [tasks, status, kind, query]);
   return <div className="page tasks-page">
-    <div className="page-header"><div><h1>任务中心</h1><p>按状态定位任务，查看平台任务编号、失败原因和结果。</p></div><Button onClick={() => navigate('/create')}>创建任务</Button></div>
+    <div className="page-header"><div><h1>任务中心</h1><p>按状态定位任务，查看平台任务编号、失败原因和结果。</p></div><Button onClick={() => navigate('/')}>创建任务</Button></div>
     <div className="task-stats">
       <button type="button" onClick={() => setStatus('全部')} className={status === '全部' ? 'selected' : ''}><span>全部任务</span><strong>{counts.all}</strong></button>
       <button type="button" onClick={() => setStatus('Running')} className={status === 'Running' ? 'selected' : ''}><span>处理中</span><strong>{counts.running}</strong></button>
@@ -96,7 +99,7 @@ export function Tasks() {
         <div className="task-card-main"><div className="task-card-title"><h2>{task.title}</h2><span>{new Date(task.createdAt).toLocaleString('zh-CN')}</span></div><p>{task.prompt}</p><div className="task-card-ids"><span>平台 <code>{task.id.slice(0, 8)}</code></span></div>{task.error && <p className="task-card-error">{task.errorCode ? `${task.errorCode} · ` : ''}{task.error}</p>}{running && <div className="task-card-progress"><div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div><small>{task.progress}%</small></div>}</div>
         <div className="task-card-actions"><Button variant="secondary" onClick={() => setSelectedId(task.id)}>详情</Button>{task.status === 'Succeeded' && <Button onClick={() => navigate('/works')}>作品 <ArrowUpRight size={14} /></Button>}{running && task.source !== 'live' && <Button variant="ghost" aria-label="取消任务" onClick={() => { cancelTask(task.id); notify('任务已取消'); }}><Ban size={14} /></Button>}{['Failed', 'Cancelled'].includes(task.status) && task.source !== 'live' && <Button variant="ghost" aria-label="重试任务" onClick={() => { updateTask(task.id, { status: 'Queued', progress: 0, error: undefined }); runMockTask(task.id); }}><RotateCcw size={14} /></Button>}</div>
       </Card>;
-    })}</div> : <StatePanel type="empty" title={tasks.length ? '没有匹配的任务' : '还没有任务'} detail={tasks.length ? '换个状态、类型或搜索词试试。' : '从首页填写创作描述后可启动任务。'} action={!tasks.length ? <Button onClick={() => navigate('/create')}>前往创作</Button> : <Button variant="secondary" onClick={() => { setStatus('全部'); setKind('全部'); setQuery(''); }}>清除筛选</Button>} />}
+    })}</div> : <StatePanel type="empty" title={tasks.length ? '没有匹配的任务' : '还没有任务'} detail={tasks.length ? '换个状态、类型或搜索词试试。' : '从首页填写创作描述后可启动任务。'} action={!tasks.length ? <Button onClick={() => navigate('/')}>前往创作</Button> : <Button variant="secondary" onClick={() => { setStatus('全部'); setKind('全部'); setQuery(''); }}>清除筛选</Button>} />}
     {selected && <TaskDetail task={selected} onClose={() => setSelectedId(null)} />}
   </div>;
 }

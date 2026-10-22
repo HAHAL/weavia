@@ -141,7 +141,14 @@ func validGeneratedKey(key string) bool {
 		return false
 	}
 	file := strings.Split(parts[2], ".")
-	return len(file) == 2 && safeSegment(file[0]) && (file[1] == "png" || file[1] == "jpg" || file[1] == "webp")
+	return len(file) == 2 && safeSegment(file[0]) && (file[1] == "png" || file[1] == "jpg" || file[1] == "webp" || file[1] == "mp4" || file[1] == "webm")
+}
+
+func (s *Storage) OpenGenerated(key string) (*os.File, error) {
+	if !validGeneratedKey(key) {
+		return nil, fmt.Errorf("invalid generated object key")
+	}
+	return os.Open(filepath.Join(s.Root, filepath.FromSlash(key)))
 }
 func validImage(body []byte, mime string) bool {
 	switch mime {

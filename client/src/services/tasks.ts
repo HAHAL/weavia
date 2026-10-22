@@ -1,10 +1,10 @@
 import { useApp } from '../stores/app';
 import { apiConfig } from './api';
 import { cancelLiveTask, createLiveTask } from './live';
-import type { Mode, ProductBrief, Task, Work } from '../types';
+import type { CreativeBrief, Mode, ProductBrief, Task, Work } from '../types';
 
-export type ImageParams = { ratio: string; resolution: string; count: number; promptExtend: boolean; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number };
-export type CreationInput = { prompt: string; mode: Mode; modelId: string; product?: ProductBrief; referenceAssetIds?: string[]; params?: ImageParams };
+export type ImageParams = { ratio: string; resolution: string; count: number; promptExtend: boolean; duration?: number; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number };
+export type CreationInput = { prompt: string; mode: Mode; modelId: string; product?: ProductBrief; creative?: CreativeBrief; referenceAssetIds?: string[]; params?: ImageParams };
 
 type Run = { runId: string; timers: number[] };
 const runs = new Map<string, Run>();
@@ -18,7 +18,7 @@ function isCurrent(id: string, runId: string) {
   return runs.get(id)?.runId === runId;
 }
 
-export function createMockTask(prompt: string, mode: Mode, context: Pick<CreationInput, 'product' | 'referenceAssetIds'> = {}) {
+export function createMockTask(prompt: string, mode: Mode, context: Pick<CreationInput, 'product' | 'creative' | 'referenceAssetIds'> = {}) {
   const id = crypto.randomUUID();
   const task: Task = { id, title: prompt.slice(0, 28), prompt, mode, status: 'Queued', progress: 0, createdAt: new Date().toISOString(), source: 'mock', ...context };
   useApp.getState().submitTask(task);
@@ -85,11 +85,11 @@ export function disposeMockTasks() {
 }
 
 
-export async function createTask({ prompt, mode, modelId, product, referenceAssetIds = [], params }: CreationInput): Promise<string> {
+export async function createTask({ prompt, mode, modelId, product, creative, referenceAssetIds = [], params }: CreationInput): Promise<string> {
   if (apiConfig.mode === 'live') {
-    return createLiveTask(prompt, modelId, params, referenceAssetIds, mode);
+    return createLiveTask(prompt, modelId, params, referenceAssetIds, mode, creative, product);
   }
-  return createMockTask(prompt, mode, { product, referenceAssetIds });
+  return createMockTask(prompt, mode, { product, creative, referenceAssetIds });
 }
 
 export function cancelTask(id: string) {

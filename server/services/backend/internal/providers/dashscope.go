@@ -126,14 +126,23 @@ type Router struct {
 }
 
 func (r *Router) Resume(ctx context.Context, taskID string) (ImageResult, error) {
+	return r.ResumeWithConfig(ctx, taskID, "", "")
+}
+
+func (r *Router) ResumeWithConfig(ctx context.Context, taskID, apiKey, baseURL string) (ImageResult, error) {
 	if r.DashScopeVideo == nil {
 		return ImageResult{}, &Error{"NO_CHANNEL", "Video provider unavailable", false, 503}
 	}
 	provider := *r.DashScopeVideo
-	if r.KeyLookup != nil {
+	if apiKey != "" {
+		provider.APIKey = apiKey
+	} else if r.KeyLookup != nil {
 		if value, err := r.KeyLookup(ctx, "dashscope"); err == nil && value != "" {
 			provider.APIKey = value
 		}
+	}
+	if baseURL != "" && strings.Contains(baseURL, "dashscope") {
+		provider.BaseURL = baseURL
 	}
 	return provider.Resume(ctx, taskID)
 }
@@ -154,11 +163,7 @@ func (r *Router) Generate(ctx context.Context, input ImageRequest) (ImageResult,
 	}
 	if r.DashScopeVideo != nil && strings.Contains(input.Mode, "video") {
 		provider := *r.DashScopeVideo
-		if r.KeyLookup != nil {
-			if value, err := r.KeyLookup(ctx, "dashscope"); err == nil && value != "" {
-				provider.APIKey = value
-			}
-		}
+		provider.APIKey = key("dashscope", provider.APIKey)
 		if input.BaseURL != "" && strings.Contains(input.BaseURL, "dashscope") {
 			provider.BaseURL = input.BaseURL
 		}

@@ -34,9 +34,9 @@ pnpm tauri build
 - 浏览器预览使用版本化 localStorage；Tauri 启动时把工作区状态同步到应用数据目录的 `weavia.db` SQLite。它保存商品、素材元数据、任务、作品、Skill 启用状态和主题。
 - Tauri 素材文件复制到应用本地数据目录 `assets/`，SQLite 保存相对路径、大小与 SHA-256；读取时校验，删除素材时同步删除文件。浏览器预览回退到 data URL，单张限 2 MB。文件丢失会提示重新导入；自动重新定位原始文件尚未实现。
 - 演示任务在约 3 秒后完成，作品只有占位预览与版本记录。关闭客户端会将未完成任务标记为失败。
-- Image Editing 可本地调整亮度、对比度和旋转并导出 PNG；Video Studio 可编排分镜。两者均未接通 AI 编辑或视频渲染服务。
+- Image Editing 可本地调整亮度、对比度和旋转并导出 PNG；Video Studio 可编排分镜并带入创作台。真实模式下，已配置的图片模型可生成与编辑图片；视频入口只对已配置的文字生成视频渠道开放。
 - 诊断页显示 localStorage 中最新 500 条日志；Tauri 同时写入原生日志，单文件 2 MB、保留 3 份轮转。诊断页尚未读取或清理原生日志文件。日志只记录事件名、状态和必要 ID，不写入认证头或 Token。
-- `VITE_API_MODE=live` 与 `VITE_API_BASE_URL` 可开启 API Client，但当前没有认证实现，任何真实业务流程都不会自动切换。生产接入需按 `docs/API_CONTRACT.md` 完成并验证。
+- `VITE_API_MODE=live` 与 `VITE_API_BASE_URL` 连接 Go API；登录、模型目录、生成任务和结果存储已接入。商品库和作品核对状态仍是本机数据，试运行配置及边界见 [`docs/CREATIVE_TRIAL.md`](docs/CREATIVE_TRIAL.md)。
 
 ## 文档
 

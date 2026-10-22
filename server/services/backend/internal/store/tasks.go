@@ -126,13 +126,16 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 	if err := json.Unmarshal(input, &request); err != nil {
 		return generation.Task{}, err
 	}
-	task := generation.Task{ID: id, UserID: userID, IdempotencyKey: idem, Workflow: request.Workflow, LogicalModel: request.LogicalModel, Status: status, Outputs: []generation.Output{}, CreatedAt: created.Time.UTC().Format(time.RFC3339Nano), UpdatedAt: updated.Time.UTC().Format(time.RFC3339Nano), Request: request}
+	task := generation.Task{ID: id, UserID: userID, IdempotencyKey: idem, Workflow: request.Workflow, LogicalModel: request.LogicalModel, Status: status, Outputs: []generation.Output{}, CreatedAt: created.Time.UTC().Format(time.RFC3339Nano), UpdatedAt: updated.Time.UTC().Format(time.RFC3339Nano), Request: request, Creative: request.Creative}
 	task.WorkspaceID = request.WorkspaceID
 	task.ProductID = request.ProductID
 	task.SKUID = request.SKUID
 	task.CreditReservationID = request.CreditReservationID
 	task.Model = request.Model
-	task.Prompt = request.Prompt
+	task.Prompt = request.DisplayPrompt
+	if task.Prompt == "" {
+		task.Prompt = request.Prompt
+	}
 	task.Mode = request.Mode
 	task.Ratio = request.Ratio
 	task.Resolution = request.Resolution

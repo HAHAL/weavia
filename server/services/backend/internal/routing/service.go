@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,7 +52,7 @@ func New(pool *pgxpool.Pool, keys *providerconfig.Service) *Service {
 
 func (s *Service) List(ctx context.Context) ([]Logical, error) {
 	rows, err := s.pool.Query(ctx, `SELECT l.key,l.display_name,l.icon,l.modality,l.capabilities,l.credits_cost,l.params,
-		count(a.id) FILTER (WHERE a.enabled AND c.enabled AND cm.enabled AND (a.cooldown_until IS NULL OR a.cooldown_until < now()) AND EXISTS (SELECT 1 FROM channel_keys k WHERE k.channel_id=c.id AND k.enabled)) AS channels
+		count(a.id) FILTER (WHERE a.enabled AND c.enabled AND cm.enabled AND (a.cooldown_until IS NULL OR a.cooldown_until < now()) AND (l.modality <> 'video' OR c.provider_code = 'dashscope') AND EXISTS (SELECT 1 FROM channel_keys k WHERE k.channel_id=c.id AND k.enabled)) AS channels
 		FROM logical_models l
 		LEFT JOIN logical_model_abilities a ON a.logical_model_id=l.id
 		LEFT JOIN channel_models cm ON cm.id=a.channel_model_id
@@ -71,7 +72,7 @@ func (s *Service) List(ctx context.Context) ([]Logical, error) {
 		}
 		_ = json.Unmarshal(capabilities, &item.Capabilities)
 		_ = json.Unmarshal(params, &item.Params)
-		item.Available = item.Channels > 0 && item.Modality != "video"
+		item.Available = item.Channels > 0 && (item.Modality != "video" || slices.Contains(item.Capabilities, "text_to_video"))
 		out = append(out, item)
 	}
 	return out, rows.Err()
@@ -83,7 +84,7 @@ func (s *Service) Bindings(ctx context.Context, key string) ([]Binding, error) {
 		JOIN logical_model_abilities a ON a.logical_model_id=l.id
 		JOIN channel_models cm ON cm.id=a.channel_model_id
 		JOIN provider_channels c ON c.id=cm.channel_id
-		WHERE l.key=$1 AND EXISTS (SELECT 1 FROM channel_keys k WHERE k.channel_id=c.id AND k.enabled) AND l.enabled=true AND a.enabled=true AND c.enabled=true AND cm.enabled=true
+		WHERE l.key=$1 AND EXISTS (SELECT 1 FROM channel_keys k WHERE k.channel_id=c.id AND k.enabled) AND l.enabled=true AND a.enabled=true AND c.enabled=true AND cm.enabled=true AND (l.modality <> 'video' OR c.provider_code = 'dashscope')
 		  AND (a.cooldown_until IS NULL OR a.cooldown_until < now())
 		  AND (c.cooldown_until IS NULL OR c.cooldown_until < now())
 		ORDER BY a.priority DESC, a.weight DESC, c.priority DESC, c.weight DESC`, key)

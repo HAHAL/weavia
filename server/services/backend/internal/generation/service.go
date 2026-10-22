@@ -29,6 +29,7 @@ type Request struct {
 	AppID               string           `json:"appId,omitempty"`
 	Model               string           `json:"model"`
 	Prompt              string           `json:"prompt"`
+	DisplayPrompt       string           `json:"displayPrompt,omitempty"`
 	Mode                string           `json:"mode"`
 	EditMode            string           `json:"editMode,omitempty"`
 	MaskAssetID         string           `json:"maskAssetId,omitempty"`
@@ -48,6 +49,7 @@ type Request struct {
 	NumberOfImages      int              `json:"numberOfImages"`
 	OutputFormat        string           `json:"outputFormat"`
 	Metadata            map[string]any   `json:"metadata"`
+	Creative            *CreativeBrief   `json:"creative,omitempty"`
 	ResolvedProvider    string           `json:"resolvedProvider,omitempty"`
 	ResolvedCost        int64            `json:"resolvedCost,omitempty"`
 }
@@ -69,31 +71,32 @@ type GeneratedStorage interface {
 	GeneratedDataURL(string, string) (string, error)
 }
 type Task struct {
-	ID                  string     `json:"id"`
-	UserID              string     `json:"userId"`
-	IdempotencyKey      string     `json:"idempotencyKey"`
-	Workflow            string     `json:"workflow"`
-	LogicalModel        string     `json:"logicalModel"`
-	WorkspaceID         string     `json:"workspaceId"`
-	ProductID           string     `json:"productId"`
-	SKUID               string     `json:"skuId"`
-	CreditReservationID string     `json:"creditReservationId"`
-	Provider            string     `json:"provider"`
-	Model               string     `json:"model"`
-	Cost                int64      `json:"cost"`
-	Status              string     `json:"status"`
-	Prompt              string     `json:"prompt,omitempty"`
-	Mode                string     `json:"mode,omitempty"`
-	Ratio               string     `json:"ratio,omitempty"`
-	Resolution          string     `json:"resolution,omitempty"`
-	Count               int        `json:"count,omitempty"`
-	Outputs             []Output   `json:"outputs"`
-	ProviderRequestID   string     `json:"providerRequestId,omitempty"`
-	ProviderTaskID      string     `json:"providerTaskId,omitempty"`
-	Error               *TaskError `json:"error,omitempty"`
-	CreatedAt           string     `json:"createdAt"`
-	UpdatedAt           string     `json:"updatedAt"`
-	Request             Request    `json:"-"`
+	ID                  string         `json:"id"`
+	UserID              string         `json:"userId"`
+	IdempotencyKey      string         `json:"idempotencyKey"`
+	Workflow            string         `json:"workflow"`
+	LogicalModel        string         `json:"logicalModel"`
+	WorkspaceID         string         `json:"workspaceId"`
+	ProductID           string         `json:"productId"`
+	SKUID               string         `json:"skuId"`
+	CreditReservationID string         `json:"creditReservationId"`
+	Provider            string         `json:"provider"`
+	Model               string         `json:"model"`
+	Cost                int64          `json:"cost"`
+	Status              string         `json:"status"`
+	Prompt              string         `json:"prompt,omitempty"`
+	Mode                string         `json:"mode,omitempty"`
+	Ratio               string         `json:"ratio,omitempty"`
+	Resolution          string         `json:"resolution,omitempty"`
+	Count               int            `json:"count,omitempty"`
+	Creative            *CreativeBrief `json:"creative,omitempty"`
+	Outputs             []Output       `json:"outputs"`
+	ProviderRequestID   string         `json:"providerRequestId,omitempty"`
+	ProviderTaskID      string         `json:"providerTaskId,omitempty"`
+	Error               *TaskError     `json:"error,omitempty"`
+	CreatedAt           string         `json:"createdAt"`
+	UpdatedAt           string         `json:"updatedAt"`
+	Request             Request        `json:"-"`
 }
 type TaskError struct {
 	Code    string `json:"code"`
@@ -195,6 +198,10 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	if err := validateBase(input, s.mock); err != nil {
 		return Task{}, err
 	}
+	input.DisplayPrompt = input.Prompt
+	if err := prepareCreative(&input); err != nil {
+		return Task{}, err
+	}
 	var model RegisteredModel
 	var err error
 	if input.ModelKey != "" && s.router != nil {
@@ -245,7 +252,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	input.CreditReservationID = reservationID
 	input.ResolvedProvider = model.Provider
 	input.ResolvedCost = cost
-	task, err := s.repository.Create(ctx, Task{ID: taskID, UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, WorkspaceID: input.WorkspaceID, ProductID: input.ProductID, SKUID: input.SKUID, CreditReservationID: reservationID, Provider: model.Provider, Model: input.Model, Cost: cost, Status: "reserved", Prompt: input.Prompt, Mode: input.Mode, Ratio: input.Ratio, Resolution: input.Resolution, Count: input.NumberOfImages, Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
+	task, err := s.repository.Create(ctx, Task{ID: taskID, UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, WorkspaceID: input.WorkspaceID, ProductID: input.ProductID, SKUID: input.SKUID, CreditReservationID: reservationID, Provider: model.Provider, Model: input.Model, Cost: cost, Status: "reserved", Prompt: input.DisplayPrompt, Mode: input.Mode, Ratio: input.Ratio, Resolution: input.Resolution, Count: input.NumberOfImages, Creative: input.Creative, Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
 	if err != nil {
 		if reservationID != "" {
 			_ = s.credits.Release(ctx, reservationID)
@@ -309,7 +316,22 @@ func (s *Service) ResumeVideoTasks(ctx context.Context) {
 		if task.ProviderTaskID == "" {
 			continue
 		}
-		result, err := resumer.Resume(ctx, task.ProviderTaskID)
+		var result providers.ImageResult
+		var err error
+		usedConfigured := false
+		if task.LogicalModel != "" && s.router != nil {
+			if bindings, lookupErr := s.router.BindingsFor(ctx, task.LogicalModel); lookupErr == nil && len(bindings) > 0 {
+				if configured, ok := s.provider.(interface {
+					ResumeWithConfig(context.Context, string, string, string) (providers.ImageResult, error)
+				}); ok {
+					result, err = configured.ResumeWithConfig(ctx, task.ProviderTaskID, bindings[0].APIKey, bindings[0].BaseURL)
+					usedConfigured = true
+				}
+			}
+		}
+		if !usedConfigured {
+			result, err = resumer.Resume(ctx, task.ProviderTaskID)
+		}
 		if err != nil {
 			continue
 		}
@@ -499,6 +521,9 @@ func (s *Service) Deliver(task *Task) error {
 		if task.Outputs[i].ObjectKey == "" {
 			continue
 		} // Legacy tasks retain their original response.
+		if task.Outputs[i].MimeType == "video/mp4" || task.Outputs[i].MimeType == "video/webm" {
+			continue // Video files are fetched through the authenticated output endpoint.
+		}
 		if s.storage == nil {
 			return fmt.Errorf("generated asset storage is required")
 		}
@@ -534,6 +559,11 @@ func validateBase(r Request, mock bool) error {
 	}
 	if r.NumberOfImages < 1 || r.NumberOfImages > 4 {
 		return &APIError{"INVALID_REQUEST", "生成数量必须在 1-4 张之间", 400}
+	}
+	if r.Mode == "text_to_video" || r.Mode == "image_to_video" {
+		if r.NumberOfImages != 1 || r.Duration < 1 || r.Duration > 30 {
+			return &APIError{"INVALID_REQUEST", "视频任务需要单条结果和有效时长", 400}
+		}
 	}
 	if r.Size == "" {
 		r.Size = "1024x1024"

@@ -32,6 +32,25 @@ function activeToken() {
 }
 export function isLiveMode() { return apiConfig.mode === 'live'; }
 
+export async function apiBlob(path: string, timeoutMs = 180000): Promise<Blob> {
+  if (!isLiveMode()) throw new ApiError('API_NOT_CONFIGURED', '当前为演示模式');
+  const token = activeToken();
+  if (!token) throw new ApiError('AUTH_REQUIRED', '请先登录');
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(new URL(path, apiConfig.baseUrl + '/'), { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+    if (!response.ok) throw new ApiError(`HTTP_${response.status}`, `结果下载失败 (${response.status})`, response.status);
+    return response.blob();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (error instanceof DOMException && error.name === 'AbortError') throw new ApiError('TIMEOUT', '结果下载超时，请稍后在任务中重试');
+    throw new ApiError('NETWORK_ERROR', '结果下载失败，请检查网络');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 type RequestOptions = { auth?: boolean; timeoutMs?: number };
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {

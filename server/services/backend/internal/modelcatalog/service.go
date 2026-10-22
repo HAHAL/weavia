@@ -71,6 +71,24 @@ func (s *Service) List(ctx context.Context) ([]Model, error) {
 			}
 		}
 	}
+	// Video requests are currently implemented by the DashScope video adapter.
+	// Keep its catalog entry visible for setup even if the provider's models
+	// endpoint does not list video models, but never mark it usable by default.
+	for _, fallback := range fallbackModels() {
+		if fallback.Modality != "video" {
+			continue
+		}
+		exists := false
+		for _, item := range items {
+			if item.Provider == fallback.Provider && item.ID == fallback.ID {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			items = append(items, fallback)
+		}
+	}
 	s.applyRegistry(ctx, items)
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Modality != items[j].Modality {
@@ -276,16 +294,22 @@ func (s *Service) applyRegistry(ctx context.Context, items []Model) {
 		known[provider+"/"+name] = entry{enabled, credits, values}
 	}
 	for i := range items {
+		if items[i].Modality == "video" && items[i].Provider != "dashscope" {
+			items[i].Available = false
+			continue
+		}
 		if !ready[items[i].Provider] {
 			items[i].Available = false
 			continue
 		}
 		if item, ok := known[items[i].Provider+"/"+items[i].ID]; ok {
-			items[i].Available = item.enabled
+			items[i].Available = item.enabled && item.credits > 0
 			items[i].CreditsCost = item.credits
 			if len(item.caps) > 0 {
 				items[i].Capabilities = item.caps
 			}
+		} else if items[i].Modality == "video" {
+			items[i].Available = false
 		}
 	}
 }
@@ -297,9 +321,7 @@ func fallbackModels() []Model {
 		{ID: "wan2.7-image", DisplayName: "Wan2.7 Image", Provider: "dashscope", Modality: "image", Capabilities: []string{"text_to_image", "image_to_image", "image_edit"}, Available: true, CreditsCost: 40, Source: "catalog"},
 		{ID: "qwen-image-2.1-pro", DisplayName: "Qwen Image 2.1 Pro", Provider: "dashscope", Modality: "image", Capabilities: []string{"text_to_image", "image_to_image", "image_edit"}, Available: true, CreditsCost: 45, Source: "catalog"},
 		{ID: "wanx2.1-imageedit", DisplayName: "Wan2.1 Image Edit", Provider: "dashscope", Modality: "image", Capabilities: []string{"image_to_image", "image_edit"}, Available: true, CreditsCost: 50, Source: "catalog"},
-		{ID: "wan2.7-t2v", DisplayName: "Wan2.7 Text to Video", Provider: "antdigital", Modality: "video", Capabilities: []string{"text_to_video"}, Source: "catalog"},
-		{ID: "wan2.7-i2v", DisplayName: "Wan2.7 Image to Video", Provider: "antdigital", Modality: "video", Capabilities: []string{"image_to_video"}, Source: "catalog"},
-		{ID: "wan3.0-video", DisplayName: "Wan3.0 Video", Provider: "antdigital", Modality: "video", Capabilities: []string{"text_to_video"}, Source: "catalog"},
+		{ID: "wan2.7-t2v", DisplayName: "Wan2.7 Text to Video", Provider: "dashscope", Modality: "video", Capabilities: []string{"text_to_video"}, Source: "catalog"},
 	}
 	return items
 }
