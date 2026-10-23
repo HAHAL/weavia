@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 type Storage struct {
 	Root   string
 	Secret []byte
+	blob   BlobStore
 }
 
 func New(root, secret string) *Storage {
@@ -25,7 +27,7 @@ func New(root, secret string) *Storage {
 	if secret == "" {
 		panic("STORAGE_SIGNING_KEY is required")
 	}
-	return &Storage{root, []byte(secret)}
+	return &Storage{Root: root, Secret: []byte(secret)}
 }
 func (s *Storage) Token(objectKey string) string {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(objectKey))
@@ -66,6 +68,23 @@ func (s *Storage) Put(token string, body []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if s.blob != nil {
+		contentType := "application/octet-stream"
+		switch {
+		case strings.HasSuffix(key, ".png"):
+			contentType = "image/png"
+		case strings.HasSuffix(key, ".jpg"), strings.HasSuffix(key, ".jpeg"):
+			contentType = "image/jpeg"
+		case strings.HasSuffix(key, ".webp"):
+			contentType = "image/webp"
+		case strings.HasSuffix(key, ".mp4"):
+			contentType = "video/mp4"
+		}
+		if err = s.blob.Put(context.Background(), key, body, contentType); err != nil {
+			return "", err
+		}
+		return key, nil
+	}
 	path := filepath.Join(s.Root, filepath.FromSlash(key))
 	if err = os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", err
@@ -89,6 +108,15 @@ func (s *Storage) Read(objectKey string) ([]byte, bool) {
 	if strings.Contains(objectKey, "..") {
 		return nil, false
 	}
+	if s.blob != nil {
+		if reader, _, err := s.blob.Get(context.Background(), objectKey); err == nil {
+			defer reader.Close()
+			if body, readErr := io.ReadAll(reader); readErr == nil {
+				return body, true
+			}
+		}
+		// 切换到 OSS 之前写入的历史文件仍留在本地，读取时回退。
+	}
 	body, err := os.ReadFile(filepath.Join(s.Root, filepath.FromSlash(objectKey)))
 	if err != nil {
 		return nil, false
@@ -99,6 +127,9 @@ func (s *Storage) Read(objectKey string) ([]byte, bool) {
 func (s *Storage) Check(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if s.blob != nil {
+		return s.blob.Health(ctx)
 	}
 	if err := os.MkdirAll(s.Root, 0o750); err != nil {
 		return err

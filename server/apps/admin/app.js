@@ -8,6 +8,7 @@ const pages = [
   { id: 'ai', label: 'AI Studio', kicker: 'AI OPERATIONS' },
   { id: 'pricing', label: '定价与成本', kicker: 'PRICING' },
   { id: 'invites', label: '邀请码', kicker: 'GROWTH' },
+  { id: 'storage', label: '存储', kicker: 'STORAGE' },
   { id: 'tasks', label: '创作任务', kicker: 'TASKS' },
   { id: 'showcase', label: '内容管理', kicker: 'SHOWCASE' },
   { id: 'analytics', label: '数据分析', kicker: 'ANALYTICS' },
@@ -138,7 +139,7 @@ async function navigate(pageId) {
   content.innerHTML = loading();
   try { await loaders[pageId](); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
 }
-const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
+const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
 async function loadDashboard() {
   const [overview, orders, tasks, showcase] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase')]);
@@ -370,6 +371,48 @@ function pricingCostModal(row) {
   });
 }
 
+
+async function loadStorage() {
+  const cfg = await get('/api/admin/storage');
+  state.storage = cfg;
+  const isOSS = cfg.provider === 'oss';
+  content.innerHTML = pageHead('存储', '生成结果与参考图存在哪里；客户端始终通过 API 访问，不直连对象存储。') +
+    `<div class="metrics">
+      ${metric('当前后端', isOSS ? '阿里云 OSS' : '本地磁盘', isOSS ? esc(cfg.bucket || '未填 Bucket') : '容器内 /app/var/assets')}
+      ${metric('密钥', cfg.hasSecret ? '已配置' : '未配置', cfg.accessKeyId ? esc(cfg.accessKeyId) : '—')}
+      ${metric('最近测试', cfg.verifiedAt ? fmtDate(cfg.verifiedAt) : '未测试', cfg.lastError || '无错误')}
+    </div>
+    <section class="panel"><div class="panel-head"><div><h2>对象存储配置</h2><p>保存后立即生效，无需重启</p></div></div>
+      <form id="storageForm" class="form-grid">
+        <label>存储类型<select name="provider"><option value="local" ${!isOSS ? 'selected' : ''}>本地磁盘</option><option value="oss" ${isOSS ? 'selected' : ''}>阿里云 OSS</option></select></label>
+        <label>Bucket 名称<input name="bucket" value="${esc(cfg.bucket)}" placeholder="例如 weavia-assets-test" /></label>
+        <label>Region<input name="region" value="${esc(cfg.region)}" placeholder="例如 oss-cn-hangzhou" /></label>
+        <label>内网 Endpoint（服务端使用）<input name="endpointInternal" value="${esc(cfg.endpointInternal)}" placeholder="oss-cn-hangzhou-internal.aliyuncs.com" /></label>
+        <label>外网 Endpoint（可选，CDN/直连时用）<input name="endpointPublic" value="${esc(cfg.endpointPublic)}" placeholder="oss-cn-hangzhou.aliyuncs.com" /></label>
+        <label>路径前缀<input name="prefix" value="${esc(cfg.prefix)}" placeholder="test 或 prod" /></label>
+        <label>AccessKeyId<input name="accessKeyId" value="${esc(cfg.accessKeyId)}" autocomplete="off" /></label>
+        <label>AccessKeySecret<input name="accessKeySecret" type="password" autocomplete="new-password" placeholder="${cfg.hasSecret ? '已保存，留空表示不修改' : '粘贴子账号 Secret'}" /></label>
+        <div class="row-actions"><button class="primary" type="submit">保存</button><button class="secondary" type="button" data-action="storage-test">测试连接</button></div>
+      </form>
+      <div class="muted" style="margin-top:16px;line-height:1.8">
+        <p>· <b>内网 Endpoint</b> 只有同地域的阿里云 ECS 能访问，不产生公网流量费，服务端固定走这条。</p>
+        <p>· <b>外网 Endpoint</b> 仅在需要 CDN 或从本机调试时使用，会产生公网流量费；客户端当前<b>不直连 OSS</b>，下载仍走 API，所以不必给桶开公共读或 CORS。</p>
+        <p>· 桶请设为<b>私有</b>，AK 用子账号并只授权该桶的 Get/Put/Delete/List。</p>
+        <p>· 切换到 OSS 后，新写入走 OSS；历史本地文件仍可读，迁移工具后续提供。</p>
+      </div></section>`;
+  $('storageForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const button = event.target.querySelector('button[type=submit]');
+    setBusy(button, true);
+    try {
+      await request('/api/admin/storage', { method: 'PUT', body: JSON.stringify({ provider: form.get('provider'), bucket: form.get('bucket'), region: form.get('region'), endpointInternal: form.get('endpointInternal'), endpointPublic: form.get('endpointPublic'), prefix: form.get('prefix'), accessKeyId: form.get('accessKeyId'), accessKeySecret: form.get('accessKeySecret') }) });
+      toast('存储配置已保存');
+      await navigate('storage');
+    } catch (error) { toast(error.message); setBusy(button, false); }
+  });
+}
+
 async function loadTasks() {
   const [tasks, runs] = await Promise.all([get('/api/admin/tasks'), get('/api/admin/task-runs')]);
   state.tasks = tasks || []; state.runs = runs || [];
@@ -526,6 +569,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'ai-tab') { state.aiTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderAITabs(); return renderAIBody(); }
     if (action === 'task-tab') { state.taskTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = `<div class="tabs">${[['tasks', '任务'], ['runs', '执行记录']].map(([id, label]) => `<button type="button" class="${state.taskTab === id ? 'active' : ''}" data-action="task-tab" data-tab="${id}">${label}</button>`).join('')}</div>`; return renderTaskBody(); }
     if (action === 'showcase-filter') { state.showcaseFilter = target.dataset.tab; await loadShowcase(); return; }
+    if (action === 'storage-test') { setBusy(target, true); try { await post('/api/admin/storage/test', {}); toast('连接正常，已写入并删除探针对象'); await navigate('storage'); } catch (error) { toast(error.message); setBusy(target, false); } return; }
     if (action === 'invite-new') return inviteNewModal();
     if (action === 'invite-copy') { try { await navigator.clipboard.writeText(target.dataset.code); toast('邀请码已复制'); } catch { toast('复制失败，请手动选择'); } return; }
     if (action === 'invite-toggle') { setBusy(target, true); await patch(`/api/admin/invites/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }

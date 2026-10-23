@@ -31,6 +31,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/routing"
 	"github.com/weavia/weavia/services/backend/internal/routingadapter"
 	"github.com/weavia/weavia/services/backend/internal/showcase"
+	"github.com/weavia/weavia/services/backend/internal/storageconfig"
 	"github.com/weavia/weavia/services/backend/internal/store"
 	"github.com/weavia/weavia/services/backend/internal/workflows"
 )
@@ -73,7 +74,7 @@ func main() {
 	realEnabled := cfg.RealAIEnabled || mock
 	commercialService := commercial.New(pool)
 	service := generation.NewService(realEnabled, provider, jobs.Enqueuer{Client: riverClient}, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, repository).WithCredits(commercialService).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage).WithMock(mock).WithRouting(routingadapter.New(routingService))
-	api := &httpapi.Server{Auth: auth.NewService(pool, cfg.WebOrigin, cfg.DemoMode), Commercial: commercialService, Generation: service, Conversations: conversation.NewPostgres(pool), Quotes: quote.NewPostgres(pool), Showcase: showcase.New(pool, cfg.AssetStorageDir), Credentials: credentials, Models: modelCatalog, Pricing: pricing.New(pool), Invites: invite.New(pool, cfg.InviteRequired), Routing: routingService, Recipes: recipesService, Workflows: workflows.New(pool), Assets: storage, AntDigitalConfigured: cfg.AntDigitalAPIKey != "", ComputrixConfigured: cfg.ComputrixAPIKey != "", DashScopeConfigured: cfg.DashScopeAPIKey != "", RealAIEnabled: cfg.RealAIEnabled, AntDigitalBaseURL: cfg.AntDigitalBaseURL, DashScopeBaseURL: cfg.DashScopeBaseURL, Readiness: map[string]func(context.Context) error{
+	api := &httpapi.Server{Auth: auth.NewService(pool, cfg.WebOrigin, cfg.DemoMode), Commercial: commercialService, Generation: service, Conversations: conversation.NewPostgres(pool), Quotes: quote.NewPostgres(pool), Showcase: showcase.New(pool, cfg.AssetStorageDir), Credentials: credentials, Models: modelCatalog, Pricing: pricing.New(pool), Invites: invite.New(pool, cfg.InviteRequired), StorageConfig: storageconfig.New(pool, cfg.StorageSigningKey), Routing: routingService, Recipes: recipesService, Workflows: workflows.New(pool), Assets: storage, AntDigitalConfigured: cfg.AntDigitalAPIKey != "", ComputrixConfigured: cfg.ComputrixAPIKey != "", DashScopeConfigured: cfg.DashScopeAPIKey != "", RealAIEnabled: cfg.RealAIEnabled, AntDigitalBaseURL: cfg.AntDigitalBaseURL, DashScopeBaseURL: cfg.DashScopeBaseURL, Readiness: map[string]func(context.Context) error{
 		"database": pool.Ping,
 		"queue": func(ctx context.Context) error {
 			var exists bool
@@ -88,7 +89,10 @@ func main() {
 		defer stop()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-	slog.Info("WEAVIA Go API listening", "address", cfg.Address, "ai_mode", cfg.AIMode, "real_ai_enabled", realEnabled)
+	if err := api.StorageConfig.Apply(context.Background(), storage); err != nil {
+		slog.Warn("object storage config not applied, falling back to local disk", "error", err)
+	}
+	slog.Info("WEAVIA Go API listening", "address", cfg.Address, "ai_mode", cfg.AIMode, "real_ai_enabled", realEnabled, "object_storage", storage.BlobEnabled())
 	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fatal(err)
 	}

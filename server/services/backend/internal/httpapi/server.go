@@ -30,6 +30,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/recipes"
 	"github.com/weavia/weavia/services/backend/internal/routing"
 	"github.com/weavia/weavia/services/backend/internal/showcase"
+	"github.com/weavia/weavia/services/backend/internal/storageconfig"
 	"github.com/weavia/weavia/services/backend/internal/workflows"
 )
 
@@ -43,6 +44,7 @@ type Server struct {
 	Credentials          *providerconfig.Service
 	Models               *modelcatalog.Service
 	Invites              *invite.Service
+	StorageConfig        *storageconfig.Service
 	Pricing              *pricing.Service
 	Routing              *routing.Service
 	Recipes              *recipes.Service
@@ -181,6 +183,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/ai/channels", s.adminChannels)
 			r.Get("/pricing", s.adminPricing)
 			r.Get("/invites", s.adminInvites)
+			r.Get("/storage", s.adminStorage)
 		})
 		r.With(s.requirePermission("provider.write")).Patch("/ai/providers/{providerID}", s.patchProvider)
 		r.With(s.requirePermission("provider.write")).Put("/ai/providers/{providerCode}/credential", s.adminSetProviderCredential)
@@ -194,6 +197,8 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("provider.write")).Put("/pricing/settings", s.adminUpdatePricingSettings)
 		r.With(s.requirePermission("provider.write")).Put("/pricing/cost/{channelModelID}", s.adminUpdateChannelCost)
 		r.With(s.requirePermission("provider.write")).Put("/pricing/model/{logicalModelID}", s.adminUpdateModelPrice)
+		r.With(s.requirePermission("provider.write")).Put("/storage", s.adminSaveStorage)
+		r.With(s.requirePermission("provider.write")).Post("/storage/test", s.adminTestStorage)
 		r.With(s.requirePermission("showcase.write")).Post("/showcase", s.adminUploadShowcase)
 		r.With(s.requirePermission("showcase.write")).Patch("/showcase/{showcaseID}", s.adminPatchShowcase)
 		r.With(s.requirePermission("showcase.write")).Delete("/showcase/{showcaseID}", s.adminDeleteShowcase)
@@ -724,21 +729,11 @@ func (s *Server) getTaskOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	output := task.Outputs[index]
-	file, err := s.Assets.OpenGenerated(output.ObjectKey)
-	if err != nil {
+	w.Header().Set("Content-Type", output.MimeType)
+	if err := s.Assets.ServeGenerated(w, r, output.ObjectKey, output.MimeType); err != nil {
 		writeError(w, &generation.APIError{Code: "NOT_FOUND", Message: "结果文件不存在", Status: 404})
 		return
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", output.MimeType)
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, filepath.Base(output.ObjectKey), info.ModTime(), file)
 }
 func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 	var body struct {

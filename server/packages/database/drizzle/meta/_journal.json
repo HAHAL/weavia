@@ -134,6 +134,13 @@
       "when": 1792617600000,
       "tag": "0018_invite_redemption",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792621200000,
+      "tag": "0019_storage_settings",
+      "breakpoints": true
     }
   ]
 }
