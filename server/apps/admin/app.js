@@ -1,4 +1,4 @@
-const BUILD_TAG = '2026-10-24-b';
+const BUILD_TAG = '2026-10-24-c';
 const $ = (id) => document.getElementById(id);
 const content = $('content');
 const modal = $('modal');
@@ -251,16 +251,20 @@ async function loadDashboard() {
     </div>
     <div class="panel-grid">
       <section class="panel"><div class="panel-head"><div><h2>最近订单</h2><p>最新 6 笔商业订单</p></div><button class="text-button" data-action="go-commerce">全部订单</button></div>${ordersTable((orders || []).slice(0, 6))}</section>
-      <section class="panel"><div class="panel-head"><div><h2>最近任务</h2><p>最新 6 个创作任务</p></div><button class="text-button" data-action="go-tasks">全部任务</button></div>${tasksTable((tasks || []).slice(0, 6))}</section>
+      <section class="panel"><div class="panel-head"><div><h2>最近任务</h2><p>最新 6 个创作任务</p></div><button class="text-button" data-action="go-tasks">全部任务</button></div>${tasksTable((tasks || []).slice(0, 6), true)}</section>
     </div>`;
 }
 function ordersTable(rows) {
   if (!rows.length) return empty('还没有订单');
   return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>类型</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.email || row.userId)}</span></td><td>${esc(row.kind)}</td><td>${fmtMoney(row.amountMinor)} ${esc(row.currency)}</td><td>${status(row.status)}</td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
-function tasksTable(rows) {
+function tasksTable(rows, compact = false) {
   if (!rows.length) return empty('还没有任务');
-  return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>模型</th><th>状态</th><th>Credits</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.type)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.model || row.provider || '—')}</td><td>${status(row.status)}</td><td>${fmtNumber(row.cost)}</td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
+  if (compact) return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>模型</th><th>状态</th><th>实扣 / 返还</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.type)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.model || row.provider || '—')}</td><td>${status(row.status)}</td><td><span class="cell-main">${fmtNumber(row.consumedCredits)}</span><span class="cell-sub">返还 ${fmtNumber(row.releasedCredits)}</span></td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>任务 / 用户</th><th>模型 / 结算口径</th><th>状态</th><th>预留</th><th>实扣</th><th>返还</th><th>时间</th><th>操作</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.type)} · ${esc(row.id.slice(0, 8))}</span><span class="cell-sub">${esc(row.email || row.accountNo || row.userId)}</span></td><td><span class="cell-main">${esc(row.model || row.provider || '—')}</span><span class="cell-sub">${esc(billingBasisLabel(row.billingBasis))}</span></td><td>${status(row.status)}${row.errorCode ? `<span class="cell-sub">${esc(row.errorCode)}</span>` : ''}</td><td>${fmtNumber(row.reservedCredits)}</td><td class="${row.status === 'failed' && !row.consumedCredits ? 'negative' : ''}">${fmtNumber(row.consumedCredits)}</td><td>${fmtNumber(row.releasedCredits)}</td><td>${fmtDate(row.createdAt)}</td><td><button class="mini" data-action="task-detail" data-id="${esc(row.id)}">详情</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function billingBasisLabel(basis) {
+  return basis === 'submitted' ? '按提交结算' : basis === 'delivered' ? '按交付结算' : '结算口径未留快照';
 }
 async function loadUsers() {
   const [users, inviteData] = await Promise.all([get('/api/admin/users'), get('/api/admin/invites')]);
@@ -731,6 +735,29 @@ function runsTable(rows) {
   if (!rows.length) return empty('还没有执行记录');
   return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>尝试</th><th>状态</th><th>开始</th><th>结束</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.taskId.slice(0, 8))}</span></td><td>${row.attempt}</td><td>${status(row.status)}</td><td>${fmtDate(row.startedAt)}</td><td>${fmtDate(row.finishedAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
+async function taskDetailModal(taskID) {
+  const closeButtons = () => modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
+  modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">TASK DETAIL</span><h2>任务详情</h2></div><button type="button" class="modal-close" data-close-modal aria-label="关闭">×</button></div><div class="activity-loading">正在读取任务、费用与渠道记录…</div></div>`;
+  modal.showModal();
+  closeButtons();
+  try {
+    const detail = await get(`/api/admin/tasks/${encodeURIComponent(taskID)}`);
+    if (!modal.open) return;
+    const task = detail.task;
+    const routes = (detail.routes || []).map((route) => `<tr><td>${fmtDate(route.createdAt)}</td><td>${esc(route.channelName || route.provider || '—')}</td><td>${esc(route.providerModelId || '—')}</td><td>${route.keyLast4 ? `•••• ${esc(route.keyLast4)}` : '—'}</td><td>${status(route.status)}${route.errorCode ? `<span class="cell-sub">${esc(route.errorCode)}</span>` : ''}</td><td>${fmtNumber(route.latencyMs)} ms</td></tr>`).join('') || emptyRow(6);
+    const types = { reserve: '预留', consume: '实扣', release: '返还' };
+    const transactions = (detail.transactions || []).map((entry) => `<tr><td>${fmtDate(entry.createdAt)}</td><td>${esc(types[entry.type] || entry.type)}</td><td>${fmtNumber(entry.availableDelta)}</td><td>${fmtNumber(entry.reservedDelta)}</td></tr>`).join('') || emptyRow(4);
+    modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">TASK DETAIL</span><h2>${esc(task.type)} · ${esc(task.id.slice(0, 8))}</h2><p>${esc(task.email || task.userId)} · ${esc(task.accountNo || '未分配账户号')} · ${fmtDate(task.createdAt)}</p></div><button type="button" class="modal-close" data-close-modal aria-label="关闭">×</button></div>
+      <div class="activity-summary"><div><small>任务状态</small><strong>${status(task.status)}</strong><span>${esc(task.errorCode || '无失败码')}</span></div><div><small>预留 Credits</small><strong>${fmtNumber(task.reservedCredits)}</strong><span>任务提交时预留</span></div><div><small>实扣 Credits</small><strong>${fmtNumber(task.consumedCredits)}</strong><span>${esc(billingBasisLabel(task.billingBasis))}</span></div><div><small>返还 Credits</small><strong>${fmtNumber(task.releasedCredits)}</strong><span>来自返还流水</span></div></div>
+      <div class="activity-body"><section class="activity-section"><h3>任务与失败原因</h3><p>${esc(task.model || task.provider || '未指定模型')}${task.duration ? ` · ${esc(task.duration)} 秒` : ''}</p><p>${task.errorMessage ? `${esc(task.errorCode)}：${esc(task.errorMessage)}` : '无失败原因记录'}</p><p class="muted">${task.billingBasis ? '结算口径已按任务保存' : '历史任务未保存结算口径，请结合实际流水核对'}</p></section>
+      <section class="activity-section"><h3>渠道调用（最近 5 条）</h3><div class="table-wrap"><table><thead><tr><th>时间</th><th>渠道</th><th>渠道模型</th><th>Key 末四位</th><th>结果</th><th>延迟</th></tr></thead><tbody>${routes}</tbody></table></div></section>
+      <section class="activity-section"><h3>Credits 流水</h3><div class="table-wrap"><table><thead><tr><th>时间</th><th>动作</th><th>可用变动</th><th>冻结变动</th></tr></thead><tbody>${transactions}</tbody></table></div></section></div>
+      <div class="activity-actions"><span class="muted">本页只读；金额以 Credits 流水为准</span><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
+    closeButtons();
+  } catch (error) {
+    if (modal.open) modal.querySelector('.activity-loading').textContent = error.message || '任务详情读取失败';
+  }
+}
 async function loadShowcase() {
   const data = await get('/api/admin/showcase');
   state.showcase = data.items || [];
@@ -959,6 +986,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'commerce-tab') { state.commerceTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderCommerceTabs(); return renderCommerceBody(); }
     if (action === 'ai-tab') { state.aiTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderAITabs(); return renderAIBody(); }
     if (action === 'task-tab') { state.taskTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = `<div class="tabs">${[['tasks', '任务'], ['runs', '执行记录']].map(([id, label]) => `<button type="button" class="${state.taskTab === id ? 'active' : ''}" data-action="task-tab" data-tab="${id}">${label}</button>`).join('')}</div>`; return renderTaskBody(); }
+    if (action === 'task-detail') return taskDetailModal(target.dataset.id);
     if (action === 'showcase-filter') { state.showcaseFilter = target.dataset.tab; await loadShowcase(); return; }
     if (action === 'storage-migrate') { setBusy(target, true); try { await storageMigrate(target.dataset.direction); } catch (error) { toast(error.message); } finally { setBusy(target, false); } return; }
     if (action === 'storage-test') { setBusy(target, true); try { await post('/api/admin/storage/test', {}); toast('连接正常，已写入并删除探针对象'); await navigate('storage'); } catch (error) { toast(error.message); setBusy(target, false); } return; }

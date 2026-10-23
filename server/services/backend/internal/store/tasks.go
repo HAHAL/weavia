@@ -49,6 +49,12 @@ func (r *TaskRepository) Create(ctx context.Context, task generation.Task) (gene
 	}
 	return decodeRow(row.id, row.userID, row.status, row.idem, row.input, row.output, row.errorJSON, pgtype.Timestamptz{Time: row.created, Valid: true}, pgtype.Timestamptz{Time: row.updated, Valid: true})
 }
+func (r *TaskRepository) SnapshotBillingBasis(ctx context.Context, id, basis, channelModelID string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE tasks SET pricing_snapshot=coalesce(pricing_snapshot,'{}'::jsonb) ||
+		jsonb_build_object('billingBasis',$2::text,'channelModelId',$3::text,'capturedAt',now())
+		WHERE id=$1`, id, basis, channelModelID)
+	return err
+}
 func (r *TaskRepository) Get(ctx context.Context, id string) (generation.Task, bool, error) {
 	row, err := r.queries.GetTask(ctx, id)
 	if err == pgx.ErrNoRows {

@@ -27,7 +27,7 @@ func (a *Adapter) BindingsFor(ctx context.Context, key string) ([]generation.Rou
 	}
 	out := make([]generation.RouteBinding, 0, len(bindings))
 	for _, item := range bindings {
-		out = append(out, generation.RouteBinding{ID: item.ID, ChannelID: item.ChannelID, ChannelModelID: item.ChannelModelID, ChannelName: item.ChannelName, Provider: item.Provider, ProviderModelID: item.ProviderModelID, BaseURL: item.BaseURL, APIKey: item.APIKey, KeyID: item.KeyID, Priority: item.Priority, Weight: item.Weight})
+		out = append(out, generation.RouteBinding{ID: item.ID, ChannelID: item.ChannelID, ChannelModelID: item.ChannelModelID, ChannelName: item.ChannelName, Provider: item.Provider, ProviderModelID: item.ProviderModelID, BillingBasis: item.BillingBasis, BaseURL: item.BaseURL, APIKey: item.APIKey, KeyID: item.KeyID, Priority: item.Priority, Weight: item.Weight})
 	}
 	return out, nil
 }
@@ -39,7 +39,7 @@ func (a *Adapter) BindingsForAccount(ctx context.Context, userID, key string) ([
 	}
 	out := make([]generation.RouteBinding, 0, len(bindings))
 	for _, item := range bindings {
-		out = append(out, generation.RouteBinding{ID: item.ID, ChannelID: item.ChannelID, ChannelModelID: item.ChannelModelID, ChannelName: item.ChannelName, Provider: item.Provider, ProviderModelID: item.ProviderModelID, BaseURL: item.BaseURL, APIKey: item.APIKey, KeyID: item.KeyID, Priority: item.Priority, Weight: item.Weight})
+		out = append(out, generation.RouteBinding{ID: item.ID, ChannelID: item.ChannelID, ChannelModelID: item.ChannelModelID, ChannelName: item.ChannelName, Provider: item.Provider, ProviderModelID: item.ProviderModelID, BillingBasis: item.BillingBasis, BaseURL: item.BaseURL, APIKey: item.APIKey, KeyID: item.KeyID, Priority: item.Priority, Weight: item.Weight})
 	}
 	return out, nil
 }

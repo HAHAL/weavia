@@ -244,13 +244,16 @@ func (s *Service) SettleDelivered(ctx context.Context, reservationID string, del
 		return err
 	}
 	var cost, requested int64
-	var provider, model string
-	if err := s.pool.QueryRow(ctx, `SELECT cost, COALESCE((input->>'numberOfImages')::bigint,1), COALESCE(provider,''), COALESCE(model,'') FROM tasks WHERE id=$1`, taskID).Scan(&cost, &requested, &provider, &model); err != nil {
+	var provider, model, basis string
+	if err := s.pool.QueryRow(ctx, `SELECT cost, COALESCE((input->>'numberOfImages')::bigint,1), COALESCE(provider,''), COALESCE(model,''), COALESCE(pricing_snapshot->>'billingBasis','') FROM tasks WHERE id=$1`, taskID).Scan(&cost, &requested, &provider, &model, &basis); err != nil {
 		// 读不到任务信息时按原额结算，宁可不少收。
 		return s.settle(ctx, reservationID, -1)
 	}
-	basis := "delivered"
-	_ = s.pool.QueryRow(ctx, `SELECT cm.billing_basis FROM channel_models cm JOIN provider_channels pc ON pc.id=cm.channel_id WHERE pc.provider_code=$1 AND cm.provider_model_id=$2 LIMIT 1`, provider, model).Scan(&basis)
+	if basis != "delivered" && basis != "submitted" {
+		// Legacy tasks predate the route-time snapshot.
+		basis = "delivered"
+		_ = s.pool.QueryRow(ctx, `SELECT cm.billing_basis FROM channel_models cm JOIN provider_channels pc ON pc.id=cm.channel_id WHERE pc.provider_code=$1 AND cm.provider_model_id=$2 LIMIT 1`, provider, model).Scan(&basis)
+	}
 	return s.settle(ctx, reservationID, settleKeep(cost, amount, requested, delivered, basis))
 }
 
@@ -850,26 +853,6 @@ func (s *Service) AdminCreditTransactions(ctx context.Context) ([]map[string]any
 	}
 	return out, rows.Err()
 }
-func (s *Service) AdminTasks(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id::text,user_id::text,type::text,status,coalesce(provider,''),coalesce(model,''),cost,workspace_id::text,product_id::text,sku_id::text,created_at FROM tasks ORDER BY created_at DESC LIMIT 500`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		var id, userID, taskType, status, provider, model string
-		var cost int64
-		var workspaceID, productID, skuID *string
-		var created time.Time
-		if err = rows.Scan(&id, &userID, &taskType, &status, &provider, &model, &cost, &workspaceID, &productID, &skuID, &created); err != nil {
-			return nil, err
-		}
-		out = append(out, map[string]any{"id": id, "userId": userID, "type": taskType, "status": status, "provider": provider, "model": model, "cost": cost, "workspaceId": workspaceID, "productId": productID, "skuId": skuID, "createdAt": created})
-	}
-	return out, rows.Err()
-}
-
 func newID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)

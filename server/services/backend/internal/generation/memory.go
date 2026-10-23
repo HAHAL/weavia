@@ -50,3 +50,11 @@ func (r *MemoryRepository) Update(_ context.Context, t Task) error {
 	r.tasks[t.ID] = t
 	return nil
 }
+func (r *MemoryRepository) SnapshotBillingBasis(_ context.Context, id, basis, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t := r.tasks[id]
+	t.BillingBasis = basis
+	r.tasks[id] = t
+	return nil
+}

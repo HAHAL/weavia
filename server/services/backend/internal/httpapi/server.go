@@ -181,6 +181,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/devices", s.adminDevices)
 			r.Get("/credits/transactions", s.adminCreditTransactions)
 			r.Get("/tasks", s.adminTasks)
+			r.Get("/tasks/{taskID}", s.adminTaskDetail)
 			r.Get("/task-runs", s.adminTaskRuns)
 			r.Get("/showcase", s.adminListShowcase)
 			r.Get("/ai/channels", s.adminChannels)
@@ -607,6 +608,10 @@ func (s *Server) adminCreditTransactions(w http.ResponseWriter, r *http.Request)
 }
 func (s *Server) adminTasks(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Commercial.AdminTasks(r.Context())
+	respond(w, data, err)
+}
+func (s *Server) adminTaskDetail(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.AdminTaskDetail(r.Context(), chi.URLParam(r, "taskID"))
 	respond(w, data, err)
 }
 func (s *Server) adminAdjustCredits(w http.ResponseWriter, r *http.Request) {

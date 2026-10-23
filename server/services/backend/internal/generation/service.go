@@ -83,6 +83,7 @@ type Task struct {
 	Provider            string         `json:"provider"`
 	Model               string         `json:"model"`
 	Cost                int64          `json:"cost"`
+	BillingBasis        string         `json:"billingBasis,omitempty"`
 	Status              string         `json:"status"`
 	Prompt              string         `json:"prompt,omitempty"`
 	Mode                string         `json:"mode,omitempty"`
@@ -113,6 +114,7 @@ type Repository interface {
 	Get(context.Context, string) (Task, bool, error)
 	List(context.Context, string) ([]Task, error)
 	Update(context.Context, Task) error
+	SnapshotBillingBasis(context.Context, string, string, string) error
 	ListRunningVideo(context.Context) ([]Task, error)
 }
 type Credits interface {
@@ -136,6 +138,7 @@ type RouteBinding struct {
 	ChannelName     string
 	Provider        string
 	ProviderModelID string
+	BillingBasis    string
 	BaseURL         string
 	APIKey          string
 	KeyID           string
@@ -476,6 +479,11 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 	request.Model = binding.ProviderModelID
 	request.APIKey = binding.APIKey
 	request.BaseURL = binding.BaseURL
+	// Capture the provider's billing rule before submission. A later channel
+	// configuration edit must not change settlement for an in-flight task.
+	if err := s.repository.SnapshotBillingBasis(ctx, task.ID, binding.BillingBasis, binding.ChannelModelID); err != nil {
+		return providers.ImageResult{}, err
+	}
 	started := time.Now()
 	result, callErr := s.provider.Generate(ctx, request)
 	s.router.RecordRoute(ctx, binding.ID, callErr)

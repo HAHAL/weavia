@@ -38,6 +38,7 @@ type Binding struct {
 	ChannelName     string
 	Provider        string
 	ProviderModelID string
+	BillingBasis    string
 	BaseURL         string
 	APIKey          string
 	KeyID           string
@@ -84,7 +85,7 @@ func (s *Service) List(ctx context.Context) ([]Logical, error) {
 }
 
 func (s *Service) Bindings(ctx context.Context, key string) ([]Binding, error) {
-	rows, err := s.pool.Query(ctx, `SELECT a.id::text,c.id::text,cm.id::text,c.name,c.provider_code,cm.provider_model_id,coalesce(c.base_url,''),a.priority,a.weight
+	rows, err := s.pool.Query(ctx, `SELECT a.id::text,c.id::text,cm.id::text,c.name,c.provider_code,cm.provider_model_id,cm.billing_basis,coalesce(c.base_url,''),a.priority,a.weight
 		FROM logical_models l
 		JOIN logical_model_abilities a ON a.logical_model_id=l.id
 		JOIN channel_models cm ON cm.id=a.channel_model_id
@@ -100,7 +101,7 @@ func (s *Service) Bindings(ctx context.Context, key string) ([]Binding, error) {
 	out := []Binding{}
 	for rows.Next() {
 		var b Binding
-		if err = rows.Scan(&b.ID, &b.ChannelID, &b.ChannelModelID, &b.ChannelName, &b.Provider, &b.ProviderModelID, &b.BaseURL, &b.Priority, &b.Weight); err != nil {
+		if err = rows.Scan(&b.ID, &b.ChannelID, &b.ChannelModelID, &b.ChannelName, &b.Provider, &b.ProviderModelID, &b.BillingBasis, &b.BaseURL, &b.Priority, &b.Weight); err != nil {
 			return nil, err
 		}
 		if s.keys != nil {
@@ -113,7 +114,7 @@ func (s *Service) Bindings(ctx context.Context, key string) ([]Binding, error) {
 
 // BindingsForAccount 在普通绑定之上，把账户所属分组的渠道排到前面；组内无可用渠道时自动回退。
 func (s *Service) BindingsForAccount(ctx context.Context, userID, key string) ([]Binding, error) {
-	rows, err := s.pool.Query(ctx, `SELECT a.id::text,c.id::text,cm.id::text,c.name,c.provider_code,cm.provider_model_id,coalesce(c.base_url,''),a.priority,a.weight,
+	rows, err := s.pool.Query(ctx, `SELECT a.id::text,c.id::text,cm.id::text,c.name,c.provider_code,cm.provider_model_id,cm.billing_basis,coalesce(c.base_url,''),a.priority,a.weight,
 		EXISTS (SELECT 1 FROM account_route_groups arg JOIN channel_group_members cgm ON cgm.group_id=arg.group_id WHERE arg.user_id=$2 AND cgm.channel_id=c.id) AS preferred
 		FROM logical_models l
 		JOIN logical_model_abilities a ON a.logical_model_id=l.id
@@ -131,7 +132,7 @@ func (s *Service) BindingsForAccount(ctx context.Context, userID, key string) ([
 	for rows.Next() {
 		var b Binding
 		var preferred bool
-		if err = rows.Scan(&b.ID, &b.ChannelID, &b.ChannelModelID, &b.ChannelName, &b.Provider, &b.ProviderModelID, &b.BaseURL, &b.Priority, &b.Weight, &preferred); err != nil {
+		if err = rows.Scan(&b.ID, &b.ChannelID, &b.ChannelModelID, &b.ChannelName, &b.Provider, &b.ProviderModelID, &b.BillingBasis, &b.BaseURL, &b.Priority, &b.Weight, &preferred); err != nil {
 			return nil, err
 		}
 		if s.keys != nil {
