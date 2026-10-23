@@ -1,6 +1,6 @@
 # BRIEF FOR CODEX — WEAVIA 2026-10-24
 
-给接手工具的执行简报。详细环境与命令见 [HANDOFF_CURRENT_2026-10-24.md](./HANDOFF_CURRENT_2026-10-24.md)；本文件只保留“做了什么、现在在哪、先做什么、别做什么”。
+给接手工具的执行简报。可执行任务列表见 [TASKS_FOR_CODEX.md](./TASKS_FOR_CODEX.md)。详细环境与命令见 [HANDOFF_CURRENT_2026-10-24.md](./HANDOFF_CURRENT_2026-10-24.md)；本文件只保留“做了什么、现在在哪、先做什么、别做什么”。
 
 ## 1. 现状一句话
 
