@@ -22,6 +22,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/commercial"
 	"github.com/weavia/weavia/services/backend/internal/conversation"
 	"github.com/weavia/weavia/services/backend/internal/generation"
+	"github.com/weavia/weavia/services/backend/internal/invite"
 	"github.com/weavia/weavia/services/backend/internal/modelcatalog"
 	"github.com/weavia/weavia/services/backend/internal/pricing"
 	"github.com/weavia/weavia/services/backend/internal/providerconfig"
@@ -41,6 +42,7 @@ type Server struct {
 	Showcase             *showcase.Service
 	Credentials          *providerconfig.Service
 	Models               *modelcatalog.Service
+	Invites              *invite.Service
 	Pricing              *pricing.Service
 	Routing              *routing.Service
 	Recipes              *recipes.Service
@@ -178,6 +180,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/showcase", s.adminListShowcase)
 			r.Get("/ai/channels", s.adminChannels)
 			r.Get("/pricing", s.adminPricing)
+			r.Get("/invites", s.adminInvites)
 		})
 		r.With(s.requirePermission("provider.write")).Patch("/ai/providers/{providerID}", s.patchProvider)
 		r.With(s.requirePermission("provider.write")).Put("/ai/providers/{providerCode}/credential", s.adminSetProviderCredential)
@@ -196,6 +199,8 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("showcase.write")).Delete("/showcase/{showcaseID}", s.adminDeleteShowcase)
 		r.With(s.requirePermission("credits.write")).Post("/credits/adjust", s.adminAdjustCredits)
 		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/status", s.adminSetUserStatus)
+		r.With(s.requirePermission("users.write")).Post("/invites", s.adminCreateInvite)
+		r.With(s.requirePermission("users.write")).Patch("/invites/{inviteID}", s.adminUpdateInvite)
 		r.With(s.requirePermission("users.write")).Post("/users/deletion-requests/{requestID}/approve", s.approveDeletion)
 		r.With(s.requirePermission("users.write")).Post("/users/deletion-requests/{requestID}/reject", s.rejectDeletion)
 		r.With(s.requirePermission("plans.write")).Patch("/plans/{planID}", s.adminUpdatePlan)
@@ -370,14 +375,27 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		Email      string          `json:"email"`
 		Password   string          `json:"password"`
 		Name       string          `json:"name"`
+		InviteCode string          `json:"inviteCode"`
 		DeviceInfo auth.DeviceInfo `json:"deviceInfo"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeError(w, err)
 		return
 	}
+	claimID := ""
+	if s.Invites != nil && s.Invites.Required() {
+		id, err := s.Invites.Claim(r.Context(), body.InviteCode)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		claimID = id
+	}
 	data, err := s.Auth.Register(r.Context(), body.Email, body.Password, body.Name, body.DeviceInfo)
 	if err != nil {
+		if claimID != "" && s.Invites != nil {
+			_ = s.Invites.Release(r.Context(), claimID)
+		}
 		slog.Error("register failed", "error", err)
 	}
 	respond(w, data, err)

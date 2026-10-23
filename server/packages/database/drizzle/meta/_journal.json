@@ -120,6 +120,13 @@
       "when": 1792610400000,
       "tag": "0016_billing_basis",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792614000000,
+      "tag": "0017_invite_codes",
+      "breakpoints": true
     }
   ]
 }

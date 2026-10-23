@@ -16,7 +16,7 @@ const defaultApiBase = location.port && location.port !== '80' && location.port 
 let apiBase = localStorage.getItem('weavia.admin.api') || defaultApiBase;
 let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
-const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'providers', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null };
+const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'providers', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -167,16 +167,41 @@ function tasksTable(rows) {
   return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>模型</th><th>状态</th><th>Credits</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.type)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.model || row.provider || '—')}</td><td>${status(row.status)}</td><td>${fmtNumber(row.cost)}</td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 async function loadUsers() {
-  const users = (await get('/api/admin/users')) || [];
-  state.users = users;
-  content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态。') + `<div class="panel"><div class="toolbar"><input id="userSearch" placeholder="搜索邮箱、姓名或套餐" /><span class="spacer"></span><span class="badge gold">${users.length} 位用户</span></div><div id="userTable"></div></div>`;
+  const [users, inviteData] = await Promise.all([get('/api/admin/users'), get('/api/admin/invites')]);
+  state.users = users || [];
+  state.invites = inviteData?.items || [];
+  content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态。') + `<div class="panel"><div class="toolbar"><input id="userSearch" placeholder="搜索邮箱、姓名或套餐" /><span class="spacer"></span><span class="badge gold">${state.users.length} 位用户</span></div><div id="userTable"></div></div>` + invitesPanel();
   const draw = (rows) => { $('userTable').innerHTML = usersTable(rows); };
-  draw(users);
+  draw(state.users);
   $('userSearch').addEventListener('input', (event) => {
     const query = event.target.value.trim().toLowerCase();
     draw(users.filter((user) => `${user.email} ${user.name} ${user.plan}`.toLowerCase().includes(query)));
   });
 }
+
+function invitesPanel() {
+  const rows = state.invites || [];
+  return `<section class="panel"><div class="panel-head"><div><h2>注册邀请码</h2><p>默认 7 天有效，注册时必须填写；用完或过期自动失效</p></div><button class="primary" data-action="invite-new">生成邀请码</button></div>${invitesTable(rows)}</section>`;
+}
+function invitesTable(rows) {
+  if (!rows.length) return empty('还没有邀请码');
+  return `<div class="table-wrap"><table><thead><tr><th>邀请码</th><th>备注</th><th>使用</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map((item) => {
+    const expired = item.expiresAt && new Date(item.expiresAt).getTime() < Date.now();
+    const usedUp = item.maxUses > 0 && item.usedCount >= item.maxUses;
+    const tone = !item.enabled ? '' : (expired || usedUp) ? 'warning' : 'success';
+    const label = !item.enabled ? '已停用' : expired ? '已过期' : usedUp ? '已用完' : '可用';
+    return `<tr><td><span class="cell-main"><code>${esc(item.code)}</code></span><span class="cell-sub">${fmtDate(item.createdAt)} 创建</span></td><td>${esc(item.note || '—')}</td><td>${item.usedCount} / ${item.maxUses === 0 ? '不限' : item.maxUses}</td><td>${item.expiresAt ? fmtDate(item.expiresAt) : '长期'}</td><td><span class="badge ${tone}">${label}</span></td><td><div class="row-actions"><button data-action="invite-copy" data-code="${esc(item.code)}">复制</button><button data-action="invite-toggle" data-id="${esc(item.id)}" data-enabled="${item.enabled ? 'false' : 'true'}">${item.enabled ? '停用' : '启用'}</button></div></td></tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+function inviteNewModal() {
+  openModal('生成邀请码', `<label>备注<input name="note" maxlength="80" placeholder="例如：小红书内测第 1 批" /></label><div class="form-row"><label>可用次数<select name="maxUses"><option value="1">1 次</option><option value="5">5 次</option><option value="10">10 次</option><option value="0">不限次数</option></select></label><label>有效期（天）<input name="validDays" type="number" min="1" max="365" value="7" required /></label></div><p class="muted">默认 7 天；邀请码在客户端注册页填写，一个码用满或到期即失效。</p>`, '生成', async (form) => {
+    const item = await post('/api/admin/invites', { note: form.get('note'), maxUses: Number(form.get('maxUses')), validDays: Number(form.get('validDays') || 7) });
+    await navigate('users');
+    openModal('邀请码已生成', `<label>邀请码<input value="${esc(item.code)}" readonly /></label><p class="muted">有效期至 ${esc(item.expiresAt ? new Date(item.expiresAt).toLocaleString('zh-CN') : '长期')}，可用 ${item.maxUses === 0 ? '不限' : item.maxUses} 次。复制后发给用户。</p>`, '完成', async () => {});
+    try { await navigator.clipboard.writeText(item.code); } catch { /* 手动复制 */ }
+  });
+}
+
 function usersTable(rows) {
   if (!rows.length) return empty('没有匹配的用户');
   return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}</td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
@@ -484,6 +509,9 @@ content.addEventListener('click', async (event) => {
     if (action === 'ai-tab') { state.aiTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderAITabs(); return renderAIBody(); }
     if (action === 'task-tab') { state.taskTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = `<div class="tabs">${[['tasks', '任务'], ['runs', '执行记录']].map(([id, label]) => `<button type="button" class="${state.taskTab === id ? 'active' : ''}" data-action="task-tab" data-tab="${id}">${label}</button>`).join('')}</div>`; return renderTaskBody(); }
     if (action === 'showcase-filter') { state.showcaseFilter = target.dataset.tab; await loadShowcase(); return; }
+    if (action === 'invite-new') return inviteNewModal();
+    if (action === 'invite-copy') { try { await navigator.clipboard.writeText(target.dataset.code); toast('邀请码已复制'); } catch { toast('复制失败，请手动选择'); } return; }
+    if (action === 'invite-toggle') { setBusy(target, true); await patch(`/api/admin/invites/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
     if (action === 'user-activity') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) userActivityModal(user); return; }
     if (action === 'user-status') { setBusy(target, true); await patch(`/api/admin/users/${target.dataset.id}/status`, { status: target.dataset.status }); await navigate('users'); return; }
     if (action === 'user-credits') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) creditsModal(user); return; }

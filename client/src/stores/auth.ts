@@ -12,7 +12,7 @@ type AuthState = {
   status: AuthStatus;
   error: string | null;
   login: (email: string, password: string, remember?: boolean) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, name: string, inviteCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   restore: () => Promise<void>;
 };
@@ -79,7 +79,7 @@ export const useAuth = create<AuthState>((set) => ({
     }
   },
 
-  async register(email, password, name) {
+  async register(email, password, name, inviteCode = '') {
     set({ status: 'loading', error: null });
     try {
       const data = await apiRequest<LoginResponse>('/api/auth/register', {
@@ -88,6 +88,7 @@ export const useAuth = create<AuthState>((set) => ({
           email,
           password,
           name,
+          inviteCode: inviteCode.trim(),
           deviceInfo: { deviceName: 'WEAVIA Desktop', platform: 'desktop', appVersion: '0.1.0' },
         }),
       }, { auth: false });

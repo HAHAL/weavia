@@ -27,6 +27,7 @@ type Config struct {
 	ProviderTimeout           time.Duration
 	RealAIEnabled             bool
 	AIMode                    string
+	InviteRequired            bool
 	AssetStorageDir           string
 	StorageSigningKey         string
 }
@@ -50,6 +51,7 @@ func LoadConfig() Config {
 		ProviderTimeout:           time.Duration(envInt("AI_PROVIDER_TIMEOUT_MS", 120000)) * time.Millisecond,
 		RealAIEnabled:             os.Getenv("ENABLE_REAL_AI") == "true",
 		AIMode:                    env("AI_MODE", "real"),
+		InviteRequired:            env("INVITE_CODE_REQUIRED", "true") != "false",
 		AssetStorageDir:           env("ASSET_STORAGE_DIR", "./var/assets"),
 		StorageSigningKey:         os.Getenv("STORAGE_SIGNING_KEY"),
 	}

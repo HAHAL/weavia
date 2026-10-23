@@ -13,6 +13,7 @@ export function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const busy = status === 'loading';
 
@@ -20,8 +21,9 @@ export function RegisterPage() {
     event.preventDefault();
     if (!email.trim() || password.length < 8) { setError('请输入邮箱，密码至少 8 位'); return; }
     if (password !== confirm) { setError('两次输入的密码不一致'); return; }
+    if (!inviteCode.trim()) { setError('请输入邀请码'); return; }
     setError('');
-    try { await register(email.trim(), password, name.trim()); navigate('/'); }
+    try { await register(email.trim(), password, name.trim(), inviteCode); navigate('/'); }
     catch (err) { setError(err instanceof Error ? err.message : '注册失败'); }
   }
 
@@ -35,6 +37,7 @@ export function RegisterPage() {
       <Field label="邮箱"><input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></Field>
       <Field label="密码"><input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="至少 8 位" /></Field>
       <Field label="确认密码"><input type="password" autoComplete="new-password" value={confirm} onChange={event => setConfirm(event.target.value)} placeholder="再次输入密码" /></Field>
+      <Field label="邀请码"><input value={inviteCode} onChange={event => setInviteCode(event.target.value)} placeholder="输入运营提供的邀请码" autoComplete="off" /></Field>
       {error && <p className="form-error auth-error" role="alert">{error}</p>}
       <Button className="auth-submit" type="submit" disabled={busy}>{busy ? '注册中…' : '创建账户'}</Button>
     </form>
