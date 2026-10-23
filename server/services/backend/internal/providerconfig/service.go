@@ -83,6 +83,12 @@ func (s *Service) SetChannelKey(ctx context.Context, channelID, apiKey, userID s
 }
 
 func (s *Service) GetChannelKey(ctx context.Context, channelID string) (string, error) {
+	key, _, err := s.GetChannelKeyWithID(ctx, channelID)
+	return key, err
+}
+
+// GetChannelKeyWithID 同时返回 Key 的 ID，便于调用日志按 Key 归因。
+func (s *Service) GetChannelKeyWithID(ctx context.Context, channelID string) (string, string, error) {
 	var id string
 	var sealed []byte
 	// 加权随机 + 跳过冷却中的 Key；失败计数由调用方记录。
@@ -92,13 +98,14 @@ func (s *Service) GetChannelKey(ctx context.Context, channelID string) (string, 
 		ORDER BY -ln(GREATEST(random(), 1e-9)) / GREATEST(weight, 1), last_used_at NULLS FIRST
 		LIMIT 1`, channelID).Scan(&id, &sealed)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
+		return "", "", nil
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	_, _ = s.pool.Exec(ctx, `UPDATE channel_keys SET last_used_at=now() WHERE id=$1`, id)
-	return s.decrypt(sealed)
+	value, err := s.decrypt(sealed)
+	return value, id, err
 }
 
 // ChannelKey 是后台展示用的 Key 视图，不包含明文。

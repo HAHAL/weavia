@@ -111,3 +111,12 @@ func (s *Server) adminUpdateChannelKey(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminDeleteChannelKey(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]bool{"ok": true}, s.Routing.DeleteChannelKey(r.Context(), chi.URLParam(r, "keyID")))
 }
+
+func (s *Server) adminChannelKeyHealth(w http.ResponseWriter, r *http.Request) {
+	items, err := s.Routing.KeyHealth(r.Context(), chi.URLParam(r, "channelID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]any{"items": items})
+}

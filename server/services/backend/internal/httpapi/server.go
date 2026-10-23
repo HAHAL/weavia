@@ -199,6 +199,7 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("provider.write")).Patch("/ai/channels/{channelID}", s.adminUpdateChannel)
 		r.With(s.requirePermission("provider.write")).Put("/ai/channels/{channelID}/key", s.adminSetChannelKey)
 		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/keys", s.adminListChannelKeys)
+		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/keys-health", s.adminChannelKeyHealth)
 		r.With(s.requirePermission("provider.write")).Patch("/ai/channel-keys/{keyID}", s.adminUpdateChannelKey)
 		r.With(s.requirePermission("provider.write")).Delete("/ai/channel-keys/{keyID}", s.adminDeleteChannelKey)
 		r.With(s.requirePermission("provider.write")).Put("/pricing/settings", s.adminUpdatePricingSettings)

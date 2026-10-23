@@ -27,7 +27,19 @@ func (a *Adapter) BindingsFor(ctx context.Context, key string) ([]generation.Rou
 	}
 	out := make([]generation.RouteBinding, 0, len(bindings))
 	for _, item := range bindings {
-		out = append(out, generation.RouteBinding{ID: item.ID, ChannelID: item.ChannelID, ChannelModelID: item.ChannelModelID, ChannelName: item.ChannelName, Provider: item.Provider, ProviderModelID: item.ProviderModelID, BaseURL: item.BaseURL, APIKey: item.APIKey, Priority: item.Priority, Weight: item.Weight})
+		out = append(out, generation.RouteBinding{ID: item.ID, ChannelID: item.ChannelID, ChannelModelID: item.ChannelModelID, ChannelName: item.ChannelName, Provider: item.Provider, ProviderModelID: item.ProviderModelID, BaseURL: item.BaseURL, APIKey: item.APIKey, KeyID: item.KeyID, Priority: item.Priority, Weight: item.Weight})
+	}
+	return out, nil
+}
+
+func (a *Adapter) BindingsForAccount(ctx context.Context, userID, key string) ([]generation.RouteBinding, error) {
+	bindings, err := a.service.BindingsForAccount(ctx, userID, key)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]generation.RouteBinding, 0, len(bindings))
+	for _, item := range bindings {
+		out = append(out, generation.RouteBinding{ID: item.ID, ChannelID: item.ChannelID, ChannelModelID: item.ChannelModelID, ChannelName: item.ChannelName, Provider: item.Provider, ProviderModelID: item.ProviderModelID, BaseURL: item.BaseURL, APIKey: item.APIKey, KeyID: item.KeyID, Priority: item.Priority, Weight: item.Weight})
 	}
 	return out, nil
 }
@@ -35,7 +47,7 @@ func (a *Adapter) BindingsFor(ctx context.Context, key string) ([]generation.Rou
 func (a *Adapter) RecordRoute(ctx context.Context, bindingID string, failure error) {
 	a.service.RecordResult(ctx, bindingID, failure)
 }
-func (a *Adapter) LogRoute(ctx context.Context, taskID, key, channelID, channelModelID, providerModelID string, attempt int, status, errorCode string, latency time.Duration) {
-	a.service.LogAttempt(ctx, taskID, key, channelID, channelModelID, providerModelID, attempt, status, errorCode, latency)
+func (a *Adapter) LogRoute(ctx context.Context, taskID, key, channelID, channelModelID, providerModelID, keyID string, attempt int, status, errorCode string, latency time.Duration) {
+	a.service.LogAttempt(ctx, taskID, key, channelID, channelModelID, providerModelID, keyID, attempt, status, errorCode, latency)
 }
 func (a *Adapter) Retryable(err error) bool { return routing.Retryable(err) }

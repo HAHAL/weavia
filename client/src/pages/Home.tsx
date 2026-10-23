@@ -22,16 +22,25 @@ const scenes = [
 
 const RATIOS = ['1:1', '4:5', '3:4', '16:9', '9:16'];
 const RESOLUTIONS = ['1K', '2K', '4K'];
-function ModelGlyph({ icon, size = 18 }: { icon?: string; size?: number }) {
+const GLYPH_COLORS = ['#B08968', '#7F5539', '#9C6644', '#6B705C', '#8D6E63', '#5E548E'];
+function glyphColor(name?: string) {
+  let hash = 0;
+  for (const char of name || '') hash = (hash * 31 + char.codePointAt(0)!) % 997;
+  return GLYPH_COLORS[hash % GLYPH_COLORS.length];
+}
+function ModelGlyph({ icon, name, size = 18 }: { icon?: string; name?: string; size?: number }) {
   if (icon === 'crown') return <Crown size={size} aria-hidden="true" />;
   if (icon === 'wand') return <WandSparkles size={size} aria-hidden="true" />;
   if (icon === 'video') return <Video size={size} aria-hidden="true" />;
+  if (name) {
+    return <span className="model-glyph" style={{ width: size, height: size, background: glyphColor(name), fontSize: Math.round(size * 0.52) }} aria-hidden="true">{(name.trim()[0] || 'M').toUpperCase()}</span>;
+  }
   return <Sparkles size={size} aria-hidden="true" />;
 }
 
 function ModelLogo({ model, size = 22 }: { model?: Model; size?: number }) {
   if (model?.logo) return <img className="model-logo" src={model.logo} alt={`${model.name} logo`} width={size} height={size} />;
-  return <ModelGlyph icon={model?.icon} size={size} />;
+  return <ModelGlyph icon={model?.icon} name={model?.name} size={size} />;
 }
 
 function sizeFor(ratio: string, resolution: string) {

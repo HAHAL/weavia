@@ -138,6 +138,7 @@ type RouteBinding struct {
 	ProviderModelID string
 	BaseURL         string
 	APIKey          string
+	KeyID           string
 	Priority        int
 	Weight          int
 }
@@ -145,7 +146,7 @@ type LogicalRouter interface {
 	LookupRoute(context.Context, string) (RouteModel, error)
 	BindingsFor(context.Context, string) ([]RouteBinding, error)
 	RecordRoute(context.Context, string, error)
-	LogRoute(context.Context, string, string, string, string, string, int, string, string, time.Duration)
+	LogRoute(context.Context, string, string, string, string, string, string, int, string, string, time.Duration)
 	Retryable(error) bool
 }
 
@@ -471,7 +472,7 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 			code = pe.Code
 		}
 	}
-	s.router.LogRoute(ctx, task.ID, task.LogicalModel, binding.ChannelID, binding.ChannelModelID, binding.ProviderModelID, 1, status, code, time.Since(started))
+	s.router.LogRoute(ctx, task.ID, task.LogicalModel, binding.ChannelID, binding.ChannelModelID, binding.ProviderModelID, binding.KeyID, 1, status, code, time.Since(started))
 	if callErr != nil {
 		return providers.ImageResult{}, callErr
 	}

@@ -36,6 +36,7 @@ type Binding struct {
 	ProviderModelID string
 	BaseURL         string
 	APIKey          string
+	KeyID           string
 	Priority        int
 	Weight          int
 }
@@ -99,7 +100,7 @@ func (s *Service) Bindings(ctx context.Context, key string) ([]Binding, error) {
 			return nil, err
 		}
 		if s.keys != nil {
-			b.APIKey, _ = s.keys.GetChannelKey(ctx, b.ChannelID)
+			b.APIKey, b.KeyID, _ = s.keys.GetChannelKeyWithID(ctx, b.ChannelID)
 		}
 		out = append(out, b)
 	}
@@ -130,7 +131,7 @@ func (s *Service) BindingsForAccount(ctx context.Context, userID, key string) ([
 			return nil, err
 		}
 		if s.keys != nil {
-			b.APIKey, _ = s.keys.GetChannelKey(ctx, b.ChannelID)
+			b.APIKey, b.KeyID, _ = s.keys.GetChannelKeyWithID(ctx, b.ChannelID)
 		}
 		out = append(out, b)
 	}
@@ -267,8 +268,50 @@ func Retryable(err error) bool {
 	return false
 }
 
-func (s *Service) LogAttempt(ctx context.Context, taskID, key, channelID, channelModelID, providerModelID string, attempt int, status, errorCode string, latency time.Duration) {
-	_, _ = s.pool.Exec(ctx, `INSERT INTO model_route_logs(task_id,logical_model_key,channel_id,channel_model_id,provider_model_id,attempt,status,error_code,latency_ms) VALUES(nullif($1,'')::uuid,$2,nullif($3,'')::uuid,nullif($4,'')::uuid,$5,$6,$7,$8,$9)`, taskID, key, channelID, channelModelID, providerModelID, attempt, status, errorCode, latency.Milliseconds())
+func (s *Service) LogAttempt(ctx context.Context, taskID, key, channelID, channelModelID, providerModelID, keyID string, attempt int, status, errorCode string, latency time.Duration) {
+	_, _ = s.pool.Exec(ctx, `INSERT INTO model_route_logs(task_id,logical_model_key,channel_id,channel_model_id,provider_model_id,key_id,attempt,status,error_code,latency_ms) VALUES(nullif($1,'')::uuid,$2,nullif($3,'')::uuid,nullif($4,'')::uuid,$5,nullif($6,'')::uuid,$7,$8,$9,$10)`, taskID, key, channelID, channelModelID, providerModelID, keyID, attempt, status, errorCode, latency.Milliseconds())
+}
+
+// KeyHealth 汇总最近 7 天每把 Key 的调用与成功率。
+type KeyHealth struct {
+	KeyID     string     `json:"keyId"`
+	Last4     string     `json:"last4"`
+	Enabled   bool       `json:"enabled"`
+	Calls     int64      `json:"calls"`
+	Successes int64      `json:"successes"`
+	Failures  int64      `json:"failures"`
+	AvgMS     int64      `json:"avgMs"`
+	LastAt    *time.Time `json:"lastAt"`
+	LastModel string     `json:"lastModel"`
+}
+
+func (s *Service) KeyHealth(ctx context.Context, channelID string) ([]KeyHealth, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT k.id::text, k.key_last4, k.enabled,
+		       count(l.id) AS calls,
+		       count(l.id) FILTER (WHERE l.status='success') AS successes,
+		       count(l.id) FILTER (WHERE l.status<>'success') AS failures,
+		       COALESCE(avg(l.latency_ms),0)::bigint AS avg_ms,
+		       max(l.created_at) AS last_at,
+		       COALESCE((SELECT l2.provider_model_id FROM model_route_logs l2 WHERE l2.key_id=k.id ORDER BY l2.created_at DESC LIMIT 1),'') AS last_model
+		FROM channel_keys k
+		LEFT JOIN model_route_logs l ON l.key_id=k.id AND l.created_at > now() - interval '7 days'
+		WHERE k.channel_id=$1
+		GROUP BY k.id, k.key_last4, k.enabled, k.created_at
+		ORDER BY k.created_at`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []KeyHealth{}
+	for rows.Next() {
+		var item KeyHealth
+		if err = rows.Scan(&item.KeyID, &item.Last4, &item.Enabled, &item.Calls, &item.Successes, &item.Failures, &item.AvgMS, &item.LastAt, &item.LastModel); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 func (s *Service) Lookup(ctx context.Context, key string) (Logical, error) {
