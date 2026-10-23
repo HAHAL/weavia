@@ -325,7 +325,7 @@ func (s *Service) ListChannels(ctx context.Context) ([]Channel, error) {
 
 func (s *Service) CreateChannel(ctx context.Context, providerCode, name, baseURL, apiKey string, priority, weight int, userID string) (Channel, error) {
 	providerCode = strings.ToLower(strings.TrimSpace(providerCode))
-	if providerCode != "antdigital" && providerCode != "dashscope" && providerCode != "computrix" {
+	if providerCode != "antdigital" && providerCode != "dashscope" && providerCode != "computrix" && providerCode != "volcengine" {
 		return Channel{}, errors.New("unsupported provider")
 	}
 	name = strings.TrimSpace(name)
