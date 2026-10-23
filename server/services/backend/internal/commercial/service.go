@@ -631,6 +631,16 @@ func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
 	return out, rows.Err()
 }
 
+// UserIDByAccount 把账户 ID、UUID 或邮箱解析成用户 ID。
+func (s *Service) UserIDByAccount(ctx context.Context, accountNo string) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE upper(account_no)=upper($1) OR id::text=$1 OR lower(email)=lower($1) LIMIT 1`, accountNo).Scan(&id)
+	if err != nil {
+		return "", &generation.APIError{Code: "NOT_FOUND", Message: "账户不存在", Status: 404}
+	}
+	return id, nil
+}
+
 // AccountLookup 按账户 ID 返回该账户在系统中的关联信息。
 func (s *Service) AccountLookup(ctx context.Context, accountNo string) (map[string]any, error) {
 	var id, account, email, name, status, inviteCode, plan string

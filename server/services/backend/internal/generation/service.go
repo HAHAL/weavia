@@ -192,6 +192,21 @@ func (s *Service) Estimate(ctx context.Context, user auth.User, modelName string
 	return map[string]any{"credits": model.CreditCost, "estimatedTime": seconds, "model": modelName}, nil
 }
 
+// bindingsFor 优先按账户分组选渠道，未配置时回退到全局顺序。
+func (s *Service) bindingsFor(ctx context.Context, userID, key string) ([]RouteBinding, error) {
+	if s.router == nil {
+		return nil, nil
+	}
+	if userID != "" {
+		if aware, ok := s.router.(interface {
+			BindingsForAccount(context.Context, string, string) ([]RouteBinding, error)
+		}); ok {
+			return aware.BindingsForAccount(ctx, userID, key)
+		}
+	}
+	return s.router.BindingsFor(ctx, key)
+}
+
 func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Task, error) {
 	if input.Mode == "" {
 		input.Mode = "text_to_image"
@@ -210,7 +225,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 		if routeErr != nil {
 			return Task{}, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
 		}
-		bindings, routeErr := s.router.BindingsFor(ctx, input.ModelKey)
+		bindings, routeErr := s.bindingsFor(ctx, user.ID, input.ModelKey)
 		if routeErr != nil || len(bindings) == 0 {
 			return Task{}, &APIError{"MODEL_UNAVAILABLE", "生成服务繁忙，请稍后重试", 503}
 		}
@@ -321,7 +336,7 @@ func (s *Service) ResumeVideoTasks(ctx context.Context) {
 		var err error
 		usedConfigured := false
 		if task.LogicalModel != "" && s.router != nil {
-			if bindings, lookupErr := s.router.BindingsFor(ctx, task.LogicalModel); lookupErr == nil && len(bindings) > 0 {
+			if bindings, lookupErr := s.bindingsFor(ctx, task.UserID, task.LogicalModel); lookupErr == nil && len(bindings) > 0 {
 				if configured, ok := s.provider.(interface {
 					ResumeWithConfig(context.Context, string, string, string) (providers.ImageResult, error)
 				}); ok {
@@ -433,7 +448,7 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 	if task.LogicalModel == "" || s.router == nil {
 		return s.provider.Generate(ctx, base)
 	}
-	bindings, err := s.router.BindingsFor(ctx, task.LogicalModel)
+	bindings, err := s.bindingsFor(ctx, task.UserID, task.LogicalModel)
 	if err != nil || len(bindings) == 0 {
 		return providers.ImageResult{}, &providers.Error{Code: "NO_CHANNEL", Message: "no available channel", Retryable: false, Status: 503}
 	}

@@ -106,6 +106,127 @@ func (s *Service) Bindings(ctx context.Context, key string) ([]Binding, error) {
 	return out, rows.Err()
 }
 
+// BindingsForAccount 在普通绑定之上，把账户所属分组的渠道排到前面；组内无可用渠道时自动回退。
+func (s *Service) BindingsForAccount(ctx context.Context, userID, key string) ([]Binding, error) {
+	rows, err := s.pool.Query(ctx, `SELECT a.id::text,c.id::text,cm.id::text,c.name,c.provider_code,cm.provider_model_id,coalesce(c.base_url,''),a.priority,a.weight,
+		EXISTS (SELECT 1 FROM account_route_groups arg JOIN channel_group_members cgm ON cgm.group_id=arg.group_id WHERE arg.user_id=$2 AND cgm.channel_id=c.id) AS preferred
+		FROM logical_models l
+		JOIN logical_model_abilities a ON a.logical_model_id=l.id
+		JOIN channel_models cm ON cm.id=a.channel_model_id
+		JOIN provider_channels c ON c.id=cm.channel_id
+		WHERE l.key=$1 AND EXISTS (SELECT 1 FROM channel_keys k WHERE k.channel_id=c.id AND k.enabled) AND l.enabled=true AND a.enabled=true AND c.enabled=true AND cm.enabled=true AND (l.modality <> 'video' OR c.provider_code = 'dashscope')
+		  AND (a.cooldown_until IS NULL OR a.cooldown_until < now())
+		  AND (c.cooldown_until IS NULL OR c.cooldown_until < now())
+		ORDER BY preferred DESC, a.priority DESC, a.weight DESC, c.priority DESC, c.weight DESC`, key, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Binding{}
+	for rows.Next() {
+		var b Binding
+		var preferred bool
+		if err = rows.Scan(&b.ID, &b.ChannelID, &b.ChannelModelID, &b.ChannelName, &b.Provider, &b.ProviderModelID, &b.BaseURL, &b.Priority, &b.Weight, &preferred); err != nil {
+			return nil, err
+		}
+		if s.keys != nil {
+			b.APIKey, _ = s.keys.GetChannelKey(ctx, b.ChannelID)
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// RouteGroup 是后台展示用的分组视图。
+type RouteGroup struct {
+	ID          string   `json:"id"`
+	Code        string   `json:"code"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	IsDefault   bool     `json:"isDefault"`
+	Channels    []string `json:"channels"`
+	Accounts    int      `json:"accounts"`
+}
+
+func (s *Service) ListRouteGroups(ctx context.Context) ([]RouteGroup, error) {
+	rows, err := s.pool.Query(ctx, `SELECT g.id::text, g.code, g.name, g.description, g.is_default,
+		COALESCE((SELECT array_agg(cgm.channel_id::text) FROM channel_group_members cgm WHERE cgm.group_id=g.id), '{}'),
+		(SELECT count(*) FROM account_route_groups arg WHERE arg.group_id=g.id)
+		FROM route_groups g ORDER BY g.is_default DESC, g.created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RouteGroup{}
+	for rows.Next() {
+		var g RouteGroup
+		if err = rows.Scan(&g.ID, &g.Code, &g.Name, &g.Description, &g.IsDefault, &g.Channels, &g.Accounts); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) CreateRouteGroup(ctx context.Context, code, name, description string) (RouteGroup, error) {
+	var g RouteGroup
+	err := s.pool.QueryRow(ctx, `INSERT INTO route_groups(code,name,description) VALUES($1,$2,$3) RETURNING id::text,code,name,description,is_default`, code, name, description).
+		Scan(&g.ID, &g.Code, &g.Name, &g.Description, &g.IsDefault)
+	g.Channels = []string{}
+	return g, err
+}
+
+func (s *Service) SetGroupChannels(ctx context.Context, groupID string, channelIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `DELETE FROM channel_group_members WHERE group_id=$1`, groupID); err != nil {
+		return err
+	}
+	for _, id := range channelIDs {
+		if _, err = tx.Exec(ctx, `INSERT INTO channel_group_members(group_id, channel_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, groupID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) ListAccountGroups(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT g.code FROM account_route_groups arg JOIN route_groups g ON g.id=arg.group_id WHERE arg.user_id=$1 ORDER BY arg.priority`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var code string
+		if err = rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		out = append(out, code)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) SetAccountGroups(ctx context.Context, userID string, codes []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `DELETE FROM account_route_groups WHERE user_id=$1`, userID); err != nil {
+		return err
+	}
+	for i, code := range codes {
+		if _, err = tx.Exec(ctx, `INSERT INTO account_route_groups(user_id, group_id, priority) SELECT $1, id, $3 FROM route_groups WHERE code=$2 ON CONFLICT DO NOTHING`, userID, code, i); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Service) RecordResult(ctx context.Context, bindingID string, failure error) {
 	var abilityID, channelID, channelModelID, key string
 	var priority, weight int

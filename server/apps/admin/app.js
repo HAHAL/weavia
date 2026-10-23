@@ -225,6 +225,18 @@ function usersTable(rows) {
   return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
+
+async function accountGroupsModal(accountNo) {
+  const [current, groups] = await Promise.all([get(`/api/admin/accounts/${encodeURIComponent(accountNo)}/groups`), Promise.resolve(state.routeGroups || [])]);
+  const selected = new Set(current.codes || []);
+  const rows = groups.map((group) => `<label class="switch-row"><span>${esc(group.name)} <small>${esc(group.code)}</small></span><input type="checkbox" name="group" value="${esc(group.code)}" ${selected.has(group.code) ? 'checked' : ''} /></label>`).join('');
+  openModal(`账户 ${accountNo} 的渠道组`, `<div class="form-grid">${rows || empty('还没有分组')}</div><p class="muted">勾选的分组会优先命中；组内渠道全部不可用时自动回退默认组。</p>`, '保存', async () => {
+    const codes = [...modal.querySelectorAll('input[name=group]:checked')].map((input) => input.value);
+    await request(`/api/admin/accounts/${encodeURIComponent(accountNo)}/groups`, { method: 'PUT', body: JSON.stringify({ codes }) });
+    await navigate('users');
+  });
+}
+
 async function accountLookupModal(accountNo) {
   modal.innerHTML = `<div class="modal-inner"><div class="modal-head"><div><span class="eyebrow">ACCOUNT</span><h2>账户 ${esc(accountNo)}</h2></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-loading">读取账户关联信息…</div><div class="modal-actions"><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
   modal.showModal();
@@ -232,7 +244,7 @@ async function accountLookupModal(accountNo) {
   try {
     const data = await get(`/api/admin/accounts/${encodeURIComponent(accountNo)}`);
     const tasks = (data.recentTasks || []).map((task) => `<tr><td><span class="cell-sub">${esc(task.id.slice(0, 8))}</span></td><td>${esc(task.model || '—')}</td><td>${status(task.status)}</td><td>${fmtNumber(task.cost)}</td><td>${fmtDate(task.createdAt)}</td></tr>`).join('') || emptyRow(5);
-    modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">ACCOUNT</span><h2>${esc(data.accountNo)} · ${esc(data.email)}</h2><p>${esc(data.name || '未命名')} · ${esc(data.plan)} · 注册于 ${fmtDate(data.createdAt)}</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-summary"><div><small>账户 ID</small><strong>${esc(data.accountNo)}</strong><span>OSS 一级目录</span></div><div><small>可用 / 冻结</small><strong>${fmtNumber(data.credits)}</strong><span>冻结 ${fmtNumber(data.reserved)}</span></div><div><small>任务</small><strong>${fmtNumber(data.tasks)}</strong><span>成功 ${fmtNumber(data.successes)}</span></div><div><small>素材</small><strong>${fmtNumber(data.assets)}</strong><span>邀请码 ${esc(data.inviteCode || '—')}</span></div><div><small>OSS 同步</small><strong>${data.ossSync ? '已开通' : '未开通'}</strong><span>客户端不可自行开启</span></div></div><div class="activity-body"><section class="activity-section"><h3>最近任务</h3><div class="table-wrap"><table><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>Credits</th><th>时间</th></tr></thead><tbody>${tasks}</tbody></table></div></section></div><div class="activity-actions"><span class="muted">账户 ID 用于对账、工单与对象存储目录</span><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
+    modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">ACCOUNT</span><h2>${esc(data.accountNo)} · ${esc(data.email)}</h2><p>${esc(data.name || '未命名')} · ${esc(data.plan)} · 注册于 ${fmtDate(data.createdAt)}</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-summary"><div><small>账户 ID</small><strong>${esc(data.accountNo)}</strong><span>OSS 一级目录</span></div><div><small>可用 / 冻结</small><strong>${fmtNumber(data.credits)}</strong><span>冻结 ${fmtNumber(data.reserved)}</span></div><div><small>任务</small><strong>${fmtNumber(data.tasks)}</strong><span>成功 ${fmtNumber(data.successes)}</span></div><div><small>素材</small><strong>${fmtNumber(data.assets)}</strong><span>邀请码 ${esc(data.inviteCode || '—')}</span></div><div><small>OSS 同步</small><strong>${data.ossSync ? '已开通' : '未开通'}</strong><span>客户端不可自行开启</span></div></div><div class="activity-body"><section class="activity-section"><h3>最近任务</h3><div class="table-wrap"><table><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>Credits</th><th>时间</th></tr></thead><tbody>${tasks}</tbody></table></div></section></div><div class="activity-actions"><span class="muted">账户 ID 用于对账、工单与对象存储目录</span><button type="button" class="secondary" data-action="account-groups" data-no="${esc(data.accountNo)}">配置渠道组</button><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
     modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
   } catch (error) {
     modal.querySelector('.activity-loading').textContent = error.message;
@@ -263,14 +275,14 @@ function paymentsTable(rows) {
   return `<div class="table-wrap"><table><thead><tr><th>Provider</th><th>订单</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.provider)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.orderId.slice(0, 8))}</td><td>${fmtMoney(row.amountMinor)} ${esc(row.currency)}</td><td>${status(row.status)}</td><td>${fmtDate(row.paidAt || row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 async function loadAI() {
-  const [providers, models, routing, usage, channelData, skillData, appData] = await Promise.all([get('/api/admin/ai/providers'), get('/api/admin/ai/models'), get('/api/admin/ai/routing'), get('/api/admin/ai/usage'), get('/api/admin/ai/channels'), get('/api/admin/skills'), get('/api/admin/apps')]);
+  const [providers, models, routing, usage, channelData, skillData, appData, groupData] = await Promise.all([get('/api/admin/ai/providers'), get('/api/admin/ai/models'), get('/api/admin/ai/routing'), get('/api/admin/ai/usage'), get('/api/admin/ai/channels'), get('/api/admin/skills'), get('/api/admin/apps'), get('/api/admin/route-groups')]);
   const channels = channelData.items || [];
-  state.providers = providers || []; state.models = models; state.platformModels = models?.platformModels || []; state.routing = routing; state.usage = usage?.usage || []; state.channels = channels || []; state.skills = skillData?.items || []; state.apps = appData?.items || [];
+  state.providers = providers || []; state.models = models; state.platformModels = models?.platformModels || []; state.routing = routing; state.usage = usage?.usage || []; state.channels = channels || []; state.skills = skillData?.items || []; state.apps = appData?.items || []; state.routeGroups = groupData?.items || [];
   content.innerHTML = pageHead('AI Studio', 'Provider、模型目录、路由与调用成本。') + renderAITabs() + '<div id="aiBody"></div>';
   renderAIBody();
 }
 function renderAITabs() {
-  return `<div class="tabs">${[['providers', 'Provider'], ['channels', '渠道'], ['models', '模型'], ['skills', 'Skill'], ['apps', '应用'], ['routing', '路由'], ['usage', '用量']].map(([id, label]) => `<button type="button" class="${state.aiTab === id ? 'active' : ''}" data-action="ai-tab" data-tab="${id}">${label}</button>`).join('')}</div>`;
+  return `<div class="tabs">${[['providers', 'Provider'], ['channels', '渠道'], ['models', '模型'], ['skills', 'Skill'], ['apps', '应用'], ['routing', '路由'], ['groups', '分组'], ['usage', '用量']].map(([id, label]) => `<button type="button" class="${state.aiTab === id ? 'active' : ''}" data-action="ai-tab" data-tab="${id}">${label}</button>`).join('')}</div>`;
 }
 function renderAIBody() {
   const body = $('aiBody');
@@ -292,10 +304,34 @@ function renderAIBody() {
     const bindings = state.routing?.bindings || [];
     const models = state.models?.providerModels || [];
     body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>逻辑模型路由</h2><p>客户端能力到 Provider 模型的映射</p></div></div><div class="table-wrap"><table><thead><tr><th>逻辑模型</th><th>绑定模型</th><th>优先级</th><th>状态</th></tr></thead><tbody>${bindings.map((binding) => { const logicalModel = logical.find((item) => item.id === binding.logicalModelId); const model = models.find((item) => item.id === binding.providerModelId); return `<tr><td><span class="cell-main">${esc(logicalModel?.displayName || binding.logicalModelId)}</span><span class="cell-sub">${esc(logicalModel?.key || '')}</span></td><td>${esc(model?.displayName || binding.providerModelId)}</td><td>${binding.priority}</td><td>${status(binding.enabled ? 'active' : 'disabled')}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+  } else if (state.aiTab === 'groups') {
+    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>渠道分组</h2><p>把优质渠道放进独立分组，绑定给指定账户；组内不可用时自动回退默认组</p></div><button class="primary" data-action="group-new">新建分组</button></div>${routeGroupsTable(state.routeGroups || [])}</div>`;
   } else {
     body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>调用用量</h2><p>最近 500 条 Provider 调用</p></div></div>${usageTable(state.usage)}</div>`;
   }
 }
+
+function routeGroupsTable(rows) {
+  if (!rows.length) return empty('还没有分组');
+  return `<div class="table-wrap"><table><thead><tr><th>分组</th><th>渠道</th><th>绑定账户</th><th>说明</th><th>操作</th></tr></thead><tbody>${rows.map((group) => `<tr><td><span class="cell-main">${esc(group.name)}</span><span class="cell-sub">${esc(group.code)}${group.isDefault ? ' · 默认' : ''}</span></td><td>${group.channels.length}</td><td>${group.accounts}</td><td>${esc(group.description || '—')}</td><td><button data-action="group-channels" data-id="${esc(group.id)}">配置渠道</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function groupNewModal() {
+  openModal('新建渠道分组', `<label>代码<input name="code" required placeholder="premium" /></label><label>名称<input name="name" required placeholder="优质渠道" /></label><label>说明<input name="description" placeholder="仅绑定客户可见" /></label>`, '创建', async (form) => {
+    await post('/api/admin/route-groups', { code: form.get('code'), name: form.get('name'), description: form.get('description') });
+    await navigate('ai');
+  });
+}
+function groupChannelsModal(group) {
+  const channels = state.channels || [];
+  const selected = new Set(group.channels || []);
+  const rows = channels.map((channel) => `<label class="switch-row"><span>${esc(channel.name)} <small>${esc(channel.providerCode)}</small></span><input type="checkbox" name="channel" value="${esc(channel.id)}" ${selected.has(channel.id) ? 'checked' : ''} /></label>`).join('');
+  openModal(`配置「${group.name}」的渠道`, `<div class="form-grid">${rows || empty('还没有渠道')}</div><p class="muted">组内渠道按权重和健康度选择；全部不可用时自动回退默认组。</p>`, '保存', async (form) => {
+    const ids = [...modal.querySelectorAll('input[name=channel]:checked')].map((input) => input.value);
+    await request(`/api/admin/route-groups/${group.id}/channels`, { method: 'PUT', body: JSON.stringify({ channelIds: ids }) });
+    await navigate('ai');
+  });
+}
+
 function modelsTable(rows) {
   if (!rows.length) return empty('还没有模型');
   return `<div class="table-wrap"><table><thead><tr><th>模型</th><th>能力</th><th>Credits</th><th>质量</th><th>状态</th></tr></thead><tbody>${rows.map((model) => `<tr><td><span class="cell-main">${esc(model.displayName || model.modelId)}</span><span class="cell-sub">${esc(model.modelId || '')}</span></td><td>${esc((model.capabilities || []).join(', '))}</td><td>${fmtNumber(model.creditsCost)}</td><td>${esc(model.qualityLevel || '—')}</td><td>${status(model.enabled ? 'active' : 'disabled')}</td></tr>`).join('')}</tbody></table></div>`;
@@ -607,6 +643,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'invite-copy') { try { await navigator.clipboard.writeText(target.dataset.code); toast('邀请码已复制'); } catch { toast('复制失败，请手动选择'); } return; }
     if (action === 'invite-toggle') { setBusy(target, true); await patch(`/api/admin/invites/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
     if (action === 'oss-sync') { setBusy(target, true); await patch(`/api/admin/users/${target.dataset.id}/oss-sync`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
+    if (action === 'account-groups') { accountGroupsModal(target.dataset.no); return; }
     if (action === 'account-lookup') { const row = state.users.find((item) => item.accountNo === target.dataset.no); if (row) accountLookupModal(row.accountNo); return; }
     if (action === 'user-activity') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) userActivityModal(user); return; }
     if (action === 'user-status') { setBusy(target, true); await patch(`/api/admin/users/${target.dataset.id}/status`, { status: target.dataset.status }); await navigate('users'); return; }
@@ -619,6 +656,8 @@ content.addEventListener('click', async (event) => {
     if (action === 'sync-models') { setBusy(target, true); const result = await post('/api/admin/ai/models/sync', {}); toast(`已同步 ${result.synced || 0} 个模型`); await navigate('ai'); return; }
     if (action === 'pricing-price') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingPriceModal(row); return; }
     if (action === 'pricing-cost') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingCostModal(row); return; }
+    if (action === 'group-new') return groupNewModal();
+    if (action === 'group-channels') { const group = (state.routeGroups || []).find((item) => item.id === target.dataset.id); if (group) groupChannelsModal(group); return; }
     if (action === 'channel-keys') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelKeysModal(channel); return; }
     if (action === 'channel-key-toggle') { setBusy(target, true); await patch(`/api/admin/ai/channel-keys/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelKeysModal(channel); return; }
     if (action === 'channel-key-delete') { if (!confirm('删除这把 Key？该操作不可恢复。')) return; setBusy(target, true); await remove(`/api/admin/ai/channel-keys/${target.dataset.id}`); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelKeysModal(channel); return; }
