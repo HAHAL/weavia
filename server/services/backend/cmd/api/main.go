@@ -72,7 +72,7 @@ func main() {
 	routingService := routing.New(pool, credentials)
 	recipesService := recipes.New(pool)
 	mock := cfg.AIMode == "mock"
-	var provider generation.Generator = &providers.Router{Computrix: &providers.AntDigital{BaseURL: cfg.ComputrixBaseURL, APIKey: cfg.ComputrixAPIKey, Timeout: cfg.ProviderTimeout}, AntDigital: &providers.AntDigital{BaseURL: cfg.AntDigitalBaseURL, APIKey: cfg.AntDigitalAPIKey, Timeout: cfg.ProviderTimeout}, DashScope: &providers.DashScope{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Model: cfg.DashScopeModel, Timeout: cfg.ProviderTimeout}, DashScopeVideo: &providers.DashScopeVideo{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Timeout: cfg.ProviderTimeout}}
+	var provider generation.Generator = &providers.Router{Computrix: &providers.AntDigital{BaseURL: cfg.ComputrixBaseURL, APIKey: cfg.ComputrixAPIKey, Timeout: cfg.ProviderTimeout}, AntDigital: &providers.AntDigital{BaseURL: cfg.AntDigitalBaseURL, APIKey: cfg.AntDigitalAPIKey, Timeout: cfg.ProviderTimeout}, DashScope: &providers.DashScope{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Model: cfg.DashScopeModel, Timeout: cfg.ProviderTimeout}, DashScopeVideo: &providers.DashScopeVideo{BaseURL: cfg.DashScopeBaseURL, APIKey: cfg.DashScopeAPIKey, Timeout: cfg.ProviderTimeout}, Volcengine: &providers.VolcengineVideo{BaseURL: cfg.VolcengineBaseURL, Timeout: cfg.ProviderTimeout}}
 	if mock {
 		provider = &providers.Mock{Delay: 400 * time.Millisecond}
 	}

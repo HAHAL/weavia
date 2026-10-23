@@ -122,6 +122,7 @@ type Router struct {
 	DashScopeEdit  *DashScopeImageEdit
 	Computrix      *AntDigital
 	DashScopeVideo *DashScopeVideo
+	Volcengine     *VolcengineVideo
 	KeyLookup      func(context.Context, string) (string, error)
 }
 
@@ -130,6 +131,17 @@ func (r *Router) Resume(ctx context.Context, taskID string) (ImageResult, error)
 }
 
 func (r *Router) ResumeWithConfig(ctx context.Context, taskID, apiKey, baseURL string) (ImageResult, error) {
+	if r.Volcengine != nil && (strings.Contains(baseURL, "volces") || strings.Contains(baseURL, "ark.cn-beijing")) {
+		provider := *r.Volcengine
+		if apiKey != "" {
+			provider.APIKey = apiKey
+		} else if r.KeyLookup != nil {
+			if value, err := r.KeyLookup(ctx, "volcengine"); err == nil && value != "" {
+				provider.APIKey = value
+			}
+		}
+		return provider.ResumeWithConfig(ctx, taskID, provider.APIKey, baseURL)
+	}
 	if r.DashScopeVideo == nil {
 		return ImageResult{}, &Error{"NO_CHANNEL", "Video provider unavailable", false, 503}
 	}
@@ -160,6 +172,14 @@ func (r *Router) Generate(ctx context.Context, input ImageRequest) (ImageResult,
 			return fallback
 		}
 		return value
+	}
+	if strings.Contains(input.Mode, "video") && input.Provider == "volcengine" && r.Volcengine != nil {
+		provider := *r.Volcengine
+		provider.APIKey = key("volcengine", provider.APIKey)
+		if input.BaseURL != "" {
+			provider.BaseURL = input.BaseURL
+		}
+		return provider.Generate(ctx, input)
 	}
 	if r.DashScopeVideo != nil && strings.Contains(input.Mode, "video") {
 		provider := *r.DashScopeVideo

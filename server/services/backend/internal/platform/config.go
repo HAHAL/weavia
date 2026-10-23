@@ -24,6 +24,7 @@ type Config struct {
 	ComputrixBaseURL          string
 	ComputrixModelsURL        string
 	ComputrixAPIKey           string
+	VolcengineBaseURL         string
 	ProviderTimeout           time.Duration
 	RealAIEnabled             bool
 	AIMode                    string
@@ -48,6 +49,7 @@ func LoadConfig() Config {
 		ComputrixBaseURL:          env("COMPUTRIX_BASE_URL", "https://maas-api.computrix.ai/v1"),
 		ComputrixModelsURL:        env("COMPUTRIX_MODELS_URL", "https://computrix.ai/v1/models"),
 		ComputrixAPIKey:           os.Getenv("COMPUTRIX_API_KEY"),
+		VolcengineBaseURL:         env("VOLCENGINE_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
 		ProviderTimeout:           time.Duration(envInt("AI_PROVIDER_TIMEOUT_MS", 120000)) * time.Millisecond,
 		RealAIEnabled:             os.Getenv("ENABLE_REAL_AI") == "true",
 		AIMode:                    env("AI_MODE", "real"),
