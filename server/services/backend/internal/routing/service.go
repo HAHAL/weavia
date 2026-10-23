@@ -262,6 +262,18 @@ func (s *Service) UpdateChannel(ctx context.Context, id string, priority, weight
 	return err
 }
 
+func (s *Service) ListChannelKeys(ctx context.Context, channelID string) ([]providerconfig.ChannelKey, error) {
+	return s.keys.ListChannelKeys(ctx, channelID)
+}
+
+func (s *Service) UpdateChannelKey(ctx context.Context, keyID string, enabled *bool, weight *int) error {
+	return s.keys.UpdateChannelKey(ctx, keyID, enabled, weight)
+}
+
+func (s *Service) DeleteChannelKey(ctx context.Context, keyID string) error {
+	return s.keys.DeleteChannelKey(ctx, keyID)
+}
+
 func (s *Service) SetChannelKey(ctx context.Context, id, apiKey, userID string) error {
 	return s.keys.SetChannelKey(ctx, id, apiKey, userID)
 }

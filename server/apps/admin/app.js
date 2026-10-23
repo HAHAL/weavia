@@ -302,7 +302,7 @@ function modelsTable(rows) {
 }
 function channelsTable(rows) {
   if (!rows.length) return empty('还没有渠道');
-  return `<div class="table-wrap"><table><thead><tr><th>渠道</th><th>Provider</th><th>优先级</th><th>权重</th><th>模型</th><th>Key</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map((channel) => `<tr><td><span class="cell-main">${esc(channel.name)}</span><span class="cell-sub">${esc(channel.baseUrl || '默认 Base URL')}</span></td><td>${esc(channel.providerCode)}</td><td>${channel.priority}</td><td>${channel.weight}</td><td>${channel.modelCount}</td><td>${channel.keyLast4 ? '•••• ' + esc(channel.keyLast4) : '<span class="badge danger">未配置</span>'}</td><td>${status(channel.enabled ? 'active' : 'disabled')}</td><td><div class="row-actions"><button data-action="channel-edit" data-id="${esc(channel.id)}">优先级</button><button data-action="channel-key" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">设置 Key</button><button data-action="channel-toggle" data-id="${esc(channel.id)}" data-enabled="${channel.enabled ? 'false' : 'true'}">${channel.enabled ? '停用' : '启用'}</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>渠道</th><th>Provider</th><th>优先级</th><th>权重</th><th>模型</th><th>Key</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map((channel) => `<tr><td><span class="cell-main">${esc(channel.name)}</span><span class="cell-sub">${esc(channel.baseUrl || '默认 Base URL')}</span></td><td>${esc(channel.providerCode)}</td><td>${channel.priority}</td><td>${channel.weight}</td><td>${channel.modelCount}</td><td>${channel.keyLast4 ? '•••• ' + esc(channel.keyLast4) : '<span class="badge danger">未配置</span>'}</td><td>${status(channel.enabled ? 'active' : 'disabled')}</td><td><div class="row-actions"><button data-action="channel-edit" data-id="${esc(channel.id)}">优先级</button><button data-action="channel-keys" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">Keys</button><button data-action="channel-key" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">添加 Key</button><button data-action="channel-toggle" data-id="${esc(channel.id)}" data-enabled="${channel.enabled ? 'false' : 'true'}">${channel.enabled ? '停用' : '启用'}</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function skillsTable(rows) {
@@ -524,6 +524,21 @@ function providerKeyModal(provider) {
   });
 }
 
+
+async function channelKeysModal(channel) {
+  modal.innerHTML = `<div class="modal-inner"><div class="modal-head"><div><span class="eyebrow">CHANNEL KEYS</span><h2>${esc(channel.name)}</h2></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-loading">读取 Key…</div><div class="modal-actions"><button type="button" class="secondary" data-close-modal>关闭</button></div></div>`;
+  modal.showModal();
+  modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
+  try {
+    const data = await get(`/api/admin/ai/channels/${channel.id}/keys`);
+    const rows = (data.items || []).map((key) => `<tr><td><span class="cell-main">•••• ${esc(key.last4)}</span><span class="cell-sub">${fmtDate(key.createdAt)} 添加</span></td><td>${key.weight}</td><td>${key.failures ? `<span class="badge danger">失败 ${key.failures}</span>` : '<span class="badge success">正常</span>'}</td><td>${key.cooldownUntil ? fmtDate(key.cooldownUntil) : '—'}</td><td>${key.lastUsedAt ? fmtDate(key.lastUsedAt) : '未使用'}</td><td>${key.enabled ? status('active') : status('disabled')}</td><td><div class="row-actions"><button data-action="channel-key-toggle" data-id="${esc(key.id)}" data-channel="${esc(channel.id)}" data-enabled="${key.enabled ? 'false' : 'true'}">${key.enabled ? '停用' : '启用'}</button><button data-action="channel-key-delete" data-id="${esc(key.id)}" data-channel="${esc(channel.id)}">删除</button></div></td></tr>`).join('') || emptyRow(7);
+    modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">CHANNEL KEYS</span><h2>${esc(channel.name)}</h2><p>同一渠道可挂多把 Key，按权重随机分配，失败自动进入冷却</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-body"><section class="activity-section"><div class="table-wrap"><table><thead><tr><th>Key</th><th>权重</th><th>健康</th><th>冷却至</th><th>最近使用</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div></section></div><div class="activity-actions"><span class="muted">Key 加密存储，只显示末四位</span><button type="button" class="primary" data-action="channel-key" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">添加 Key</button></div></div>`;
+    modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
+  } catch (error) {
+    modal.querySelector('.activity-loading').textContent = error.message;
+  }
+}
+
 function channelModal() {
   openModal('新增渠道', `<label>Provider<select name="providerCode"><option value="antdigital">AntDigital</option><option value="dashscope">DashScope</option><option value="computrix">Computrix</option></select></label><label>渠道名称<input name="name" required placeholder="例如：AntDigital 备用账号" /></label><label>Base URL<input name="baseUrl" placeholder="留空使用默认" /></label><label>API Key<input name="apiKey" type="password" required /></label><div class="form-row"><label>优先级<input name="priority" type="number" value="50" /></label><label>权重<input name="weight" type="number" value="1" min="0" /></label></div><p class="muted">会自动复制同 Provider 的模型，并绑到对应逻辑模型。</p>`, '创建渠道', async (form) => {
     await post('/api/admin/ai/channels', { providerCode: form.get('providerCode'), name: form.get('name'), baseUrl: form.get('baseUrl'), apiKey: form.get('apiKey'), priority: Number(form.get('priority') || 0), weight: Number(form.get('weight') || 1) });
@@ -604,6 +619,9 @@ content.addEventListener('click', async (event) => {
     if (action === 'sync-models') { setBusy(target, true); const result = await post('/api/admin/ai/models/sync', {}); toast(`已同步 ${result.synced || 0} 个模型`); await navigate('ai'); return; }
     if (action === 'pricing-price') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingPriceModal(row); return; }
     if (action === 'pricing-cost') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingCostModal(row); return; }
+    if (action === 'channel-keys') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelKeysModal(channel); return; }
+    if (action === 'channel-key-toggle') { setBusy(target, true); await patch(`/api/admin/ai/channel-keys/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelKeysModal(channel); return; }
+    if (action === 'channel-key-delete') { if (!confirm('删除这把 Key？该操作不可恢复。')) return; setBusy(target, true); await remove(`/api/admin/ai/channel-keys/${target.dataset.id}`); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelKeysModal(channel); return; }
     if (action === 'channel-new') return channelModal();
     if (action === 'channel-edit') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelEditModal(channel); return; }
     if (action === 'channel-key') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelKeyModal(channel); return; }

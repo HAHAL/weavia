@@ -83,15 +83,76 @@ func (s *Service) SetChannelKey(ctx context.Context, channelID, apiKey, userID s
 }
 
 func (s *Service) GetChannelKey(ctx context.Context, channelID string) (string, error) {
+	var id string
 	var sealed []byte
-	err := s.pool.QueryRow(ctx, `SELECT encrypted_key FROM channel_keys WHERE channel_id=$1 AND enabled=true ORDER BY last_used_at NULLS FIRST, created_at LIMIT 1`, channelID).Scan(&sealed)
+	// 加权随机 + 跳过冷却中的 Key；失败计数由调用方记录。
+	err := s.pool.QueryRow(ctx, `
+		SELECT id::text, encrypted_key FROM channel_keys
+		WHERE channel_id=$1 AND enabled=true AND (cooldown_until IS NULL OR cooldown_until < now())
+		ORDER BY -ln(GREATEST(random(), 1e-9)) / GREATEST(weight, 1), last_used_at NULLS FIRST
+		LIMIT 1`, channelID).Scan(&id, &sealed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
+	_, _ = s.pool.Exec(ctx, `UPDATE channel_keys SET last_used_at=now() WHERE id=$1`, id)
 	return s.decrypt(sealed)
+}
+
+// ChannelKey 是后台展示用的 Key 视图，不包含明文。
+type ChannelKey struct {
+	ID         string     `json:"id"`
+	Last4      string     `json:"last4"`
+	Weight     int        `json:"weight"`
+	Enabled    bool       `json:"enabled"`
+	Failures   int        `json:"failures"`
+	Cooldown   *time.Time `json:"cooldownUntil"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+	CreatedAt  time.Time  `json:"createdAt"`
+}
+
+func (s *Service) ListChannelKeys(ctx context.Context, channelID string) ([]ChannelKey, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id::text, key_last4, weight, enabled, consecutive_failures, cooldown_until, last_used_at, created_at FROM channel_keys WHERE channel_id=$1 ORDER BY created_at`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]ChannelKey, 0, 4)
+	for rows.Next() {
+		var item ChannelKey
+		if err := rows.Scan(&item.ID, &item.Last4, &item.Weight, &item.Enabled, &item.Failures, &item.Cooldown, &item.LastUsedAt, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) UpdateChannelKey(ctx context.Context, keyID string, enabled *bool, weight *int) error {
+	if weight != nil && (*weight < 0 || *weight > 100) {
+		return &generation.APIError{Code: "INVALID_REQUEST", Message: "权重必须在 0 到 100 之间", Status: 400}
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE channel_keys SET enabled=COALESCE($2, enabled), weight=COALESCE($3, weight) WHERE id=$1`, keyID, enabled, weight)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "Key 不存在", Status: 404}
+	}
+	return nil
+}
+
+func (s *Service) DeleteChannelKey(ctx context.Context, keyID string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM channel_keys WHERE id=$1`, keyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "Key 不存在", Status: 404}
+	}
+	return nil
 }
 
 func (s *Service) Statuses(ctx context.Context) (map[string]Status, error) {

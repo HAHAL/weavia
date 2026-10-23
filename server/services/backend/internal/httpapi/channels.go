@@ -86,3 +86,28 @@ func (s *Server) adminSetChannelKey(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (s *Server) adminListChannelKeys(w http.ResponseWriter, r *http.Request) {
+	items, err := s.Routing.ListChannelKeys(r.Context(), chi.URLParam(r, "channelID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]any{"items": items})
+}
+
+func (s *Server) adminUpdateChannelKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled *bool `json:"enabled"`
+		Weight  *int  `json:"weight"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	respond(w, map[string]bool{"ok": true}, s.Routing.UpdateChannelKey(r.Context(), chi.URLParam(r, "keyID"), body.Enabled, body.Weight))
+}
+
+func (s *Server) adminDeleteChannelKey(w http.ResponseWriter, r *http.Request) {
+	respond(w, map[string]bool{"ok": true}, s.Routing.DeleteChannelKey(r.Context(), chi.URLParam(r, "keyID")))
+}
