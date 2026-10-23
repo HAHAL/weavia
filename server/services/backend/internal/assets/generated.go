@@ -22,12 +22,15 @@ const maxGeneratedBytes = 100 << 20
 
 // SaveGenerated copies a provider result into WEAVIA storage and verifies the
 // committed bytes before its key can be used for settlement.
-func (s *Storage) SaveGenerated(ctx context.Context, taskID string, index int, source, mime string) (string, int64, error) {
+func (s *Storage) SaveGenerated(ctx context.Context, ownerID, taskID string, index int, source, mime string) (string, int64, error) {
 	ext := map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm"}[mime]
 	if ext == "" || !safeSegment(taskID) || index < 0 {
 		return "", 0, fmt.Errorf("invalid generated asset metadata")
 	}
 	key := fmt.Sprintf("generated/%s/%d.%s", taskID, index, ext)
+	if dir := s.AccountDir(ctx, ownerID); dir != "" {
+		key = dir + "/" + key
+	}
 	body, err := fetchGenerated(ctx, source)
 	if err != nil {
 		return "", 0, err
@@ -160,6 +163,13 @@ func safeSegment(value string) bool {
 }
 func validGeneratedKey(key string) bool {
 	parts := strings.Split(key, "/")
+	// 新布局：{accountNo}/generated/{task}/{file}；旧数据：generated/{task}/{file}。
+	if len(parts) == 4 {
+		if !safeSegment(parts[0]) {
+			return false
+		}
+		parts = parts[1:]
+	}
 	if len(parts) != 3 || parts[0] != "generated" || !safeSegment(parts[1]) {
 		return false
 	}

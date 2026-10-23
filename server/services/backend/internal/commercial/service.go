@@ -609,25 +609,70 @@ func (s *Service) ListSKUAssets(ctx context.Context, userID, skuID string) ([]As
 }
 
 func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at,coalesce(ic.code,'') FROM users u LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.account_no,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at,coalesce(ic.code,'') FROM users u LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, email, name, status, plan, membershipStatus string
+		var id, accountNo, email, name, status, plan, membershipStatus string
 		var membershipExpiresAt *time.Time
 		var balance int64
 		var created time.Time
 		var inviteCode string
-		if err = rows.Scan(&id, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created, &inviteCode); err != nil {
+		if err = rows.Scan(&id, &accountNo, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created, &inviteCode); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created, "inviteCode": inviteCode})
+		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created, "inviteCode": inviteCode, "accountNo": accountNo})
 	}
 	return out, rows.Err()
 }
+
+// AccountLookup 按账户 ID 返回该账户在系统中的关联信息。
+func (s *Service) AccountLookup(ctx context.Context, accountNo string) (map[string]any, error) {
+	var id, account, email, name, status, inviteCode, plan string
+	var created time.Time
+	var available, reserved, tasks, successes, assets int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT u.id::text, u.account_no, u.email, COALESCE(u.name,''), u.status::text, u.created_at,
+		       COALESCE(c.available_balance,0), COALESCE(c.reserved_balance,0),
+		       (SELECT count(*) FROM tasks t WHERE t.user_id=u.id),
+		       (SELECT count(*) FROM tasks t WHERE t.user_id=u.id AND t.status='success'),
+		       (SELECT count(*) FROM assets a WHERE a.user_id=u.id),
+		       COALESCE(ic.code,''), COALESCE(p.code,'free')
+		FROM users u
+		LEFT JOIN credit_accounts c ON c.user_id=u.id
+		LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id
+		LEFT JOIN LATERAL (SELECT plan_id FROM subscriptions WHERE user_id=u.id ORDER BY created_at DESC LIMIT 1) sub ON true
+		LEFT JOIN plans p ON p.id=sub.plan_id
+		WHERE upper(u.account_no)=upper($1) OR u.id::text=$1 OR lower(u.email)=lower($1)`, accountNo).
+		Scan(&id, &account, &email, &name, &status, &created, &available, &reserved, &tasks, &successes, &assets, &inviteCode, &plan)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id::text, status::text, COALESCE(model,''), cost, created_at FROM tasks WHERE user_id=$1 ORDER BY created_at DESC LIMIT 10`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	recent := []map[string]any{}
+	for rows.Next() {
+		var taskID, taskStatus, model string
+		var cost int64
+		var at time.Time
+		if err = rows.Scan(&taskID, &taskStatus, &model, &cost, &at); err != nil {
+			return nil, err
+		}
+		recent = append(recent, map[string]any{"id": taskID, "status": taskStatus, "model": model, "cost": cost, "createdAt": at})
+	}
+	return map[string]any{
+		"id": id, "accountNo": account, "email": email, "name": name, "status": status, "createdAt": created,
+		"plan": plan, "credits": available, "reserved": reserved, "tasks": tasks, "successes": successes,
+		"assets": assets, "inviteCode": inviteCode, "recentTasks": recent,
+	}, rows.Err()
+}
+
 func (s *Service) AdminCreditTransactions(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.pool.Query(ctx, `SELECT t.id::text,a.user_id::text,t.type,t.available_delta,t.reserved_delta,t.balance_after,t.reference_type,t.reference_id,t.created_at FROM credit_transactions_v1 t JOIN credit_accounts a ON a.id=t.account_id ORDER BY t.created_at DESC LIMIT 500`)
 	if err != nil {

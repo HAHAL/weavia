@@ -222,8 +222,23 @@ function inviteNewModal() {
 
 function usersTable(rows) {
   if (!rows.length) return empty('没有匹配的用户');
-  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}</td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}</td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
+
+async function accountLookupModal(accountNo) {
+  modal.innerHTML = `<div class="modal-inner"><div class="modal-head"><div><span class="eyebrow">ACCOUNT</span><h2>账户 ${esc(accountNo)}</h2></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-loading">读取账户关联信息…</div><div class="modal-actions"><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
+  modal.showModal();
+  modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
+  try {
+    const data = await get(`/api/admin/accounts/${encodeURIComponent(accountNo)}`);
+    const tasks = (data.recentTasks || []).map((task) => `<tr><td><span class="cell-sub">${esc(task.id.slice(0, 8))}</span></td><td>${esc(task.model || '—')}</td><td>${status(task.status)}</td><td>${fmtNumber(task.cost)}</td><td>${fmtDate(task.createdAt)}</td></tr>`).join('') || emptyRow(5);
+    modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">ACCOUNT</span><h2>${esc(data.accountNo)} · ${esc(data.email)}</h2><p>${esc(data.name || '未命名')} · ${esc(data.plan)} · 注册于 ${fmtDate(data.createdAt)}</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-summary"><div><small>账户 ID</small><strong>${esc(data.accountNo)}</strong><span>OSS 一级目录</span></div><div><small>可用 / 冻结</small><strong>${fmtNumber(data.credits)}</strong><span>冻结 ${fmtNumber(data.reserved)}</span></div><div><small>任务</small><strong>${fmtNumber(data.tasks)}</strong><span>成功 ${fmtNumber(data.successes)}</span></div><div><small>素材</small><strong>${fmtNumber(data.assets)}</strong><span>邀请码 ${esc(data.inviteCode || '—')}</span></div></div><div class="activity-body"><section class="activity-section"><h3>最近任务</h3><div class="table-wrap"><table><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>Credits</th><th>时间</th></tr></thead><tbody>${tasks}</tbody></table></div></section></div><div class="activity-actions"><span class="muted">账户 ID 用于对账、工单与对象存储目录</span><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
+    modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
+  } catch (error) {
+    modal.querySelector('.activity-loading').textContent = error.message;
+  }
+}
+
 async function loadCommerce() {
   const [plans, orders, payments] = await Promise.all([get('/api/admin/plans'), get('/api/admin/orders'), get('/api/admin/payments')]);
   state.plans = plans || []; state.orders = orders || []; state.payments = payments || [];
@@ -392,6 +407,9 @@ async function loadStorage() {
         <label>路径前缀<input name="prefix" value="${esc(cfg.prefix)}" placeholder="test 或 prod" /></label>
         <label>AccessKeyId<input name="accessKeyId" value="${esc(cfg.accessKeyId)}" autocomplete="off" /></label>
         <label>AccessKeySecret<input name="accessKeySecret" type="password" autocomplete="new-password" placeholder="${cfg.hasSecret ? '已保存，留空表示不修改' : '粘贴子账号 Secret'}" /></label>
+        <label>客户端取用方式<select name="clientAssetMode"><option value="server" ${cfg.clientAssetMode !== 'cdn' ? 'selected' : ''}>走服务器代理（推荐）</option><option value="cdn" ${cfg.clientAssetMode === 'cdn' ? 'selected' : ''}>走外网 / CDN 域名</option></select></label>
+        <label>外网 / CDN 域名<input name="cdnBaseUrl" value="${esc(cfg.cdnBaseUrl)}" placeholder="https://cdn.example.com" /></label>
+        <label>同步展示数据<select name="syncShowcase"><option value="false" ${!cfg.syncShowcase ? 'selected' : ''}>关闭</option><option value="true" ${cfg.syncShowcase ? 'selected' : ''}>开启（宣传示例等）</option></select></label>
         <div class="row-actions"><button class="primary" type="submit">保存</button><button class="secondary" type="button" data-action="storage-test">测试连接</button></div>
       </form>
       <div class="muted" style="margin-top:16px;line-height:1.8">
@@ -406,7 +424,7 @@ async function loadStorage() {
     const button = event.target.querySelector('button[type=submit]');
     setBusy(button, true);
     try {
-      await request('/api/admin/storage', { method: 'PUT', body: JSON.stringify({ provider: form.get('provider'), bucket: form.get('bucket'), region: form.get('region'), endpointInternal: form.get('endpointInternal'), endpointPublic: form.get('endpointPublic'), prefix: form.get('prefix'), accessKeyId: form.get('accessKeyId'), accessKeySecret: form.get('accessKeySecret') }) });
+      await request('/api/admin/storage', { method: 'PUT', body: JSON.stringify({ provider: form.get('provider'), bucket: form.get('bucket'), region: form.get('region'), endpointInternal: form.get('endpointInternal'), endpointPublic: form.get('endpointPublic'), prefix: form.get('prefix'), accessKeyId: form.get('accessKeyId'), accessKeySecret: form.get('accessKeySecret'), clientAssetMode: form.get('clientAssetMode'), cdnBaseUrl: form.get('cdnBaseUrl'), syncShowcase: form.get('syncShowcase') === 'true' }) });
       toast('存储配置已保存');
       await navigate('storage');
     } catch (error) { toast(error.message); setBusy(button, false); }
@@ -573,6 +591,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'invite-new') return inviteNewModal();
     if (action === 'invite-copy') { try { await navigator.clipboard.writeText(target.dataset.code); toast('邀请码已复制'); } catch { toast('复制失败，请手动选择'); } return; }
     if (action === 'invite-toggle') { setBusy(target, true); await patch(`/api/admin/invites/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
+    if (action === 'account-lookup') { const row = state.users.find((item) => item.accountNo === target.dataset.no); if (row) accountLookupModal(row.accountNo); return; }
     if (action === 'user-activity') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) userActivityModal(user); return; }
     if (action === 'user-status') { setBusy(target, true); await patch(`/api/admin/users/${target.dataset.id}/status`, { status: target.dataset.status }); await navigate('users'); return; }
     if (action === 'user-credits') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) creditsModal(user); return; }

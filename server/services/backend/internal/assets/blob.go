@@ -14,6 +14,21 @@ type BlobStore interface {
 	Health(ctx context.Context) error
 }
 
+// SetAccountResolver 让存储层把账户 ID 作为对象键的一级目录。
+func (s *Storage) SetAccountResolver(fn func(context.Context, string) (string, error)) { s.account = fn }
+
+// AccountDir 返回账户目录名（不含斜杠）；未配置或查询失败时为空，保持旧路径兼容。
+func (s *Storage) AccountDir(ctx context.Context, userID string) string {
+	if s.account == nil || userID == "" {
+		return ""
+	}
+	value, err := s.account(ctx, userID)
+	if err != nil || !safeSegment(value) {
+		return ""
+	}
+	return value
+}
+
 // UseBlob 切换对象存储；传 nil 回到本地磁盘。
 func (s *Storage) UseBlob(blob BlobStore) { s.blob = blob }
 

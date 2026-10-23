@@ -24,6 +24,9 @@ type Config struct {
 	EndpointPublic   string     `json:"endpointPublic"`
 	Prefix           string     `json:"prefix"`
 	AccessKeyID      string     `json:"accessKeyId"`
+	ClientAssetMode  string     `json:"clientAssetMode"`
+	CDNBaseURL       string     `json:"cdnBaseUrl"`
+	SyncShowcase     bool       `json:"syncShowcase"`
 	HasSecret        bool       `json:"hasSecret"`
 	VerifiedAt       *time.Time `json:"verifiedAt"`
 	LastError        string     `json:"lastError"`
@@ -38,6 +41,9 @@ type Input struct {
 	Prefix           string `json:"prefix"`
 	AccessKeyID      string `json:"accessKeyId"`
 	AccessKeySecret  string `json:"accessKeySecret"`
+	ClientAssetMode  string `json:"clientAssetMode"`
+	CDNBaseURL       string `json:"cdnBaseUrl"`
+	SyncShowcase     bool   `json:"syncShowcase"`
 }
 
 type Service struct {
@@ -53,8 +59,8 @@ func New(pool *pgxpool.Pool, signingKey string) *Service {
 func (s *Service) Load(ctx context.Context) (Config, string, error) {
 	var cfg Config
 	var encrypted []byte
-	err := s.pool.QueryRow(ctx, `SELECT provider, bucket, region, endpoint_internal, endpoint_public, prefix, access_key_id, access_key_secret_enc, verified_at, last_error FROM storage_settings WHERE id=true`).
-		Scan(&cfg.Provider, &cfg.Bucket, &cfg.Region, &cfg.EndpointInternal, &cfg.EndpointPublic, &cfg.Prefix, &cfg.AccessKeyID, &encrypted, &cfg.VerifiedAt, &cfg.LastError)
+	err := s.pool.QueryRow(ctx, `SELECT provider, bucket, region, endpoint_internal, endpoint_public, prefix, access_key_id, access_key_secret_enc, verified_at, last_error, client_asset_mode, cdn_base_url, sync_showcase FROM storage_settings WHERE id=true`).
+		Scan(&cfg.Provider, &cfg.Bucket, &cfg.Region, &cfg.EndpointInternal, &cfg.EndpointPublic, &cfg.Prefix, &cfg.AccessKeyID, &encrypted, &cfg.VerifiedAt, &cfg.LastError, &cfg.ClientAssetMode, &cfg.CDNBaseURL, &cfg.SyncShowcase)
 	if err != nil {
 		return Config{}, "", err
 	}
@@ -87,9 +93,19 @@ func (s *Service) Save(ctx context.Context, in Input) (Config, error) {
 		}
 		encrypted = value
 	}
+	mode := strings.TrimSpace(in.ClientAssetMode)
+	if mode == "" {
+		mode = "server"
+	}
+	if mode != "server" && mode != "cdn" {
+		return Config{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "客户端取用方式只支持 server / cdn", Status: 400}
+	}
+	if mode == "cdn" && strings.TrimSpace(in.CDNBaseURL) == "" {
+		return Config{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "选择 CDN 方式时必须填写外网域名", Status: 400}
+	}
 	_, err := s.pool.Exec(ctx, `UPDATE storage_settings SET provider=$1, bucket=$2, region=$3, endpoint_internal=$4, endpoint_public=$5, prefix=$6, access_key_id=$7,
-		access_key_secret_enc=COALESCE($8, access_key_secret_enc), updated_at=now() WHERE id=true`,
-		provider, strings.TrimSpace(in.Bucket), strings.TrimSpace(in.Region), strings.TrimSpace(in.EndpointInternal), strings.TrimSpace(in.EndpointPublic), strings.Trim(strings.TrimSpace(in.Prefix), "/"), strings.TrimSpace(in.AccessKeyID), encrypted)
+		access_key_secret_enc=COALESCE($8, access_key_secret_enc), client_asset_mode=$9, cdn_base_url=$10, sync_showcase=$11, updated_at=now() WHERE id=true`,
+		provider, strings.TrimSpace(in.Bucket), strings.TrimSpace(in.Region), strings.TrimSpace(in.EndpointInternal), strings.TrimSpace(in.EndpointPublic), strings.Trim(strings.TrimSpace(in.Prefix), "/"), strings.TrimSpace(in.AccessKeyID), encrypted, mode, strings.TrimRight(strings.TrimSpace(in.CDNBaseURL), "/"), in.SyncShowcase)
 	if err != nil {
 		return Config{}, err
 	}

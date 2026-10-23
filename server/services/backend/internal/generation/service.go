@@ -66,7 +66,7 @@ type Output struct {
 	MimeType     string `json:"mimeType"`
 }
 type GeneratedStorage interface {
-	SaveGenerated(context.Context, string, int, string, string) (string, int64, error)
+	SaveGenerated(context.Context, string, string, int, string, string) (string, int64, error)
 	VerifyGenerated(string, []byte) error
 	GeneratedDataURL(string, string) (string, error)
 }
@@ -417,7 +417,7 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	task.ProviderRequestID = result.ProviderRequestID
 	task.Outputs = []Output{}
 	for i, output := range result.Outputs {
-		key, size, saveErr := s.storage.SaveGenerated(ctx, task.ID, i, output.URI, output.MediaType)
+		key, size, saveErr := s.storage.SaveGenerated(ctx, task.UserID, task.ID, i, output.URI, output.MediaType)
 		if saveErr != nil {
 			return saveErr
 		}
@@ -479,7 +479,7 @@ func (s *Service) finalize(ctx context.Context, task *Task) error {
 		if source == "" {
 			source = task.Outputs[i].Base64Data
 		}
-		key, size, err := s.storage.SaveGenerated(ctx, task.ID, i, source, task.Outputs[i].MimeType)
+		key, size, err := s.storage.SaveGenerated(ctx, task.UserID, task.ID, i, source, task.Outputs[i].MimeType)
 		if err != nil {
 			return err
 		}

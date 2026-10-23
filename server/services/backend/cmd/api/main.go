@@ -62,6 +62,11 @@ func main() {
 		fatal(err)
 	}
 	storage := assets.New(cfg.AssetStorageDir, cfg.StorageSigningKey)
+	storage.SetAccountResolver(func(ctx context.Context, userID string) (string, error) {
+		var accountNo string
+		err := pool.QueryRow(ctx, `SELECT account_no FROM users WHERE id=$1`, userID).Scan(&accountNo)
+		return accountNo, err
+	})
 	credentials := providerconfig.New(pool, cfg.StorageSigningKey)
 	modelCatalog := modelcatalog.New(pool, credentials, cfg.AntDigitalBaseURL, cfg.DashScopeBaseURL, cfg.AntDigitalAPIKey, cfg.DashScopeAPIKey, cfg.ComputrixAPIKey, cfg.ComputrixModelsURL)
 	routingService := routing.New(pool, credentials)

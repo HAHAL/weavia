@@ -106,7 +106,7 @@ func (s *Service) Register(ctx context.Context, email, password, name string, in
 	}
 	defer tx.Rollback(ctx)
 	var user User
-	err = tx.QueryRow(ctx, `INSERT INTO users(email,name,status,email_verified_at) VALUES($1,$2,'active',now()) RETURNING id::text,email,coalesce(name,''),status`, email, name).Scan(&user.ID, &user.Email, &user.Name, &user.Status)
+	err = tx.QueryRow(ctx, `INSERT INTO users(email,name,status,email_verified_at,account_no) VALUES($1,$2,'active',now(),'WA'||lpad(nextval('user_account_no_seq')::text,6,'0')) RETURNING id::text,email,coalesce(name,''),status`, email, name).Scan(&user.ID, &user.Email, &user.Name, &user.Status)
 	if err != nil {
 		return SessionResult{}, err
 	}

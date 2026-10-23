@@ -26,7 +26,7 @@ func TestUploadTokenCannotBeReusedForeverOrTampered(t *testing.T) {
 
 func TestGeneratedAssetReadbackAndUnsafeSources(t *testing.T) {
 	storage := New(t.TempDir(), "test-secret")
-	key, size, err := storage.SaveGenerated(context.Background(), "task-1", 0, "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", "image/png")
+	key, size, err := storage.SaveGenerated(context.Background(), "", "task-1", 0, "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", "image/png")
 	if err != nil || key != "generated/task-1/0.png" || size != 16 {
 		t.Fatalf("save: %q %d %v", key, size, err)
 	}
@@ -40,10 +40,10 @@ func TestGeneratedAssetReadbackAndUnsafeSources(t *testing.T) {
 	if err := storage.VerifyGenerated(key, nil); err == nil {
 		t.Fatal("corrupted asset accepted")
 	}
-	if _, _, err := storage.SaveGenerated(context.Background(), "task-2", 0, "https://127.0.0.1/image.png", "image/png"); err == nil {
+	if _, _, err := storage.SaveGenerated(context.Background(), "", "task-2", 0, "https://127.0.0.1/image.png", "image/png"); err == nil {
 		t.Fatal("insecure URL accepted")
 	}
-	if _, _, err := storage.SaveGenerated(context.Background(), "../escape", 0, "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", "image/png"); err == nil {
+	if _, _, err := storage.SaveGenerated(context.Background(), "", "../escape", 0, "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", "image/png"); err == nil {
 		t.Fatal("unsafe key accepted")
 	}
 }

@@ -15,9 +15,10 @@ import (
 )
 
 type Storage struct {
-	Root   string
-	Secret []byte
-	blob   BlobStore
+	Root    string
+	Secret  []byte
+	blob    BlobStore
+	account func(context.Context, string) (string, error)
 }
 
 func New(root, secret string) *Storage {

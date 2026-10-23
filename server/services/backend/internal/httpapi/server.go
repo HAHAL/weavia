@@ -184,6 +184,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/pricing", s.adminPricing)
 			r.Get("/invites", s.adminInvites)
 			r.Get("/storage", s.adminStorage)
+			r.Get("/accounts/{accountNo}", s.adminAccountLookup)
 		})
 		r.With(s.requirePermission("provider.write")).Patch("/ai/providers/{providerID}", s.patchProvider)
 		r.With(s.requirePermission("provider.write")).Put("/ai/providers/{providerCode}/credential", s.adminSetProviderCredential)
@@ -480,7 +481,7 @@ func (s *Server) assetPreview(w http.ResponseWriter, r *http.Request) {
 	var dataURL string
 	if preview.Kind == "generated" {
 		dataURL, err = s.Assets.GeneratedDataURL(preview.ObjectKey, preview.MimeType)
-	} else if strings.HasPrefix(preview.ObjectKey, "references/") {
+	} else if strings.HasPrefix(preview.ObjectKey, "references/") || strings.Contains(preview.ObjectKey, "/references/") {
 		var found bool
 		dataURL, found = s.Assets.DataURL(preview.ObjectKey, preview.MimeType)
 		if !found {
@@ -549,6 +550,10 @@ func (s *Server) listProductAssets(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) adminUsers(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Commercial.AdminUsers(r.Context())
+	respond(w, data, err)
+}
+func (s *Server) adminAccountLookup(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.AccountLookup(r.Context(), chi.URLParam(r, "accountNo"))
 	respond(w, data, err)
 }
 func (s *Server) adminCreditTransactions(w http.ResponseWriter, r *http.Request) {
@@ -635,7 +640,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	userID := currentUser(r).ID
 	if len(input.ReferenceAssets) > 0 {
 		for index, ref := range input.ReferenceAssets {
-			if ref.AssetID == "" || ref.ObjectKey == "" || !strings.HasPrefix(ref.ObjectKey, "references/"+userID+"/") || (index == 0 && ref.AssetID != input.InputAssetID) {
+			if ref.AssetID == "" || ref.ObjectKey == "" || !s.ownsReferenceKey(r.Context(), ref.ObjectKey, userID) || (index == 0 && ref.AssetID != input.InputAssetID) {
 				writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "参考素材不属于当前用户", Status: 403})
 				return
 			}
@@ -735,6 +740,16 @@ func (s *Server) getTaskOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+// ownsReferenceKey 兼容旧的 references/{userID}/ 与新布局 {accountNo}/references/。
+func (s *Server) ownsReferenceKey(ctx context.Context, key, userID string) bool {
+	if strings.HasPrefix(key, "references/"+userID+"/") {
+		return true
+	}
+	dir := s.Assets.AccountDir(ctx, userID)
+	return dir != "" && strings.HasPrefix(key, dir+"/references/")
+}
+
 func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AssetID     string `json:"assetId"`
@@ -760,6 +775,9 @@ func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	objectKey := fmt.Sprintf("references/%s/%s.%s", currentUser(r).ID, body.AssetID, ext)
+	if dir := s.Assets.AccountDir(r.Context(), currentUser(r).ID); dir != "" {
+		objectKey = fmt.Sprintf("%s/references/%s.%s", dir, body.AssetID, ext)
+	}
 	if body.SKUID != "" && s.Commercial != nil {
 		_, err := s.Commercial.CreateAsset(r.Context(), currentUser(r).ID, commercial.Asset{ID: body.AssetID, WorkspaceID: body.WorkspaceID, ProjectID: body.ProjectID, ProductID: body.ProductID, SKUID: body.SKUID, Kind: "source", MimeType: body.ContentType, Size: body.Size, ObjectKey: &objectKey})
 		if err != nil {
