@@ -185,6 +185,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/pricing", s.adminPricing)
 			r.Get("/invites", s.adminInvites)
 			r.Get("/storage", s.adminStorage)
+			r.Get("/audit-logs", s.adminAuditLogs)
 			r.Get("/accounts/{accountNo}", s.adminAccountLookup)
 			r.Get("/route-groups", s.adminRouteGroups)
 			r.Get("/ai/provider-summary", s.adminProviderSummary)
@@ -941,7 +942,26 @@ func (s *Server) adminUpdateRouting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	respond(w, map[string]bool{"ok": true}, s.Routing.UpdateAbility(r.Context(), chi.URLParam(r, "bindingID"), body.Priority, body.Weight, body.Enabled))
+	bindingID := chi.URLParam(r, "bindingID")
+	before, _ := s.Routing.GetAbility(r.Context(), bindingID)
+	if err := s.Routing.UpdateAbility(r.Context(), bindingID, body.Priority, body.Weight, body.Enabled); err != nil {
+		writeError(w, err)
+		return
+	}
+	after, _ := s.Routing.GetAbility(r.Context(), bindingID)
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "routing.update", "logical_model_ability", bindingID, clientIP(r),
+		map[string]any{"priority": before.Priority, "weight": before.Weight, "enabled": before.Enabled},
+		map[string]any{"priority": after.Priority, "weight": after.Weight, "enabled": after.Enabled})
+	ok(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) adminAuditLogs(w http.ResponseWriter, r *http.Request) {
+	items, err := s.Commercial.AdminAuditLogs(r.Context(), 100)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]any{"items": items})
 }
 func (s *Server) adminUsage(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Commercial.AdminUsage(r.Context())

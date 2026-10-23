@@ -143,7 +143,12 @@ func (s *Server) adminEnableModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	err := s.Routing.EnableModel(r.Context(), chi.URLParam(r, "channelID"), body.ProviderModelID, body.DisplayName, body.Modality, body.Capabilities, body.Credits, body.LogicalKey)
+	channelID := chi.URLParam(r, "channelID")
+	err := s.Routing.EnableModel(r.Context(), channelID, body.ProviderModelID, body.DisplayName, body.Modality, body.Capabilities, body.Credits, body.LogicalKey)
+	if err == nil {
+		_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "model.enable", "channel_model", channelID, clientIP(r), nil,
+			map[string]any{"providerModelId": body.ProviderModelID, "displayName": body.DisplayName, "modality": body.Modality, "credits": body.Credits})
+	}
 	respond(w, map[string]bool{"ok": err == nil}, err)
 }
 

@@ -595,10 +595,13 @@ async function loadAnalytics() {
     `<div class="metrics">${metric('收入', fmtMoney(overview.revenueMinorCNY))}${metric('AI 成本', '¥' + Number(usage?.estimatedCost || 0).toFixed(2))}${metric('任务', fmtNumber(overview.tasks), `失败 ${overview.failedTasks}`)}${metric('Credits 消耗', fmtNumber(overview.creditsConsumed))}</div>
     <section class="panel"><div class="panel-head"><div><h2>Provider 用量</h2><p>最近 500 条</p></div></div>${usageTable(state.usage)}</section>`;
 }
-function loadSettings() {
+async function loadSettings() {
+  const logs = await get('/api/admin/audit-logs').catch(() => ({ items: [] }));
+  const rows = (logs.items || []).map((item) => `<tr><td>${fmtDate(item.createdAt)}</td><td>${esc(item.actor)}</td><td><span class="cell-main">${esc(item.action)}</span><span class="cell-sub">${esc(item.resourceType)} ${esc(String(item.resourceId || '').slice(0, 8))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.before || {}))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.after || {}))}</span></td><td>${esc(item.ip || '—')}</td></tr>`).join('') || emptyRow(6);
   content.innerHTML = pageHead('设置', '后台连接与当前工作区信息。') +
     `<div class="panel"><div class="panel-head"><div><h2>连接</h2><p>管理后台通过此地址访问 Go API</p></div></div><div class="form-grid"><label>API 地址<input id="settingsApi" value="${esc(apiBase)}" /></label><label>当前管理员<input value="${esc(email)}" disabled /></label><div><button class="primary" data-action="save-api">保存 API 地址</button></div></div></div>
     <div class="panel"><div class="panel-head"><div><h2>服务状态</h2><p>健康检查结果</p></div><button class="secondary" data-action="check-service">重新检查</button></div><p>${esc($('serviceStatus').textContent)}</p></div>
+    <div class="panel"><div class="panel-head"><div><h2>最近管理操作</h2><p>路由、模型接入等写操作留痕，最多 100 条</p></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>变更前</th><th>变更后</th><th>来源 IP</th></tr></thead><tbody>${rows}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><div><h2>关于</h2><p>WEAVIA Admin Console</p></div></div><p>用户、商业、AI、任务、内容管理与数据分析，统一在新 Go API 之上。</p></div>`;
 }
 function openModal(title, body, submitLabel, onSubmit) {

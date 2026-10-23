@@ -486,6 +486,23 @@ func (s *Service) ListAbilities(ctx context.Context) ([]Ability, error) {
 	return out, rows.Err()
 }
 
+func (s *Service) GetAbility(ctx context.Context, id string) (Ability, error) {
+	var item Ability
+	err := s.pool.QueryRow(ctx, `
+		SELECT a.id::text, lm.key, lm.display_name, lm.modality, c.name, c.provider_code, cm.provider_model_id,
+		       lm.credits_cost, a.priority, a.weight, a.enabled, a.cooldown_until
+		FROM logical_model_abilities a
+		JOIN logical_models lm ON lm.id = a.logical_model_id
+		JOIN channel_models cm ON cm.id = a.channel_model_id
+		JOIN provider_channels c ON c.id = cm.channel_id
+		WHERE a.id=$1`, id).
+		Scan(&item.ID, &item.LogicalKey, &item.LogicalName, &item.Modality, &item.ChannelName, &item.Provider, &item.ProviderModelID, &item.Credits, &item.Priority, &item.Weight, &item.Enabled, &item.CooldownUntil)
+	if err != nil {
+		return item, &generation.APIError{Code: "NOT_FOUND", Message: "绑定不存在", Status: 404}
+	}
+	return item, nil
+}
+
 func (s *Service) UpdateAbility(ctx context.Context, id string, priority, weight *int, enabled *bool) error {
 	if priority != nil && (*priority < 0 || *priority > 10000) {
 		return &generation.APIError{Code: "INVALID_REQUEST", Message: "优先级必须在 0 到 10000 之间", Status: 400}

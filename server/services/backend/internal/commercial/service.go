@@ -631,6 +631,38 @@ func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
 	return out, rows.Err()
 }
 
+// RecordAdminAudit 记录管理端的写操作，便于追责与回溯。
+func (s *Service) RecordAdminAudit(ctx context.Context, actorID, action, resourceType, resourceID, ip string, before, after any) error {
+	beforeJSON, _ := json.Marshal(before)
+	afterJSON, _ := json.Marshal(after)
+	_, err := s.pool.Exec(ctx, `INSERT INTO admin_audit_logs(actor_user_id,action,resource_type,resource_id,ip,before,after) VALUES(nullif($1,'')::uuid,$2,$3,$4,nullif($5::text,'')::inet,$6,$7)`, actorID, action, resourceType, resourceID, ip, beforeJSON, afterJSON)
+	return err
+}
+
+// AdminAuditLogs 返回最近的管理操作。
+func (s *Service) AdminAuditLogs(ctx context.Context, limit int) ([]map[string]any, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `SELECT l.id::text, COALESCE(u.email,'system'), l.action, l.resource_type, l.resource_id, COALESCE(l.ip::text,''), l.before, l.after, l.created_at
+		FROM admin_audit_logs l LEFT JOIN users u ON u.id=l.actor_user_id ORDER BY l.created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, actor, action, resourceType, resourceID, ip string
+		var before, after []byte
+		var created time.Time
+		if err = rows.Scan(&id, &actor, &action, &resourceType, &resourceID, &ip, &before, &after, &created); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{"id": id, "actor": actor, "action": action, "resourceType": resourceType, "resourceId": resourceID, "ip": ip, "before": json.RawMessage(before), "after": json.RawMessage(after), "createdAt": created})
+	}
+	return out, rows.Err()
+}
+
 // ProviderSummary 按供应商聚合渠道与 Key 数量，供 AI Studio 供应商页展示。
 func (s *Service) ProviderSummary(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.pool.Query(ctx, `
