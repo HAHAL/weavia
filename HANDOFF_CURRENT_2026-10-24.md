@@ -1,6 +1,6 @@
 # WEAVIA 交接文档（2026-10-24）
 
-给接手的工具/人。本文以当前代码、线上实例和本轮验证为准；日期更早的 `HANDOFF_CURRENT_2026-10-23.md` 与 `HANDOFF.md` 部分内容已过时。
+给接手的工具/人。配套执行简报见 [BRIEF_FOR_CODEX.md](./BRIEF_FOR_CODEX.md)。本文以当前代码、线上实例和本轮验证为准；日期更早的 `HANDOFF_CURRENT_2026-10-23.md` 与 `HANDOFF.md` 部分内容已过时。
 
 ## 0. 一句话现状
 
