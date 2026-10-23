@@ -70,3 +70,14 @@ func (s *Server) adminSetAccountGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, map[string]bool{"ok": true}, s.Routing.SetAccountGroups(r.Context(), userID, input.Codes))
 }
+
+func (s *Server) adminSetGroupMultiplier(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		PriceMultiplier float64 `json:"priceMultiplier"`
+	}
+	if err := decode(r, &input); err != nil {
+		writeError(w, err)
+		return
+	}
+	respond(w, map[string]bool{"ok": true}, s.Routing.SetGroupMultiplier(r.Context(), chi.URLParam(r, "groupID"), input.PriceMultiplier))
+}

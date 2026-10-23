@@ -149,12 +149,13 @@ type RouteGroup struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	IsDefault   bool     `json:"isDefault"`
+	Multiplier  float64  `json:"priceMultiplier"`
 	Channels    []string `json:"channels"`
 	Accounts    int      `json:"accounts"`
 }
 
 func (s *Service) ListRouteGroups(ctx context.Context) ([]RouteGroup, error) {
-	rows, err := s.pool.Query(ctx, `SELECT g.id::text, g.code, g.name, g.description, g.is_default,
+	rows, err := s.pool.Query(ctx, `SELECT g.id::text, g.code, g.name, g.description, g.is_default, g.price_multiplier::float8,
 		COALESCE((SELECT array_agg(cgm.channel_id::text) FROM channel_group_members cgm WHERE cgm.group_id=g.id), '{}'),
 		(SELECT count(*) FROM account_route_groups arg WHERE arg.group_id=g.id)
 		FROM route_groups g ORDER BY g.is_default DESC, g.created_at`)
@@ -165,7 +166,7 @@ func (s *Service) ListRouteGroups(ctx context.Context) ([]RouteGroup, error) {
 	out := []RouteGroup{}
 	for rows.Next() {
 		var g RouteGroup
-		if err = rows.Scan(&g.ID, &g.Code, &g.Name, &g.Description, &g.IsDefault, &g.Channels, &g.Accounts); err != nil {
+		if err = rows.Scan(&g.ID, &g.Code, &g.Name, &g.Description, &g.IsDefault, &g.Multiplier, &g.Channels, &g.Accounts); err != nil {
 			return nil, err
 		}
 		out = append(out, g)
@@ -516,6 +517,96 @@ func (s *Service) UpdateAbility(ctx context.Context, id string, priority, weight
 	}
 	if tag.RowsAffected() == 0 {
 		return &generation.APIError{Code: "NOT_FOUND", Message: "绑定不存在", Status: 404}
+	}
+	return nil
+}
+
+// ChannelModel 是渠道下的模型清单，供后台逐条启停。
+type ChannelModel struct {
+	ID              string   `json:"id"`
+	ProviderModelID string   `json:"providerModelId"`
+	DisplayName     string   `json:"displayName"`
+	Modality        string   `json:"modality"`
+	Capabilities    []string `json:"capabilities"`
+	Enabled         bool     `json:"enabled"`
+	LogicalKey      string   `json:"logicalKey"`
+	Credits         int64    `json:"credits"`
+}
+
+func (s *Service) ListChannelModels(ctx context.Context, channelID string) ([]ChannelModel, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT cm.id::text, cm.provider_model_id, cm.display_name, cm.modality, cm.capabilities, cm.enabled,
+		       COALESCE(lm.key,''), COALESCE(lm.credits_cost,0)
+		FROM channel_models cm
+		LEFT JOIN logical_model_abilities a ON a.channel_model_id = cm.id
+		LEFT JOIN logical_models lm ON lm.id = a.logical_model_id
+		WHERE cm.channel_id=$1 ORDER BY cm.display_name`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChannelModel{}
+	for rows.Next() {
+		var item ChannelModel
+		var caps []byte
+		if err = rows.Scan(&item.ID, &item.ProviderModelID, &item.DisplayName, &item.Modality, &caps, &item.Enabled, &item.LogicalKey, &item.Credits); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(caps, &item.Capabilities)
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) SetChannelModelEnabled(ctx context.Context, id string, enabled bool) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE channel_models SET enabled=$2 WHERE id=$1`, id, enabled)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "渠道模型不存在", Status: 404}
+	}
+	return nil
+}
+
+// PriceFor 返回账户看到并支付的 Credits：基础价 × 分组倍率。
+func (s *Service) PriceFor(ctx context.Context, userID, key string) (int64, error) {
+	item, err := s.Lookup(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	multiplier, _, _ := s.GroupMultiplier(ctx, userID)
+	price := int64(float64(item.CreditsCost)*multiplier + 0.5)
+	if price < 1 {
+		price = 1
+	}
+	return price, nil
+}
+
+// GroupMultiplier 返回账户计价分组的倍率；未绑定分组时为 1。
+func (s *Service) GroupMultiplier(ctx context.Context, userID string) (float64, string, error) {
+	var multiplier float64
+	var code string
+	err := s.pool.QueryRow(ctx, `
+		SELECT g.price_multiplier::float8, g.code
+		FROM account_route_groups arg JOIN route_groups g ON g.id=arg.group_id
+		WHERE arg.user_id=$1 ORDER BY arg.priority LIMIT 1`, userID).Scan(&multiplier, &code)
+	if err != nil {
+		return 1, "default", nil
+	}
+	return multiplier, code, nil
+}
+
+func (s *Service) SetGroupMultiplier(ctx context.Context, groupID string, multiplier float64) error {
+	if multiplier <= 0 || multiplier > 10 {
+		return &generation.APIError{Code: "INVALID_REQUEST", Message: "倍率必须在 0 到 10 之间", Status: 400}
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE route_groups SET price_multiplier=$2 WHERE id=$1`, groupID, multiplier)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "分组不存在", Status: 404}
 	}
 	return nil
 }

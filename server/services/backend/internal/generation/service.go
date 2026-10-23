@@ -208,6 +208,21 @@ func (s *Service) bindingsFor(ctx context.Context, userID, key string) ([]RouteB
 	return s.router.BindingsFor(ctx, key)
 }
 
+// priceFor 优先使用账户分组倍率后的价格。
+func (s *Service) priceFor(ctx context.Context, userID, key string, fallback int64) int64 {
+	if s.router == nil {
+		return fallback
+	}
+	if aware, ok := s.router.(interface {
+		PriceFor(context.Context, string, string) (int64, error)
+	}); ok {
+		if price, err := aware.PriceFor(ctx, userID, key); err == nil && price > 0 {
+			return price
+		}
+	}
+	return fallback
+}
+
 func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Task, error) {
 	if input.Mode == "" {
 		input.Mode = "text_to_image"
@@ -232,7 +247,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 		}
 		input.LogicalModel = input.ModelKey
 		input.Model = bindings[0].ProviderModelID
-		model = RegisteredModel{Name: bindings[0].ProviderModelID, Provider: bindings[0].Provider, Enabled: true, CreditCost: info.CreditsCost, Capabilities: info.Capabilities}
+		model = RegisteredModel{Name: bindings[0].ProviderModelID, Provider: bindings[0].Provider, Enabled: true, CreditCost: s.priceFor(ctx, user.ID, input.ModelKey, info.CreditsCost), Capabilities: info.Capabilities}
 	} else {
 		model, err = s.registry.Lookup(ctx, input.Model)
 		if err != nil || !model.Enabled || model.Provider == "" || model.CreditCost <= 0 {

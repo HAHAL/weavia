@@ -59,7 +59,8 @@ func (s *Storage) ObjectKey(token string) (string, error) {
 		return "", err
 	}
 	key := string(raw)
-	if !strings.HasPrefix(key, "references/") || strings.Contains(key, "..") {
+	// 兼容旧键 references/... 与账户目录键 {accountNo}/references/...
+	if strings.Contains(key, "..") || (!strings.HasPrefix(key, "references/") && !strings.Contains(key, "/references/")) {
 		return "", fmt.Errorf("invalid object key")
 	}
 	return key, nil

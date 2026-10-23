@@ -160,3 +160,23 @@ func (s *Server) adminProviderSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{"items": items})
 }
+
+func (s *Server) adminChannelModels(w http.ResponseWriter, r *http.Request) {
+	items, err := s.Routing.ListChannelModels(r.Context(), chi.URLParam(r, "channelID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]any{"items": items})
+}
+
+func (s *Server) adminSetChannelModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	respond(w, map[string]bool{"ok": true}, s.Routing.SetChannelModelEnabled(r.Context(), chi.URLParam(r, "modelID"), body.Enabled))
+}

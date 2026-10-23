@@ -44,6 +44,10 @@ func (a *Adapter) BindingsForAccount(ctx context.Context, userID, key string) ([
 	return out, nil
 }
 
+func (a *Adapter) PriceFor(ctx context.Context, userID, key string) (int64, error) {
+	return a.service.PriceFor(ctx, userID, key)
+}
+
 func (a *Adapter) RecordRoute(ctx context.Context, bindingID string, failure error) {
 	a.service.RecordResult(ctx, bindingID, failure)
 }
