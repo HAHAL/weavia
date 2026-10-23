@@ -1,9 +1,11 @@
+const BUILD_TAG = '2026-10-24-a';
 const $ = (id) => document.getElementById(id);
 const content = $('content');
 const modal = $('modal');
 const pages = [
   { id: 'dashboard', label: '仪表盘', kicker: 'OVERVIEW' },
   { id: 'users', label: '用户中心', kicker: 'CUSTOMERS' },
+  { id: 'roles', label: '角色权限', kicker: 'ACCESS' },
   { id: 'commerce', label: '商业中心', kicker: 'COMMERCE' },
   { id: 'ai', label: 'AI Studio', kicker: 'AI OPERATIONS' },
   { id: 'pricing', label: '定价与成本', kicker: 'PRICING' },
@@ -211,7 +213,7 @@ async function navigate(pageId) {
   content.innerHTML = loading();
   try { await loaders[pageId](); enhanceTables(); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
 }
-const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
+const loaders = { dashboard: loadDashboard, users: loadUsers, roles: loadRoles, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
 async function loadDashboard() {
   const [overview, orders, tasks, showcase] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase')]);
@@ -302,7 +304,13 @@ function usersTable(rows) {
 
 
 async function userRolesModal(userID, email) {
-  const [roles, current] = await Promise.all([get('/api/admin/roles'), get(`/api/admin/users/${userID}/roles`)]);
+  let roles, current;
+  try {
+    [roles, current] = await Promise.all([get('/api/admin/roles'), get(`/api/admin/users/${userID}/roles`)]);
+  } catch (error) {
+    toast(error.message || '读取角色失败');
+    return;
+  }
   const selected = new Set(current.codes || []);
   const rows = (roles.items || []).map((role) => `<label class="switch-row"><span>${esc(role.name)} <small>${esc(role.code)} · ${role.permissions} 项权限</small></span><input type="checkbox" name="role" value="${esc(role.code)}" ${selected.has(role.code) ? 'checked' : ''} /></label>`).join('');
   openModal(`${email} 的角色`, `<div class="form-grid">${rows}</div><p class="muted">角色决定后台权限；不能移除自己的超级管理员。</p>`, '保存', async () => {
@@ -335,6 +343,20 @@ async function accountLookupModal(accountNo) {
   } catch (error) {
     modal.querySelector('.activity-loading').textContent = error.message;
   }
+}
+
+
+async function loadRoles() {
+  const [rolesData, usersData] = await Promise.all([get('/api/admin/roles'), get('/api/admin/users')]);
+  const roles = rolesData.items || [];
+  const users = usersData || [];
+  const roleMap = new Map();
+  await Promise.all(users.map(async (user) => {
+    const data = await get(`/api/admin/users/${user.id}/roles`).catch(() => ({ codes: [] }));
+    roleMap.set(user.id, new Set(data.codes || []));
+  }));
+  const rows = users.map((user) => `<tr data-user="${esc(user.id)}"><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')}</span></td>${roles.map((role) => `<td><input type="checkbox" name="role-${esc(user.id)}" value="${esc(role.code)}" ${roleMap.get(user.id)?.has(role.code) ? 'checked' : ''} /></td>`).join('')}<td><button data-action="roles-save" data-id="${esc(user.id)}">保存</button></td></tr>`).join('');
+  content.innerHTML = pageHead('角色权限', '给每个账户分配角色；角色决定后台可见与可操作范围。') + `<div class="panel"><div class="panel-head"><div><h2>账户角色</h2><p>super_admin 拥有全部权限；不能移除自己的超级管理员</p></div><span class="badge gold">${users.length} 个账户</span></div><div class="table-wrap"><table><thead><tr><th>账户</th>${roles.map((role) => `<th>${esc(role.name)}<span class="cell-sub">${role.permissions} 项权限</span></th>`).join('')}<th>操作</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 
 async function loadCommerce() {
@@ -710,7 +732,7 @@ async function loadSettings() {
   const logs = await get('/api/admin/audit-logs').catch(() => ({ items: [] }));
   const rows = (logs.items || []).map((item) => `<tr><td>${fmtDate(item.createdAt)}</td><td>${esc(item.actor)}</td><td><span class="cell-main">${esc(item.action)}</span><span class="cell-sub">${esc(item.resourceType)} ${esc(String(item.resourceId || '').slice(0, 8))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.before || {}))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.after || {}))}</span></td><td>${esc(item.ip || '—')}</td></tr>`).join('') || emptyRow(6);
   content.innerHTML = pageHead('设置', '后台连接与当前工作区信息。') +
-    `<div class="panel"><div class="panel-head"><div><h2>连接</h2><p>管理后台通过此地址访问 Go API</p></div></div><div class="form-grid"><label>API 地址<input id="settingsApi" value="${esc(apiBase)}" /></label><label>当前管理员<input value="${esc(email)}" disabled /></label><div><button class="primary" data-action="save-api">保存 API 地址</button></div></div></div>
+    `<div class="panel"><div class="panel-head"><div><h2>连接</h2><p>管理后台通过此地址访问 Go API</p></div></div><div class="form-grid"><label>API 地址<input id="settingsApi" value="${esc(apiBase)}" /></label><label>当前管理员<input value="${esc(email)}" disabled /></label><label>后台版本<input value="${BUILD_TAG}" disabled /></label><div><button class="primary" data-action="save-api">保存 API 地址</button></div></div></div>
     <div class="panel"><div class="panel-head"><div><h2>服务状态</h2><p>健康检查结果</p></div><button class="secondary" data-action="check-service">重新检查</button></div><p>${esc($('serviceStatus').textContent)}</p></div>
     <div class="panel"><div class="panel-head"><div><h2>最近管理操作</h2><p>路由、模型接入等写操作留痕，最多 100 条</p></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>变更前</th><th>变更后</th><th>来源 IP</th></tr></thead><tbody>${rows}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><div><h2>关于</h2><p>WEAVIA Admin Console</p></div></div><p>用户、商业、AI、任务、内容管理与数据分析，统一在新 Go API 之上。</p></div>`;
@@ -922,6 +944,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'invite-copy') { try { await navigator.clipboard.writeText(target.dataset.code); toast('邀请码已复制'); } catch { toast('复制失败，请手动选择'); } return; }
     if (action === 'invite-toggle') { setBusy(target, true); await patch(`/api/admin/invites/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
     if (action === 'oss-sync') { setBusy(target, true); await patch(`/api/admin/users/${target.dataset.id}/oss-sync`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
+    if (action === 'roles-save') { const userID = target.dataset.id; setBusy(target, true); try { const codes = [...content.querySelectorAll(`input[name=role-${userID}]:checked`)].map((input) => input.value); await request(`/api/admin/users/${userID}/roles`, { method: 'PUT', body: JSON.stringify({ codes }) }); toast('角色已保存'); } catch (error) { toast(error.message); } finally { setBusy(target, false); } return; }
     if (action === 'user-roles') { userRolesModal(target.dataset.id, target.dataset.email); return; }
     if (action === 'account-groups') { accountGroupsModal(target.dataset.no); return; }
     if (action === 'account-lookup') { const row = state.users.find((item) => item.accountNo === target.dataset.no); if (row) accountLookupModal(row.accountNo); return; }
