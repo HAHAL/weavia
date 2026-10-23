@@ -6,6 +6,7 @@ const pages = [
   { id: 'users', label: '用户中心', kicker: 'CUSTOMERS' },
   { id: 'commerce', label: '商业中心', kicker: 'COMMERCE' },
   { id: 'ai', label: 'AI Studio', kicker: 'AI OPERATIONS' },
+  { id: 'pricing', label: '定价与成本', kicker: 'PRICING' },
   { id: 'tasks', label: '创作任务', kicker: 'TASKS' },
   { id: 'showcase', label: '内容管理', kicker: 'SHOWCASE' },
   { id: 'analytics', label: '数据分析', kicker: 'ANALYTICS' },
@@ -15,7 +16,7 @@ const defaultApiBase = location.port && location.port !== '80' && location.port 
 let apiBase = localStorage.getItem('weavia.admin.api') || defaultApiBase;
 let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
-const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'providers', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [] };
+const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'providers', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null };
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -136,7 +137,7 @@ async function navigate(pageId) {
   content.innerHTML = loading();
   try { await loaders[pageId](); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
 }
-const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
+const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
 async function loadDashboard() {
   const [overview, orders, tasks, showcase] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase')]);
@@ -265,6 +266,68 @@ function usageTable(rows) {
   if (!rows.length) return empty('还没有调用记录');
   return `<div class="table-wrap"><table><thead><tr><th>工作流</th><th>状态</th><th>成本</th><th>延迟</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.workflow)}</span><span class="cell-sub">${esc(row.providerModelId?.slice(0, 8) || '')}</span></td><td>${status(row.status)}</td><td>¥${Number(row.estimatedCost || 0).toFixed(3)}</td><td>${fmtNumber(row.latencyMs)} ms</td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
+
+function money(value) { return '¥' + Number(value || 0).toFixed(2); }
+function marginBadge(row) {
+  if (row.status === 'block') return '<span class="badge danger">低于红线</span>';
+  if (row.status === 'unverified') return '<span class="badge warning">待合同核实</span>';
+  if (row.status === 'needs_duration') return '<span class="badge warning">按秒待换算</span>';
+  return '<span class="badge success">正常</span>';
+}
+function pricingTable(rows) {
+  if (!rows.length) return empty('还没有可定价的模型绑定');
+  const rank = { block: 0, ok: 1, needs_duration: 2, unverified: 3 };
+  const sorted = [...rows].sort((a, b) => ((rank[a.status] ?? 9) - (rank[b.status] ?? 9)) || ((a.marginRate || 0) - (b.marginRate || 0)));
+  return `<div class="table-wrap"><table><thead><tr><th>模型</th><th>渠道</th><th>售价</th><th>售价(¥)</th><th>厂商原价</th><th>毛利(¥)</th><th>毛利率</th><th>状态</th><th>操作</th></tr></thead><tbody>${sorted.map((row) => `<tr><td><span class="cell-main">${esc(row.displayName || row.key || '未绑定')}</span><span class="cell-sub">${esc(row.providerModelId)}</span></td><td>${esc(row.channelName)}</td><td>${fmtNumber(row.creditsCost)} Credits</td><td>${money(row.sellCny)}</td><td>${money(row.costCny)} <span class="cell-sub">${esc(row.costCurrency)}/${esc(row.costUnit === 'per_second' ? '秒' : '张')}${row.taxIncluded ? ' 含税' : ' 未税'}${row.costVerified ? '' : ' · 未核实'}</span></td><td class="${row.marginCny < 0 ? 'negative' : ''}">${row.status === 'ok' || row.status === 'block' ? money(row.marginCny) : '—'}</td><td>${row.status === 'ok' || row.status === 'block' ? (row.marginRate * 100).toFixed(1) + '%' : '—'}</td><td>${marginBadge(row)}${row.reason ? `<span class="cell-sub">${esc(row.reason)}</span>` : ''}</td><td><div class="row-actions"><button data-action="pricing-price" data-id="${esc(row.channelModelId)}" data-model="${esc(row.logicalModelId)}">改售价</button><button data-action="pricing-cost" data-id="${esc(row.channelModelId)}">录成本</button></div></td></tr>`).join('')}</tbody></table></div>`;
+}
+async function loadPricing() {
+  const data = await get('/api/admin/pricing');
+  const rows = data.items || []; const settings = data.settings || {};
+  state.pricing = rows; state.pricingSettings = settings;
+  const blocked = rows.filter((row) => row.status === 'block').length;
+  const unverified = rows.filter((row) => row.status === 'unverified' || row.status === 'needs_duration').length;
+  content.innerHTML = pageHead('定价与成本', '厂商原价、售价与毛利率；低于最低毛利的模型会被拦在付费提交之外。') +
+    `<div class="metrics">
+      ${metric('Credit 汇率', money(settings.creditCnyRate), '1 Credit 折合人民币')}
+      ${metric('美元汇率', Number(settings.fxUsdCny || 0).toFixed(2), 'USD → CNY')}
+      ${metric('最低毛利率', (Number(settings.minMarginRate || 0) * 100).toFixed(0) + '%', '低于该值硬拦截')}
+      ${metric('低于红线', blocked, '当前被拦截的绑定')}
+      ${metric('待核实成本', unverified, '未录入合同价')}
+    </div>
+    <section class="panel"><div class="panel-head"><div><h2>全局参数</h2><p>修改后立即影响报价与拦截</p></div></div>
+      <form id="pricingSettingsForm" class="form-grid">
+        <label>Credit 汇率（元）<input name="rate" type="number" step="0.0001" min="0.0001" value="${esc(settings.creditCnyRate)}" required /></label>
+        <label>美元汇率<input name="fx" type="number" step="0.0001" min="0.0001" value="${esc(settings.fxUsdCny)}" required /></label>
+        <label>最低毛利率（0-1）<input name="margin" type="number" step="0.01" min="0" max="0.99" value="${esc(settings.minMarginRate)}" required /></label>
+        <div><button class="primary" type="submit">保存参数</button></div>
+      </form></section>
+    <section class="panel"><div class="panel-head"><div><h2>模型定价</h2><p>按毛利率升序；未核实成本不参与拦截</p></div><span class="badge gold">${rows.length} 条绑定</span></div>${pricingTable(rows)}</section>`;
+  $('pricingSettingsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = event.target.querySelector('button[type=submit]');
+    const form = new FormData(event.target);
+    setBusy(button, true);
+    try {
+      await request('/api/admin/pricing/settings', { method: 'PUT', body: JSON.stringify({ creditCnyRate: Number(form.get('rate')), fxUsdCny: Number(form.get('fx')), minMarginRate: Number(form.get('margin')) }) });
+      toast('定价参数已保存');
+      await navigate('pricing');
+    } catch (error) { toast(error.message); setBusy(button, false); }
+  });
+}
+function pricingPriceModal(row) {
+  if (!row.logicalModelId) { toast('该渠道模型还没有绑定逻辑模型'); return; }
+  openModal('修改售价', `<label>模型<input value="${esc(row.displayName || row.key)} / ${esc(row.providerModelId)}" disabled /></label><label>售价（Credits）<input name="credits" type="number" min="0" step="1" value="${row.creditsCost}" required /></label><p class="muted">当前 1 Credit = ¥${Number(state.pricingSettings?.creditCnyRate || 0).toFixed(2)}，低于最低毛利的售价会被拦截。</p>`, '保存', async (form) => {
+    await request(`/api/admin/pricing/model/${row.logicalModelId}`, { method: 'PUT', body: JSON.stringify({ creditsCost: Number(form.get('credits')) }) });
+    await navigate('pricing');
+  });
+}
+function pricingCostModal(row) {
+  openModal('录入厂商成本', `<label>渠道模型<input value="${esc(row.channelName)} / ${esc(row.providerModelId)}" disabled /></label><div class="form-row"><label>原价<input name="amount" type="number" step="0.0001" min="0" value="${row.costAmount}" required /></label><label>币种<select name="currency"><option value="CNY" ${row.costCurrency === 'CNY' ? 'selected' : ''}>CNY</option><option value="USD" ${row.costCurrency === 'USD' ? 'selected' : ''}>USD</option></select></label><label>计费单位<select name="unit"><option value="per_image" ${row.costUnit === 'per_image' ? 'selected' : ''}>每张</option><option value="per_second" ${row.costUnit === 'per_second' ? 'selected' : ''}>每秒</option></select></label></div><div class="form-row"><label>含税<select name="tax"><option value="true" ${row.taxIncluded ? 'selected' : ''}>含税</option><option value="false" ${!row.taxIncluded ? 'selected' : ''}>未税</option></select></label><label>核实状态<select name="verified"><option value="true" ${row.costVerified ? 'selected' : ''}>已核实</option><option value="false" ${!row.costVerified ? 'selected' : ''}>待核实</option></select></label></div><label>价格来源<input name="source" value="${esc(row.costSource)}" placeholder="标价页或合同链接" /></label><label>备注<input name="note" value="${esc(row.costNote)}" placeholder="例如：按季度签约价，2026-12 调整" /></label>`, '保存', async (form) => {
+    await request(`/api/admin/pricing/cost/${row.channelModelId}`, { method: 'PUT', body: JSON.stringify({ costAmount: Number(form.get('amount')), costCurrency: form.get('currency'), costUnit: form.get('unit'), taxIncluded: form.get('tax') === 'true', costVerified: form.get('verified') === 'true', costSource: form.get('source'), costNote: form.get('note') }) });
+    await navigate('pricing');
+  });
+}
+
 async function loadTasks() {
   const [tasks, runs] = await Promise.all([get('/api/admin/tasks'), get('/api/admin/task-runs')]);
   state.tasks = tasks || []; state.runs = runs || [];
@@ -430,6 +493,8 @@ content.addEventListener('click', async (event) => {
     if (action === 'app-publish') { setBusy(target, true); await patch(`/api/admin/apps/${target.dataset.id}`, { status: 'published' }); await navigate('ai'); return; }
     if (action === 'app-draft') { setBusy(target, true); await patch(`/api/admin/apps/${target.dataset.id}`, { status: 'draft' }); await navigate('ai'); return; }
     if (action === 'sync-models') { setBusy(target, true); const result = await post('/api/admin/ai/models/sync', {}); toast(`已同步 ${result.synced || 0} 个模型`); await navigate('ai'); return; }
+    if (action === 'pricing-price') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingPriceModal(row); return; }
+    if (action === 'pricing-cost') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingCostModal(row); return; }
     if (action === 'channel-new') return channelModal();
     if (action === 'channel-edit') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelEditModal(channel); return; }
     if (action === 'channel-key') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelKeyModal(channel); return; }

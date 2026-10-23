@@ -5,6 +5,7 @@ import { Badge, Button, Card, Dialog, StatePanel } from '../components/ui';
 import { useAssetPreview } from '../hooks/useAssetPreview';
 import { cancelTask, runMockTask } from '../services/tasks';
 import { retryLiveResult } from '../services/live';
+import { isResultSaveFailure } from '../lib/outputs';
 import { useApp } from '../stores/app';
 import type { Task } from '../types';
 
@@ -56,8 +57,8 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     {task.product && <section className="task-detail-section"><h3>商品依据</h3><p><b>{task.product.name}</b> · SKU {task.product.sku}</p>{task.product.description && <p>{task.product.description}</p>}</section>}
     <div className="dialog-actions task-detail-actions">
       {task.status === 'Succeeded' && <Button onClick={() => { onClose(); navigate('/works'); }}><ArrowUpRight size={16} /> 查看作品</Button>}
-      {(task.status === 'Failed' || task.status === 'Cancelled') && <Button onClick={retry}><RotateCcw size={16} /> 重新提交</Button>}
-      {task.source === 'live' && task.errorCode === 'RESULT_SAVE_FAILED' && <Button variant="secondary" onClick={() => { retryLiveResult(task.id); onClose(); }}><RotateCcw size={16} /> 重新获取结果</Button>}
+      {(task.status === 'Failed' || task.status === 'Cancelled') && !isResultSaveFailure(task.errorCode) && <Button onClick={retry}><RotateCcw size={16} /> 重新提交</Button>}
+      {task.source === 'live' && isResultSaveFailure(task.errorCode) && <Button variant="secondary" onClick={() => { retryLiveResult(task.id); onClose(); }}><RotateCcw size={16} /> 重新获取缺失结果{task.expectedOutputs ? `（${task.savedOutputs?.length ?? 0}/${task.expectedOutputs}）` : ''}</Button>}
       {running && task.source !== 'live' && <Button variant="secondary" onClick={() => { cancelTask(task.id); notify('任务已取消'); onClose(); }}><Ban size={16} /> 取消任务</Button>}
       <Button variant="ghost" onClick={onClose}>关闭</Button>
     </div>

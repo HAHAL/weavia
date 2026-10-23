@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiRequest, setApiSession } from '../services/api';
+import { enterAccountScope, leaveAccountScope } from './account';
 
 export type AuthUser = { id: string; email: string; name?: string };
 type LoginResponse = { accessToken: string; refreshToken: string; expiresAt: string; user: AuthUser };
@@ -70,6 +71,7 @@ export const useAuth = create<AuthState>((set) => ({
       }, { auth: false });
       setApiSession(data.accessToken);
       saveSession(data.accessToken, data.refreshToken, data.user, remember);
+      enterAccountScope(data.user.id);
       set({ user: data.user, token: data.accessToken, status: 'authenticated' });
     } catch (error) {
       set({ status: 'anonymous', error: error instanceof Error ? error.message : '登录失败' });
@@ -91,6 +93,7 @@ export const useAuth = create<AuthState>((set) => ({
       }, { auth: false });
       setApiSession(data.accessToken);
       saveSession(data.accessToken, data.refreshToken, data.user, false);
+      enterAccountScope(data.user.id);
       set({ user: data.user, token: data.accessToken, status: 'authenticated' });
     } catch (error) {
       set({ status: 'anonymous', error: error instanceof Error ? error.message : '注册失败' });
@@ -102,6 +105,7 @@ export const useAuth = create<AuthState>((set) => ({
     const saved = readSession();
     try { await apiRequest('/api/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken: saved?.refreshToken || '' }) }); } catch { /* best effort */ }
     clearSession();
+    leaveAccountScope();
     set({ user: null, token: null, status: 'anonymous' });
   },
 
@@ -111,6 +115,7 @@ export const useAuth = create<AuthState>((set) => ({
     setApiSession(saved.token);
     try {
       const user = await apiRequest<AuthUser>('/api/auth/me');
+      enterAccountScope(user.id);
       set({ user, token: saved.token, status: 'authenticated' });
       saveSession(saved.token, saved.refreshToken, user, Boolean(saved.rememberedUntil));
       return;
@@ -118,7 +123,7 @@ export const useAuth = create<AuthState>((set) => ({
       // Access tokens live for 15 minutes. Fall back to the refresh token
       // before asking the user to sign in again.
     }
-    if (!saved.refreshToken) { clearSession(); set({ user: null, token: null, status: 'anonymous' }); return; }
+    if (!saved.refreshToken) { clearSession(); leaveAccountScope(); set({ user: null, token: null, status: 'anonymous' }); return; }
     try {
       const refreshed = await apiRequest<LoginResponse>('/api/auth/refresh', {
         method: 'POST',
@@ -126,9 +131,11 @@ export const useAuth = create<AuthState>((set) => ({
       }, { auth: false });
       setApiSession(refreshed.accessToken);
       saveSession(refreshed.accessToken, refreshed.refreshToken, refreshed.user, Boolean(saved.rememberedUntil));
+      enterAccountScope(refreshed.user.id);
       set({ user: refreshed.user, token: refreshed.accessToken, status: 'authenticated' });
     } catch {
       clearSession();
+      leaveAccountScope();
       set({ user: null, token: null, status: 'anonymous' });
     }
   },
@@ -136,5 +143,6 @@ export const useAuth = create<AuthState>((set) => ({
 
 window.addEventListener('weavia:unauthorized', () => {
   clearSession();
+  leaveAccountScope();
   useAuth.setState({ user: null, token: null, status: 'anonymous' });
 });

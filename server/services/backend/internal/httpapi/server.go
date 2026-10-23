@@ -23,6 +23,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/conversation"
 	"github.com/weavia/weavia/services/backend/internal/generation"
 	"github.com/weavia/weavia/services/backend/internal/modelcatalog"
+	"github.com/weavia/weavia/services/backend/internal/pricing"
 	"github.com/weavia/weavia/services/backend/internal/providerconfig"
 	"github.com/weavia/weavia/services/backend/internal/quote"
 	"github.com/weavia/weavia/services/backend/internal/recipes"
@@ -40,6 +41,7 @@ type Server struct {
 	Showcase             *showcase.Service
 	Credentials          *providerconfig.Service
 	Models               *modelcatalog.Service
+	Pricing              *pricing.Service
 	Routing              *routing.Service
 	Recipes              *recipes.Service
 	Workflows            *workflows.Service
@@ -175,6 +177,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/task-runs", s.adminTaskRuns)
 			r.Get("/showcase", s.adminListShowcase)
 			r.Get("/ai/channels", s.adminChannels)
+			r.Get("/pricing", s.adminPricing)
 		})
 		r.With(s.requirePermission("provider.write")).Patch("/ai/providers/{providerID}", s.patchProvider)
 		r.With(s.requirePermission("provider.write")).Put("/ai/providers/{providerCode}/credential", s.adminSetProviderCredential)
@@ -185,6 +188,9 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("provider.write")).Patch("/apps/{appID}", s.adminSetAppStatus)
 		r.With(s.requirePermission("provider.write")).Patch("/ai/channels/{channelID}", s.adminUpdateChannel)
 		r.With(s.requirePermission("provider.write")).Put("/ai/channels/{channelID}/key", s.adminSetChannelKey)
+		r.With(s.requirePermission("provider.write")).Put("/pricing/settings", s.adminUpdatePricingSettings)
+		r.With(s.requirePermission("provider.write")).Put("/pricing/cost/{channelModelID}", s.adminUpdateChannelCost)
+		r.With(s.requirePermission("provider.write")).Put("/pricing/model/{logicalModelID}", s.adminUpdateModelPrice)
 		r.With(s.requirePermission("showcase.write")).Post("/showcase", s.adminUploadShowcase)
 		r.With(s.requirePermission("showcase.write")).Patch("/showcase/{showcaseID}", s.adminPatchShowcase)
 		r.With(s.requirePermission("showcase.write")).Delete("/showcase/{showcaseID}", s.adminDeleteShowcase)
@@ -650,6 +656,12 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.QuoteID != "" && s.Quotes != nil {
 		if _, err := s.Quotes.ValidateForTask(r.Context(), userID, input.QuoteID, quoteRequestForTask(input)); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if s.Pricing != nil {
+		if err := s.Pricing.CheckModel(r.Context(), input.LogicalModel); err != nil {
 			writeError(w, err)
 			return
 		}

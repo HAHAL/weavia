@@ -1,10 +1,19 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Asset, Product, Task, Work } from '../types';
 import { log } from '../lib/logger';
+import { STATE_STORAGE_NAME, currentScope } from './scope';
 type Theme = 'light' | 'cream' | 'dark';
 type AvatarChoice = { type: 'system' | 'custom'; value: string };
 type AppState = { collapsed: boolean; theme: Theme; products: Product[]; assets: Asset[]; tasks: Task[]; works: Work[]; avatars: Record<string, AvatarChoice>; enabledSkills: string[]; toast: string | null; setCollapsed: (v: boolean) => void; setTheme: (v: Theme) => void; notify: (v: string) => void; addProduct: (v: Product) => void; addAsset: (v: Asset) => void; deleteAsset: (id: string) => void; submitTask: (v: Task) => void; updateTask: (id: string, patch: Partial<Task>) => void; addWork: (v: Work) => void; updateWork: (v: Work) => void; toggleSkill: (id: string) => void; setAvatar: (userId: string, avatar: AvatarChoice) => void };
+
+// 每个账号一份分区：键名随当前作用域变化，登出后落到 anonymous 分区。
+const scopedStorage = {
+  getItem: (name: string) => window.localStorage.getItem(`${name}.${currentScope()}`),
+  setItem: (name: string, value: string) => window.localStorage.setItem(`${name}.${currentScope()}`, value),
+  removeItem: (name: string) => window.localStorage.removeItem(`${name}.${currentScope()}`),
+};
+
 export const useApp = create<AppState>()(persist((set) => ({
   collapsed: false, theme: 'light', products: [], assets: [], tasks: [], works: [], avatars: {}, enabledSkills: ['hero','scene','variant'], toast: null,
   setCollapsed: (collapsed) => set({ collapsed }), setTheme: (theme) => set({ theme }), notify: (toast) => set({ toast }),
@@ -17,4 +26,9 @@ export const useApp = create<AppState>()(persist((set) => ({
   updateWork: (work) => set(s => ({ works: s.works.map(w => w.id === work.id ? work : w) })),
   toggleSkill: (id) => set(s => ({ enabledSkills: s.enabledSkills.includes(id) ? s.enabledSkills.filter(x => x !== id) : [...s.enabledSkills,id] })),
   setAvatar: (userId, avatar) => { set(s => ({ avatars: { ...s.avatars, [userId]: avatar } })); log('info','avatar.updated',avatar.type); }
-}), { name: 'weavia.state.v1', partialize: s => ({ collapsed:s.collapsed,theme:s.theme,products:s.products,assets:s.assets,tasks:s.tasks,works:s.works,avatars:s.avatars,enabledSkills:s.enabledSkills }) }));
+}), {
+  name: STATE_STORAGE_NAME,
+  version: 2,
+  storage: createJSONStorage(() => scopedStorage),
+  partialize: s => ({ collapsed:s.collapsed,theme:s.theme,products:s.products,assets:s.assets,tasks:s.tasks,works:s.works,avatars:s.avatars,enabledSkills:s.enabledSkills }),
+}));

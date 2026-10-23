@@ -2,6 +2,7 @@ import { apiBlob, apiRequest } from './api';
 import { importAsset } from './assets';
 import { uploadReferenceAsset } from './serverAssets';
 import { useApp } from '../stores/app';
+import { isResultSaveFailure, missingIndexes, savedIndexes } from '../lib/outputs';
 import type { CreativeBrief, ProductBrief, Task, TaskStatus, Work } from '../types';
 
 export type ServerTask = {
@@ -58,45 +59,52 @@ export function toTask(server: ServerTask, prompt: string, product?: ProductBrie
 }
 
 async function complete(id: string, server: ServerTask) {
-  const state = useApp.getState();
-  const task = state.tasks.find(item => item.id === id);
+  const task = useApp.getState().tasks.find(item => item.id === id);
   const outputs = (server.outputs || []).map((item, index) => ({ ...item, index })).filter(item => item.base64Data || item.objectKey);
   if (!task || !outputs.length) {
-    state.updateTask(id, { status: 'Failed', error: '任务成功但没有可读取的结果' });
-    timers.delete(id);
-    attempts.delete(id);
+    useApp.getState().updateTask(id, { status: 'Failed', errorCode: 'RESULT_SAVE_FAILED', error: '任务成功但没有可读取的结果' });
+    timers.delete(id); attempts.delete(id); parentWorks.delete(id);
     return;
   }
-  try {
-    const parentId = parentWorks.get(id);
-    const parent = parentId ? state.works.find(item => item.id === parentId) : undefined;
-    let firstWorkId = parent?.id || '';
-    for (const [sequence, output] of outputs.entries()) {
+  const total = outputs.length;
+  const saved = new Set(savedIndexes(task, useApp.getState().works));
+  const parentId = parentWorks.get(id);
+  const parent = parentId ? useApp.getState().works.find(item => item.id === parentId) : undefined;
+  let firstWorkId = task.workId || parent?.id || '';
+  for (const index of missingIndexes([...saved], total)) {
+    const output = outputs.find(item => item.index === index);
+    if (!output) continue;
+    try {
       const mime = output.mimeType || (task.mode === 'video' ? 'video/mp4' : 'image/png');
       const blob = output.base64Data ? await (await fetch(output.base64Data)).blob() : await apiBlob(`/api/ai/tasks/${id}/outputs/${output.index}`);
       const extension = mime === 'video/mp4' ? 'mp4' : mime === 'video/webm' ? 'webm' : mime === 'image/jpeg' ? 'jpg' : 'png';
-      const asset = await importAsset(new File([blob], `${id}-${sequence + 1}.${extension}`, { type: mime }));
+      const asset = await importAsset(new File([blob], `${id}-${index + 1}.${extension}`, { type: mime }));
       useApp.getState().addAsset({ ...asset, category: '作品' });
       const version = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), prompt: task.prompt, assetId: asset.id, mimeType: mime };
-      if (parent && sequence === 0) {
+      if (parent && index === 0) {
         useApp.getState().updateWork({ ...parent, versions: [...parent.versions, version] });
-        continue;
+      } else if (!useApp.getState().works.some(work => work.taskId === id && work.outputIndex === index)) {
+        const workId = crypto.randomUUID();
+        const work: Work = { id: workId, title: total > 1 ? `${task.title} · ${index + 1}` : task.title, mode: task.mode, taskId: id, source: 'live', product: task.product, reviewStatus: 'pending', versions: [version], outputIndex: index };
+        useApp.getState().addWork(work);
+        if (!firstWorkId) firstWorkId = workId;
       }
-      const workId = crypto.randomUUID();
-      const work: Work = { id: workId, title: outputs.length > 1 ? `${task.title} · ${sequence + 1}` : task.title, mode: task.mode, taskId: id, source: 'live', product: task.product, reviewStatus: 'pending', versions: [version] };
-      useApp.getState().addWork(work);
-      if (!firstWorkId) firstWorkId = workId;
-    }
-    useApp.getState().updateTask(id, { status: 'Succeeded', progress: 100, workId: firstWorkId, error: undefined });
-    useApp.getState().notify(parent ? 'AI 编辑已保存为新版本' : `${task.mode === 'video' ? '视频' : '图片'}生成完成，已保存 ${outputs.length} 件作品`);
-    window.dispatchEvent(new Event('weavia:credits'));
-  } catch (error) {
-    state.updateTask(id, { status: 'Failed', errorCode: 'RESULT_SAVE_FAILED', error: error instanceof Error ? error.message : '结果保存失败' });
-  } finally {
-    timers.delete(id);
-    attempts.delete(id);
-    parentWorks.delete(id);
+      // 每存成功一张立刻记账，崩溃或断网后只补缺失的序号。
+      saved.add(index);
+      useApp.getState().updateTask(id, { savedOutputs: [...saved].sort((a, b) => a - b), expectedOutputs: total });
+      window.dispatchEvent(new Event('weavia:credits'));
+    } catch { /* 单张失败不阻断其余输出，最终按缺失集合提示重试 */ }
   }
+  const savedList = [...saved].sort((a, b) => a - b);
+  if (savedList.length >= total) {
+    useApp.getState().updateTask(id, { status: 'Succeeded', progress: 100, workId: firstWorkId, expectedOutputs: total, savedOutputs: savedList, error: undefined, errorCode: undefined });
+    useApp.getState().notify(parent ? 'AI 编辑已保存为新版本' : `${task.mode === 'video' ? '视频' : '图片'}生成完成，已保存 ${savedList.length} 件作品`);
+  } else {
+    useApp.getState().updateTask(id, { status: 'Failed', progress: 100, errorCode: 'RESULT_SAVE_INCOMPLETE', error: `已保存 ${savedList.length}/${total}，可重新获取缺失结果`, expectedOutputs: total, savedOutputs: savedList });
+  }
+  timers.delete(id);
+  attempts.delete(id);
+  parentWorks.delete(id);
 }
 
 export function trackLiveTask(server: ServerTask, prompt: string, parentWorkId?: string, product?: ProductBrief) {
@@ -115,8 +123,11 @@ function poll(id: string) {
       attempts.set(id, count);
       const status = mapStatus(server.status);
       if (status === 'Succeeded') {
-        if (useApp.getState().works.some(work => work.taskId === id)) {
-          useApp.getState().updateTask(id, { status: 'Succeeded', progress: 100 });
+        const current = useApp.getState().tasks.find(item => item.id === id);
+        const total = (server.outputs || []).filter(item => item.base64Data || item.objectKey).length;
+        const saved = current ? savedIndexes(current, useApp.getState().works) : [];
+        if (current && total > 0 && missingIndexes(saved, total).length === 0) {
+          useApp.getState().updateTask(id, { status: 'Succeeded', progress: 100, expectedOutputs: total });
           timers.delete(id); attempts.delete(id); return;
         }
         await complete(id, server); return;
@@ -178,8 +189,14 @@ export async function createLiveTask(prompt: string, modelId: string, params?: {
 }
 
 export function resumeLiveTasks() {
-  for (const task of useApp.getState().tasks) {
-    if (task.source === 'live' && (task.status === 'Queued' || task.status === 'Running' || (task.status === 'Succeeded' && !useApp.getState().works.some(work => work.taskId === task.id)))) poll(task.id);
+  const state = useApp.getState();
+  for (const task of state.tasks) {
+    if (task.source !== 'live') continue;
+    if (task.status === 'Queued' || task.status === 'Running') { poll(task.id); continue; }
+    const saved = savedIndexes(task, state.works).length;
+    const expected = task.expectedOutputs ?? 0;
+    if (expected > saved && (task.status === 'Succeeded' || isResultSaveFailure(task.errorCode))) { poll(task.id); continue; }
+    if (task.status === 'Succeeded' && saved === 0) poll(task.id);
   }
 }
 

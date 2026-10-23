@@ -3,7 +3,9 @@ import { BaseDirectory } from '@tauri-apps/api/path';
 import { mkdir, readFile, remove, writeFile } from '@tauri-apps/plugin-fs';
 import type { Asset } from '../types';
 import { log } from '../lib/logger';
-const DIR='assets';
+import { currentScope } from '../stores/scope';
+// 素材文件按账号分目录；旧路径 assets/<id>.<ext> 仍按记录的原路径读取。
+const assetDir=()=>`assets/${currentScope()}`;
 async function sha256(bytes:Uint8Array){const digest=await crypto.subtle.digest('SHA-256',bytes as BufferSource);return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');}
 function extension(mime:string){return ({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif','video/mp4':'mp4','video/webm':'webm'} as Record<string,string>)[mime]||'bin';}
 export async function importAsset(file:File):Promise<Asset>{
@@ -11,7 +13,7 @@ export async function importAsset(file:File):Promise<Asset>{
   const maxMb=file.type.startsWith('video/')?(isTauri()?100:25):(isTauri()?10:2);
   if(file.size>maxMb*1024*1024)throw new Error(`单个素材不能超过 ${maxMb} MB`);
   const id=crypto.randomUUID();const bytes=new Uint8Array(await file.arrayBuffer());const common={id,name:file.name,category:'商品图',mime:file.type,size:file.size,sha256:await sha256(bytes),createdAt:new Date().toISOString()};
-  if(isTauri()) {const localPath=`${DIR}/${id}.${extension(file.type)}`;try{await mkdir(DIR,{baseDir:BaseDirectory.AppLocalData,recursive:true});await writeFile(localPath,bytes,{baseDir:BaseDirectory.AppLocalData});return {...common,localPath};}catch{log('error','asset.write');throw new Error('本地文件写入失败');}}
+  if(isTauri()) {const localPath=`${assetDir()}/${id}.${extension(file.type)}`;try{await mkdir(assetDir(),{baseDir:BaseDirectory.AppLocalData,recursive:true});await writeFile(localPath,bytes,{baseDir:BaseDirectory.AppLocalData});return {...common,localPath};}catch{log('error','asset.write');throw new Error('本地文件写入失败');}}
   return {...common,dataUrl:await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file);})};
 }
 export async function loadAssetPreview(asset:Asset):Promise<string>{
