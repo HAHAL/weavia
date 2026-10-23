@@ -1,4 +1,4 @@
-const BUILD_TAG = '2026-10-24-a';
+const BUILD_TAG = '2026-10-24-b';
 const $ = (id) => document.getElementById(id);
 const content = $('content');
 const modal = $('modal');
@@ -20,18 +20,27 @@ const defaultApiBase = location.port && location.port !== '80' && location.port 
 let apiBase = localStorage.getItem('weavia.admin.api') || defaultApiBase;
 let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
-const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
+const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', health: 'checking', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
 
 
-let tablePagers = [];
+const tablePagers = new Map();
+let nextTableId = 0;
 
-function enhanceTables() {
-  tablePagers = [];
-  document.querySelectorAll('#content table').forEach((table) => {
+function renderInto(target, html) {
+  target.innerHTML = html;
+  enhanceTables(target);
+}
+
+function enhanceTables(root = content) {
+  for (const table of tablePagers.keys()) {
+    if (!table.isConnected) tablePagers.delete(table);
+  }
+  root.querySelectorAll('table').forEach((table) => {
     if (table.dataset.enhanced) return;
     const tbody = table.tBodies[0];
     if (!tbody || !table.tHead || tbody.rows.length < 15) return;
     table.dataset.enhanced = '1';
+    table.dataset.tableId ||= `table-${++nextTableId}`;
     const rows = [...tbody.rows];
     const state = { page: 0, size: 20 };
 
@@ -85,13 +94,16 @@ function enhanceTables() {
       });
     });
 
-    tablePagers.push(refresh);
+    tablePagers.set(table, refresh);
     refresh();
   });
 }
 
 function refreshTables() {
-  tablePagers.forEach((fn) => fn());
+  for (const [table, refresh] of tablePagers) {
+    if (table.isConnected) refresh();
+    else tablePagers.delete(table);
+  }
 }
 
 function esc(value) {
@@ -191,19 +203,27 @@ async function login(event) {
     email = data.user.email;
     sessionStorage.setItem('weavia.admin.token', token);
     sessionStorage.setItem('weavia.admin.email', email);
-    showAdmin(); renderNav(); await navigate('dashboard');
+    showAdmin(); renderNav(); await navigate('dashboard'); await checkService();
   } catch (error) {
     $('loginError').textContent = error.message;
   } finally {
     setBusy(button, false);
   }
 }
+function renderHealth() {
+  const labels = { checking: '检查中…', ok: '服务正常', down: '服务异常', unreachable: '服务不可达' };
+  const label = labels[state.health] || labels.checking;
+  $('serviceStatus').textContent = label;
+  if ($('settingsHealth')) $('settingsHealth').textContent = label;
+}
 async function checkService() {
-  $('serviceStatus').textContent = '检查中…';
+  state.health = 'checking';
+  renderHealth();
   try {
     const response = await fetch(apiBase.replace(/\/$/, '') + '/api/health');
-    $('serviceStatus').textContent = response.ok ? '服务正常' : '服务异常';
-  } catch { $('serviceStatus').textContent = '服务不可达'; }
+    state.health = response.ok ? 'ok' : 'down';
+  } catch { state.health = 'unreachable'; }
+  renderHealth();
 }
 async function navigate(pageId) {
   state.page = pageId;
@@ -247,7 +267,7 @@ async function loadUsers() {
   state.users = users || [];
   state.invites = inviteData?.items || [];
   content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态。') + `<div class="panel"><div class="toolbar"><input id="userSearch" placeholder="搜索邮箱、姓名或套餐" /><span class="spacer"></span><span class="badge gold">${state.users.length} 位用户</span></div><div id="userTable"></div></div>`
-  const draw = (rows) => { $('userTable').innerHTML = usersTable(rows); };
+  const draw = (rows) => { renderInto($('userTable'), usersTable(rows)); };
   draw(state.users);
   $('userSearch').addEventListener('input', (event) => {
     const query = event.target.value.trim().toLowerCase();
@@ -370,9 +390,9 @@ function renderCommerceTabs() {
 }
 function renderCommerceBody() {
   const body = $('commerceBody');
-  if (state.commerceTab === 'plans') body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>套餐</h2><p>价格与启用状态可调整</p></div></div>${plansTable(state.plans)}</div>`;
-  else if (state.commerceTab === 'orders') body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>订单</h2><p>最近 200 笔</p></div></div>${ordersTable(state.orders)}</div>`;
-  else body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>支付记录</h2><p>Provider 与到账状态</p></div></div>${paymentsTable(state.payments)}</div>`;
+  if (state.commerceTab === 'plans') renderInto(body, `<div class="panel"><div class="panel-head"><div><h2>套餐</h2><p>价格与启用状态可调整</p></div></div>${plansTable(state.plans)}</div>`);
+  else if (state.commerceTab === 'orders') renderInto(body, `<div class="panel"><div class="panel-head"><div><h2>订单</h2><p>最近 200 笔</p></div></div>${ordersTable(state.orders)}</div>`);
+  else renderInto(body, `<div class="panel"><div class="panel-head"><div><h2>支付记录</h2><p>Provider 与到账状态</p></div></div>${paymentsTable(state.payments)}</div>`);
 }
 function plansTable(rows) {
   if (!rows.length) return empty('还没有套餐');
@@ -395,7 +415,7 @@ function renderAITabs() {
 function renderAIBody() {
   const body = $('aiBody');
   if (state.aiTab === 'overview') {
-    body.innerHTML = renderAIOverview();
+    renderInto(body, renderAIOverview());
     return;
   }
   if (state.aiTab === 'providers') {
@@ -430,6 +450,7 @@ function renderAIBody() {
       refreshTables();
     });
   });
+  enhanceTables(body);
 }
 
 
@@ -622,7 +643,7 @@ async function loadPricing() {
   });
   const groupSelect = $('pricingGroup');
   if (groupSelect) {
-    groupSelect.addEventListener('change', () => { $('pricingBody').innerHTML = pricingTable(state.pricing, Number(groupSelect.value)); enhanceTables(); });
+    groupSelect.addEventListener('change', () => renderInto($('pricingBody'), pricingTable(state.pricing, Number(groupSelect.value))));
   }
 }
 function pricingPriceModal(row) {
@@ -702,9 +723,9 @@ async function loadTasks() {
   renderTaskBody();
 }
 function renderTaskBody() {
-  $('taskBody').innerHTML = state.taskTab === 'tasks'
+  renderInto($('taskBody'), state.taskTab === 'tasks'
     ? `<div class="panel"><div class="panel-head"><div><h2>任务</h2><p>最近 500 个</p></div></div>${tasksTable(state.tasks)}</div>`
-    : `<div class="panel"><div class="panel-head"><div><h2>执行记录</h2><p>River 任务尝试与结果</p></div></div>${runsTable(state.runs)}</div>`;
+    : `<div class="panel"><div class="panel-head"><div><h2>执行记录</h2><p>River 任务尝试与结果</p></div></div>${runsTable(state.runs)}</div>`);
 }
 function runsTable(rows) {
   if (!rows.length) return empty('还没有执行记录');
@@ -719,7 +740,7 @@ async function loadShowcase() {
 }
 function renderShowcaseBody() {
   const rows = state.showcaseFilter === 'all' ? state.showcase : state.showcase.filter((item) => item.kind === state.showcaseFilter);
-  $('showcaseBody').innerHTML = rows.length ? `<div class="showcase-grid">${rows.map((item) => `<article class="showcase-card"><img src="${apiBase.replace(/\/$/, '')}${esc(item.imageUrl)}" alt="${esc(item.title)}" loading="eager" /><div class="showcase-body"><div class="showcase-top"><span class="badge ${item.kind === 'work' ? 'gold' : ''}">${item.kind === 'work' ? '示例作品' : '示例图'}</span>${status(item.status)}</div><h3>${esc(item.title)}</h3><p>${esc(item.tag || '未设置标签')} · 排序 ${item.sortOrder}</p><div class="row-actions"><button data-action="showcase-toggle" data-id="${esc(item.id)}" data-status="${item.status === 'published' ? 'draft' : 'published'}">${item.status === 'published' ? '下架' : '发布'}</button><button data-action="showcase-edit" data-id="${esc(item.id)}">编辑</button><button class="danger" data-action="showcase-delete" data-id="${esc(item.id)}">删除</button></div></div></article>`).join('')}</div>` : empty('这个分类还没有内容');
+  renderInto($('showcaseBody'), rows.length ? `<div class="showcase-grid">${rows.map((item) => `<article class="showcase-card"><img src="${apiBase.replace(/\/$/, '')}${esc(item.imageUrl)}" alt="${esc(item.title)}" loading="eager" /><div class="showcase-body"><div class="showcase-top"><span class="badge ${item.kind === 'work' ? 'gold' : ''}">${item.kind === 'work' ? '示例作品' : '示例图'}</span>${status(item.status)}</div><h3>${esc(item.title)}</h3><p>${esc(item.tag || '未设置标签')} · 排序 ${item.sortOrder}</p><div class="row-actions"><button data-action="showcase-toggle" data-id="${esc(item.id)}" data-status="${item.status === 'published' ? 'draft' : 'published'}">${item.status === 'published' ? '下架' : '发布'}</button><button data-action="showcase-edit" data-id="${esc(item.id)}">编辑</button><button class="danger" data-action="showcase-delete" data-id="${esc(item.id)}">删除</button></div></div></article>`).join('')}</div>` : empty('这个分类还没有内容'));
 }
 async function loadAnalytics() {
   const [overview, usage, tasks] = await Promise.all([get('/api/admin/overview'), get('/api/admin/ai/usage'), get('/api/admin/tasks')]);
@@ -733,9 +754,10 @@ async function loadSettings() {
   const rows = (logs.items || []).map((item) => `<tr><td>${fmtDate(item.createdAt)}</td><td>${esc(item.actor)}</td><td><span class="cell-main">${esc(item.action)}</span><span class="cell-sub">${esc(item.resourceType)} ${esc(String(item.resourceId || '').slice(0, 8))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.before || {}))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.after || {}))}</span></td><td>${esc(item.ip || '—')}</td></tr>`).join('') || emptyRow(6);
   content.innerHTML = pageHead('设置', '后台连接与当前工作区信息。') +
     `<div class="panel"><div class="panel-head"><div><h2>连接</h2><p>管理后台通过此地址访问 Go API</p></div></div><div class="form-grid"><label>API 地址<input id="settingsApi" value="${esc(apiBase)}" /></label><label>当前管理员<input value="${esc(email)}" disabled /></label><label>后台版本<input value="${BUILD_TAG}" disabled /></label><div><button class="primary" data-action="save-api">保存 API 地址</button></div></div></div>
-    <div class="panel"><div class="panel-head"><div><h2>服务状态</h2><p>健康检查结果</p></div><button class="secondary" data-action="check-service">重新检查</button></div><p>${esc($('serviceStatus').textContent)}</p></div>
+    <div class="panel"><div class="panel-head"><div><h2>服务状态</h2><p>健康检查结果</p></div><button class="secondary" data-action="check-service">重新检查</button></div><p id="settingsHealth" role="status"></p></div>
     <div class="panel"><div class="panel-head"><div><h2>最近管理操作</h2><p>路由、模型接入等写操作留痕，最多 100 条</p></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>变更前</th><th>变更后</th><th>来源 IP</th></tr></thead><tbody>${rows}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><div><h2>关于</h2><p>WEAVIA Admin Console</p></div></div><p>用户、商业、AI、任务、内容管理与数据分析，统一在新 Go API 之上。</p></div>`;
+  renderHealth();
 }
 function openModal(title, body, submitLabel, onSubmit) {
   modal.innerHTML = `<form method="dialog" class="modal-inner"><div class="modal-head"><div><span class="eyebrow">WEAVIA ADMIN</span><h2>${esc(title)}</h2></div><button type="button" class="modal-close" aria-label="关闭" data-close-modal>×</button></div><div class="form-grid">${body}</div><p class="form-error" id="modalError" role="alert"></p><div class="modal-actions"><button type="button" class="secondary" data-close-modal>取消</button><button type="submit" class="primary">${esc(submitLabel)}</button></div></form>`;
