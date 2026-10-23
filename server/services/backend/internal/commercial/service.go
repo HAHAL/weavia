@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/weavia/weavia/services/backend/internal/generation"
 )
 
 var ErrInsufficientCredits = errors.New("insufficient credits")
@@ -609,7 +610,7 @@ func (s *Service) ListSKUAssets(ctx context.Context, userID, skuID string) ([]As
 }
 
 func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.account_no,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at,coalesce(ic.code,'') FROM users u LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.account_no,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at,coalesce(ic.code,''),u.oss_sync_enabled FROM users u LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -621,10 +622,11 @@ func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
 		var balance int64
 		var created time.Time
 		var inviteCode string
-		if err = rows.Scan(&id, &accountNo, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created, &inviteCode); err != nil {
+		var ossSync bool
+		if err = rows.Scan(&id, &accountNo, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created, &inviteCode, &ossSync); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created, "inviteCode": inviteCode, "accountNo": accountNo})
+		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created, "inviteCode": inviteCode, "accountNo": accountNo, "ossSync": ossSync})
 	}
 	return out, rows.Err()
 }
@@ -634,20 +636,21 @@ func (s *Service) AccountLookup(ctx context.Context, accountNo string) (map[stri
 	var id, account, email, name, status, inviteCode, plan string
 	var created time.Time
 	var available, reserved, tasks, successes, assets int64
+	var ossSync bool
 	err := s.pool.QueryRow(ctx, `
 		SELECT u.id::text, u.account_no, u.email, COALESCE(u.name,''), u.status::text, u.created_at,
 		       COALESCE(c.available_balance,0), COALESCE(c.reserved_balance,0),
 		       (SELECT count(*) FROM tasks t WHERE t.user_id=u.id),
 		       (SELECT count(*) FROM tasks t WHERE t.user_id=u.id AND t.status='success'),
 		       (SELECT count(*) FROM assets a WHERE a.user_id=u.id),
-		       COALESCE(ic.code,''), COALESCE(p.code,'free')
+		       COALESCE(ic.code,''), COALESCE(p.code,'free'), u.oss_sync_enabled
 		FROM users u
 		LEFT JOIN credit_accounts c ON c.user_id=u.id
 		LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id
 		LEFT JOIN LATERAL (SELECT plan_id FROM subscriptions WHERE user_id=u.id ORDER BY created_at DESC LIMIT 1) sub ON true
 		LEFT JOIN plans p ON p.id=sub.plan_id
 		WHERE upper(u.account_no)=upper($1) OR u.id::text=$1 OR lower(u.email)=lower($1)`, accountNo).
-		Scan(&id, &account, &email, &name, &status, &created, &available, &reserved, &tasks, &successes, &assets, &inviteCode, &plan)
+		Scan(&id, &account, &email, &name, &status, &created, &available, &reserved, &tasks, &successes, &assets, &inviteCode, &plan, &ossSync)
 	if err != nil {
 		return nil, err
 	}
@@ -669,8 +672,30 @@ func (s *Service) AccountLookup(ctx context.Context, accountNo string) (map[stri
 	return map[string]any{
 		"id": id, "accountNo": account, "email": email, "name": name, "status": status, "createdAt": created,
 		"plan": plan, "credits": available, "reserved": reserved, "tasks": tasks, "successes": successes,
-		"assets": assets, "inviteCode": inviteCode, "recentTasks": recent,
+		"assets": assets, "inviteCode": inviteCode, "ossSync": ossSync, "recentTasks": recent,
 	}, rows.Err()
+}
+
+// SetOSSSync 由后台按账户授权客户端 OSS 同步。
+func (s *Service) SetOSSSync(ctx context.Context, actorID, userID string, enabled bool) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET oss_sync_enabled=$2, oss_sync_enabled_at=CASE WHEN $2 THEN now() ELSE NULL END, oss_sync_enabled_by=CASE WHEN $2 THEN nullif($3,'')::uuid ELSE NULL END, updated_at=now() WHERE id=$1`, userID, enabled, actorID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "用户不存在", Status: 404}
+	}
+	return nil
+}
+
+// FeatureFlags 返回当前账户可用的功能开关。
+func (s *Service) FeatureFlags(ctx context.Context, userID string) (map[string]any, error) {
+	var accountNo string
+	var ossSync bool
+	if err := s.pool.QueryRow(ctx, `SELECT account_no, oss_sync_enabled FROM users WHERE id=$1`, userID).Scan(&accountNo, &ossSync); err != nil {
+		return nil, err
+	}
+	return map[string]any{"accountNo": accountNo, "ossSync": ossSync}, nil
 }
 
 func (s *Service) AdminCreditTransactions(ctx context.Context) ([]map[string]any, error) {

@@ -109,6 +109,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/auth/devices", s.listDevices)
 			r.Delete("/auth/devices/{deviceID}", s.revokeDevice)
 			r.Get("/auth/sessions", s.listSessions)
+			r.Get("/features", s.features)
 			r.Delete("/auth/sessions/{sessionID}", s.revokeSession)
 			r.Post("/auth/sessions/revoke-all", s.revokeAllSessions)
 			r.Post("/me/deletion-requests", s.requestDeletion)
@@ -206,6 +207,7 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("credits.write")).Post("/credits/adjust", s.adminAdjustCredits)
 		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/status", s.adminSetUserStatus)
 		r.With(s.requirePermission("users.write")).Post("/invites", s.adminCreateInvite)
+		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/oss-sync", s.adminSetOSSSync)
 		r.With(s.requirePermission("users.write")).Patch("/invites/{inviteID}", s.adminUpdateInvite)
 		r.With(s.requirePermission("users.write")).Post("/users/deletion-requests/{requestID}/approve", s.approveDeletion)
 		r.With(s.requirePermission("users.write")).Post("/users/deletion-requests/{requestID}/reject", s.rejectDeletion)
@@ -375,6 +377,20 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := s.Auth.Me(r.Context(), strings.TrimPrefix(header, "Bearer "))
 	respond(w, user, err)
+}
+func (s *Server) features(w http.ResponseWriter, r *http.Request) {
+	data, err := s.Commercial.FeatureFlags(r.Context(), currentUser(r).ID)
+	respond(w, data, err)
+}
+func (s *Server) adminSetOSSSync(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decode(r, &input); err != nil {
+		writeError(w, err)
+		return
+	}
+	respond(w, map[string]bool{"ok": true}, s.Commercial.SetOSSSync(r.Context(), currentUser(r).ID, chi.URLParam(r, "userID"), input.Enabled))
 }
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	var body struct {
