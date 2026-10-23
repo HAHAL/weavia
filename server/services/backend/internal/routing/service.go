@@ -446,6 +446,63 @@ func (s *Service) SetChannelKey(ctx context.Context, id, apiKey, userID string) 
 	return s.keys.SetChannelKey(ctx, id, apiKey, userID)
 }
 
+// Ability 是逻辑模型到渠道模型的绑定视图，供运营调优先级与启停。
+type Ability struct {
+	ID              string     `json:"id"`
+	LogicalKey      string     `json:"logicalKey"`
+	LogicalName     string     `json:"logicalName"`
+	Modality        string     `json:"modality"`
+	ChannelName     string     `json:"channelName"`
+	Provider        string     `json:"provider"`
+	ProviderModelID string     `json:"providerModelId"`
+	Credits         int64      `json:"credits"`
+	Priority        int        `json:"priority"`
+	Weight          int        `json:"weight"`
+	Enabled         bool       `json:"enabled"`
+	CooldownUntil   *time.Time `json:"cooldownUntil"`
+}
+
+func (s *Service) ListAbilities(ctx context.Context) ([]Ability, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id::text, lm.key, lm.display_name, lm.modality, c.name, c.provider_code, cm.provider_model_id,
+		       lm.credits_cost, a.priority, a.weight, a.enabled, a.cooldown_until
+		FROM logical_model_abilities a
+		JOIN logical_models lm ON lm.id = a.logical_model_id
+		JOIN channel_models cm ON cm.id = a.channel_model_id
+		JOIN provider_channels c ON c.id = cm.channel_id
+		ORDER BY lm.sort_order, lm.display_name, a.priority DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Ability{}
+	for rows.Next() {
+		var item Ability
+		if err = rows.Scan(&item.ID, &item.LogicalKey, &item.LogicalName, &item.Modality, &item.ChannelName, &item.Provider, &item.ProviderModelID, &item.Credits, &item.Priority, &item.Weight, &item.Enabled, &item.CooldownUntil); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) UpdateAbility(ctx context.Context, id string, priority, weight *int, enabled *bool) error {
+	if priority != nil && (*priority < 0 || *priority > 10000) {
+		return &generation.APIError{Code: "INVALID_REQUEST", Message: "优先级必须在 0 到 10000 之间", Status: 400}
+	}
+	if weight != nil && (*weight < 0 || *weight > 1000) {
+		return &generation.APIError{Code: "INVALID_REQUEST", Message: "权重必须在 0 到 1000 之间", Status: 400}
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE logical_model_abilities SET priority=COALESCE($2,priority), weight=COALESCE($3,weight), enabled=COALESCE($4,enabled) WHERE id=$1`, id, priority, weight, enabled)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "绑定不存在", Status: 404}
+	}
+	return nil
+}
+
 // DiscoverModels 用渠道 Key 拉取供应商的模型列表（只读）。
 func (s *Service) DiscoverModels(ctx context.Context, channelID string) ([]string, error) {
 	var provider, base string

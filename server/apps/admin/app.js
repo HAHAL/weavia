@@ -304,10 +304,8 @@ function renderAIBody() {
     const videos = platform.filter((item) => item.modality === 'video');
     body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>平台模型</h2><p>来自 Provider /models；显示名、模态与接入状态</p></div><div class="row-actions"><span class="badge gold">${platform.length} 个模型</span><button class="mini" data-action="sync-models">同步到客户端</button></div></div><div class="toolbar" style="margin:12px 0"><input id="modelFilter" placeholder="搜索模型名称或 ID" /></div><h3 class="model-section-title">图片模型</h3>${platformTable(images)}<h3 class="model-section-title">视频模型</h3>${platformTable(videos)}</div>`;
   } else if (state.aiTab === 'routing') {
-    const logical = state.routing?.logicalModels || [];
     const bindings = state.routing?.bindings || [];
-    const models = state.models?.providerModels || [];
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>逻辑模型路由</h2><p>客户端看到的模型（逻辑模型）到具体渠道模型的映射；同一逻辑模型可绑定多个渠道，按优先级与权重选择</p></div></div><div class="toolbar" style="margin:12px 0"><input id="routingFilter" placeholder="搜索逻辑模型或渠道模型" /></div><div class="table-wrap"><table><thead><tr><th>逻辑模型</th><th>绑定模型</th><th>优先级</th><th>状态</th></tr></thead><tbody>${bindings.map((binding) => { const logicalModel = logical.find((item) => item.id === binding.logicalModelId); const model = models.find((item) => item.id === binding.providerModelId); return `<tr><td><span class="cell-main">${esc(logicalModel?.displayName || binding.logicalModelId)}</span><span class="cell-sub">${esc(logicalModel?.key || '')}</span></td><td>${esc(model?.displayName || binding.providerModelId)}</td><td>${binding.priority}</td><td>${status(binding.enabled ? 'active' : 'disabled')}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>逻辑模型路由</h2><p>客户端看到的模型 → 实际渠道模型；优先级越大越先选中，可按权重分流</p></div></div><div class="toolbar" style="margin:12px 0"><input id="routingFilter" placeholder="搜索逻辑模型、渠道或模型 ID" /></div>${routingTable(bindings)}</div>`;
   } else if (state.aiTab === 'groups') {
     body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>渠道分组</h2><p>把优质渠道放进独立分组，绑定给指定账户；组内不可用时自动回退默认组</p></div><button class="primary" data-action="group-new">新建分组</button></div>${routeGroupsTable(state.routeGroups || [])}</div>`;
   } else {
@@ -322,6 +320,18 @@ function renderAIBody() {
         row.hidden = Boolean(query) && !row.textContent.toLowerCase().includes(query);
       });
     });
+  });
+}
+
+
+function routingTable(rows) {
+  if (!rows.length) return empty('还没有路由绑定');
+  return `<div class="table-wrap"><table><thead><tr><th>逻辑模型</th><th>渠道</th><th>渠道模型</th><th>售价</th><th>优先级</th><th>权重</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.logicalName || row.logicalKey)}</span><span class="cell-sub">${esc(row.logicalKey)} · ${esc(row.modality)}</span></td><td>${esc(row.channelName)}<span class="cell-sub">${esc(row.provider)}</span></td><td><span class="cell-sub">${esc(row.providerModelId)}</span></td><td>${fmtNumber(row.credits)}</td><td>${row.priority}</td><td>${row.weight}</td><td>${row.enabled ? status('active') : status('disabled')}${row.cooldownUntil ? `<span class="cell-sub">冷却至 ${fmtDate(row.cooldownUntil)}</span>` : ''}</td><td><button data-action="routing-edit" data-id="${esc(row.id)}">调整</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function routingEditModal(binding) {
+  openModal('调整路由', `<label>逻辑模型<input value="${esc(binding.logicalName || binding.logicalKey)} → ${esc(binding.channelName)}" disabled /></label><div class="form-row"><label>优先级<input name="priority" type="number" min="0" max="10000" value="${binding.priority}" /></label><label>权重<input name="weight" type="number" min="0" max="1000" value="${binding.weight}" /></label></div><label>状态<select name="enabled"><option value="true" ${binding.enabled ? 'selected' : ''}>启用</option><option value="false" ${!binding.enabled ? 'selected' : ''}>停用</option></select></label><p class="muted">同一逻辑模型下，优先级高的渠道先被选中；同优先级按权重分流。</p>`, '保存', async (form) => {
+    await patch(`/api/admin/ai/routing/${binding.id}`, { priority: Number(form.get('priority')), weight: Number(form.get('weight')), enabled: form.get('enabled') === 'true' });
+    await navigate('ai');
   });
 }
 
@@ -787,6 +797,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'sync-models') { setBusy(target, true); const result = await post('/api/admin/ai/models/sync', {}); toast(`已同步 ${result.synced || 0} 个模型`); await navigate('ai'); return; }
     if (action === 'pricing-price') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingPriceModal(row); return; }
     if (action === 'pricing-cost') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingCostModal(row); return; }
+    if (action === 'routing-edit') { const binding = (state.routing?.bindings || []).find((item) => item.id === target.dataset.id); if (binding) routingEditModal(binding); return; }
     if (action === 'group-new') return groupNewModal();
     if (action === 'group-channels') { const group = (state.routeGroups || []).find((item) => item.id === target.dataset.id); if (group) groupChannelsModal(group); return; }
     if (action === 'channel-discover') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelDiscoverModal(channel); return; }

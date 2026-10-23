@@ -201,6 +201,7 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("provider.write")).Put("/ai/channels/{channelID}/key", s.adminSetChannelKey)
 		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/keys", s.adminListChannelKeys)
 		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/keys-health", s.adminChannelKeyHealth)
+		r.With(s.requirePermission("provider.write")).Patch("/ai/routing/{bindingID}", s.adminUpdateRouting)
 		r.With(s.requirePermission("provider.write")).Patch("/ai/channel-keys/{keyID}", s.adminUpdateChannelKey)
 		r.With(s.requirePermission("provider.write")).Delete("/ai/channel-keys/{keyID}", s.adminDeleteChannelKey)
 		r.With(s.requirePermission("provider.write")).Put("/pricing/settings", s.adminUpdatePricingSettings)
@@ -922,8 +923,25 @@ func (s *Server) listPlatformModels(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{"items": filtered})
 }
-func (s *Server) adminRouting(w http.ResponseWriter, _ *http.Request) {
-	ok(w, map[string]any{"logicalModels": generation.LogicalModels, "bindings": generation.Bindings})
+func (s *Server) adminRouting(w http.ResponseWriter, r *http.Request) {
+	items, err := s.Routing.ListAbilities(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]any{"logicalModels": generation.LogicalModels, "bindings": items})
+}
+func (s *Server) adminUpdateRouting(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Priority *int  `json:"priority"`
+		Weight   *int  `json:"weight"`
+		Enabled  *bool `json:"enabled"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	respond(w, map[string]bool{"ok": true}, s.Routing.UpdateAbility(r.Context(), chi.URLParam(r, "bindingID"), body.Priority, body.Weight, body.Enabled))
 }
 func (s *Server) adminUsage(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Commercial.AdminUsage(r.Context())
