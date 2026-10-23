@@ -45,6 +45,8 @@ type Server struct {
 	Models               *modelcatalog.Service
 	Invites              *invite.Service
 	StorageConfig        *storageconfig.Service
+	SupportEmail         string
+	SupportURL           string
 	Pricing              *pricing.Service
 	Routing              *routing.Service
 	Recipes              *recipes.Service
@@ -186,6 +188,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/invites", s.adminInvites)
 			r.Get("/storage", s.adminStorage)
 			r.Get("/audit-logs", s.adminAuditLogs)
+			r.Get("/roles", s.adminRoles)
+			r.Get("/users/{userID}/roles", s.adminUserRoles)
 			r.Get("/accounts/{accountNo}", s.adminAccountLookup)
 			r.Get("/route-groups", s.adminRouteGroups)
 			r.Get("/ai/provider-summary", s.adminProviderSummary)
@@ -199,6 +203,8 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("provider.write")).Patch("/skills/{skillID}", s.adminReviewSkill)
 		r.With(s.requirePermission("provider.write")).Patch("/apps/{appID}", s.adminSetAppStatus)
 		r.With(s.requirePermission("provider.write")).Patch("/ai/channels/{channelID}", s.adminUpdateChannel)
+		r.With(s.requirePermission("provider.write")).Patch("/ai/channels/{channelID}/meta", s.adminUpdateChannelMeta)
+		r.With(s.requirePermission("provider.write")).Delete("/ai/channels/{channelID}", s.adminDeleteChannel)
 		r.With(s.requirePermission("provider.write")).Put("/ai/channels/{channelID}/key", s.adminSetChannelKey)
 		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/keys", s.adminListChannelKeys)
 		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/keys-health", s.adminChannelKeyHealth)
@@ -224,6 +230,7 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("showcase.write")).Delete("/showcase/{showcaseID}", s.adminDeleteShowcase)
 		r.With(s.requirePermission("credits.write")).Post("/credits/adjust", s.adminAdjustCredits)
 		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/status", s.adminSetUserStatus)
+		r.With(s.requirePermission("users.write")).Put("/users/{userID}/roles", s.adminSetUserRoles)
 		r.With(s.requirePermission("users.write")).Post("/invites", s.adminCreateInvite)
 		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/oss-sync", s.adminSetOSSSync)
 		r.With(s.requirePermission("users.write")).Patch("/invites/{inviteID}", s.adminUpdateInvite)
@@ -398,6 +405,10 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) features(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Commercial.FeatureFlags(r.Context(), currentUser(r).ID)
+	if err == nil {
+		data["supportEmail"] = s.SupportEmail
+		data["supportUrl"] = s.SupportURL
+	}
 	respond(w, data, err)
 }
 func (s *Server) adminSetOSSSync(w http.ResponseWriter, r *http.Request) {

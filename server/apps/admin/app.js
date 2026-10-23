@@ -20,6 +20,78 @@ let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
 const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
 
+
+let tablePagers = [];
+
+function enhanceTables() {
+  tablePagers = [];
+  document.querySelectorAll('#content table').forEach((table) => {
+    if (table.dataset.enhanced) return;
+    const tbody = table.tBodies[0];
+    if (!tbody || !table.tHead || tbody.rows.length < 15) return;
+    table.dataset.enhanced = '1';
+    const rows = [...tbody.rows];
+    const state = { page: 0, size: 20 };
+
+    const bar = document.createElement('div');
+    bar.className = 'table-bar';
+    bar.innerHTML = '<span class="table-info"></span><div class="row-actions"><button type="button" class="mini" data-role="prev">上一页</button><button type="button" class="mini" data-role="next">下一页</button><button type="button" class="mini" data-role="csv">导出 CSV</button></div>';
+    const wrap = table.closest('.table-wrap') || table;
+    wrap.parentElement.insertBefore(bar, wrap.nextSibling);
+
+    const refresh = () => {
+      const visible = rows.filter((row) => row.dataset.filtered !== '1');
+      const pages = Math.max(1, Math.ceil(visible.length / state.size));
+      state.page = Math.min(state.page, pages - 1);
+      rows.forEach((row) => { row.hidden = true; });
+      visible.slice(state.page * state.size, (state.page + 1) * state.size).forEach((row) => { row.hidden = false; });
+      bar.querySelector('.table-info').textContent = `共 ${visible.length} 条 · 第 ${state.page + 1}/${pages} 页`;
+      bar.querySelector('[data-role=prev]').disabled = state.page === 0;
+      bar.querySelector('[data-role=next]').disabled = state.page >= pages - 1;
+    };
+    bar.querySelector('[data-role=prev]').onclick = () => { state.page -= 1; refresh(); };
+    bar.querySelector('[data-role=next]').onclick = () => { state.page += 1; refresh(); };
+    bar.querySelector('[data-role=csv]').onclick = () => {
+      const visible = rows.filter((row) => row.dataset.filtered !== '1');
+      const header = [...table.tHead.rows[0].cells].map((cell) => `"${cell.textContent.trim()}"`).join(',');
+      const body = visible.map((row) => [...row.cells].map((cell) => `"${cell.textContent.replace(/"/g, '""').trim()}"`).join(',')).join('\n');
+      const blob = new Blob([header + '\n' + body], { type: 'text/csv;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'weavia-export.csv';
+      link.click();
+      URL.revokeObjectURL(link.href);
+    };
+
+    [...table.tHead.rows[0].cells].forEach((th, index) => {
+      th.style.cursor = 'pointer';
+      th.title = '点击排序';
+      th.addEventListener('click', () => {
+        const current = th.dataset.dir === 'asc' ? 'asc' : 'desc';
+        const next = current === 'asc' ? 'desc' : 'asc';
+        th.dataset.dir = next;
+        rows.sort((a, b) => {
+          const av = a.cells[index]?.textContent.trim() || '';
+          const bv = b.cells[index]?.textContent.trim() || '';
+          const an = parseFloat(av.replace(/[^\d.-]/g, ''));
+          const bn = parseFloat(bv.replace(/[^\d.-]/g, ''));
+          const result = Number.isFinite(an) && Number.isFinite(bn) ? an - bn : av.localeCompare(bv, 'zh-CN');
+          return next === 'asc' ? result : -result;
+        });
+        rows.forEach((row) => tbody.appendChild(row));
+        refresh();
+      });
+    });
+
+    tablePagers.push(refresh);
+    refresh();
+  });
+}
+
+function refreshTables() {
+  tablePagers.forEach((fn) => fn());
+}
+
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
@@ -137,7 +209,7 @@ async function navigate(pageId) {
   $('pageKicker').textContent = page.kicker;
   renderNav();
   content.innerHTML = loading();
-  try { await loaders[pageId](); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
+  try { await loaders[pageId](); enhanceTables(); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
 }
 const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
@@ -212,19 +284,33 @@ function invitesTable(rows) {
   }).join('')}</tbody></table></div>`;
 }
 function inviteNewModal() {
-  openModal('生成邀请码', `<label>备注<input name="note" maxlength="80" placeholder="例如：小红书内测第 1 批" /></label><div class="form-row"><label>可用次数<select name="maxUses"><option value="1">1 次</option><option value="5">5 次</option><option value="10">10 次</option><option value="0">不限次数</option></select></label><label>有效期（天）<input name="validDays" type="number" min="1" max="365" value="7" required /></label></div><p class="muted">默认 7 天；邀请码在客户端注册页填写，一个码用满或到期即失效。</p>`, '生成', async (form) => {
-    const item = await post('/api/admin/invites', { note: form.get('note'), maxUses: Number(form.get('maxUses')), validDays: Number(form.get('validDays') || 7) });
+  openModal('生成邀请码', `<label>备注<input name="note" maxlength="80" placeholder="例如：小红书内测第 1 批" /></label><div class="form-row"><label>数量<input name="count" type="number" min="1" max="50" value="1" /></label><label>可用次数<select name="maxUses"><option value="1">1 次</option><option value="5">5 次</option><option value="10">10 次</option><option value="0">不限次数</option></select></label><label>有效期（天）<input name="validDays" type="number" min="1" max="365" value="7" required /></label></div><p class="muted">默认 7 天；邀请码在客户端注册页填写，一个码用满或到期即失效。</p>`, '生成', async (form) => {
+    const data = await post('/api/admin/invites', { note: form.get('note'), maxUses: Number(form.get('maxUses')), validDays: Number(form.get('validDays') || 7), count: Number(form.get('count') || 1) });
+    const items = data.items || [];
     await navigate('users');
-    openModal('邀请码已生成', `<label>邀请码<input value="${esc(item.code)}" readonly /></label><p class="muted">有效期至 ${esc(item.expiresAt ? new Date(item.expiresAt).toLocaleString('zh-CN') : '长期')}，可用 ${item.maxUses === 0 ? '不限' : item.maxUses} 次。复制后发给用户。</p>`, '完成', async () => {});
-    try { await navigator.clipboard.writeText(item.code); } catch { /* 手动复制 */ }
+    const list = items.map((item) => `<label>邀请码<input value="${esc(item.code)}" readonly /></label>`).join('');
+    openModal(`已生成 ${items.length} 个邀请码`, `${list}<p class="muted">有效期至 ${esc(items[0]?.expiresAt ? new Date(items[0].expiresAt).toLocaleString('zh-CN') : '长期')}，每个可用 ${items[0]?.maxUses === 0 ? '不限' : items[0]?.maxUses} 次。</p>`, '完成', async () => {});
+    try { await navigator.clipboard.writeText(items.map((item) => item.code).join('\n')); } catch { /* 手动复制 */ }
   });
 }
 
 function usersTable(rows) {
   if (!rows.length) return empty('没有匹配的用户');
-  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-roles" data-id="${esc(user.id)}" data-email="${esc(user.email)}">角色</button><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
+
+
+async function userRolesModal(userID, email) {
+  const [roles, current] = await Promise.all([get('/api/admin/roles'), get(`/api/admin/users/${userID}/roles`)]);
+  const selected = new Set(current.codes || []);
+  const rows = (roles.items || []).map((role) => `<label class="switch-row"><span>${esc(role.name)} <small>${esc(role.code)} · ${role.permissions} 项权限</small></span><input type="checkbox" name="role" value="${esc(role.code)}" ${selected.has(role.code) ? 'checked' : ''} /></label>`).join('');
+  openModal(`${email} 的角色`, `<div class="form-grid">${rows}</div><p class="muted">角色决定后台权限；不能移除自己的超级管理员。</p>`, '保存', async () => {
+    const codes = [...modal.querySelectorAll('input[name=role]:checked')].map((input) => input.value);
+    await request(`/api/admin/users/${userID}/roles`, { method: 'PUT', body: JSON.stringify({ codes }) });
+    await navigate('users');
+  });
+}
 
 async function accountGroupsModal(accountNo) {
   const [current, groups] = await Promise.all([get(`/api/admin/accounts/${encodeURIComponent(accountNo)}/groups`), Promise.resolve(state.routeGroups || [])]);
@@ -317,8 +403,9 @@ function renderAIBody() {
     input.addEventListener('input', () => {
       const query = input.value.trim().toLowerCase();
       document.querySelectorAll('#aiBody tbody tr').forEach((row) => {
-        row.hidden = Boolean(query) && !row.textContent.toLowerCase().includes(query);
+        row.dataset.filtered = Boolean(query) && !row.textContent.toLowerCase().includes(query) ? '1' : '0';
       });
+      refreshTables();
     });
   });
 }
@@ -441,7 +528,7 @@ function modelsTable(rows) {
 }
 function channelsTable(rows) {
   if (!rows.length) return empty('还没有渠道');
-  return `<div class="table-wrap"><table><thead><tr><th>渠道</th><th>Provider</th><th>优先级</th><th>权重</th><th>模型</th><th>Key</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map((channel) => `<tr><td><span class="cell-main">${esc(channel.name)}</span><span class="cell-sub">${esc(channel.baseUrl || '默认 Base URL')}</span></td><td>${esc(channel.providerCode)}</td><td>${channel.priority}</td><td>${channel.weight}</td><td>${channel.modelCount}</td><td>${channel.keyLast4 ? '•••• ' + esc(channel.keyLast4) : '<span class="badge danger">未配置</span>'}</td><td>${status(channel.enabled ? 'active' : 'disabled')}</td><td><div class="row-actions"><button data-action="channel-edit" data-id="${esc(channel.id)}">优先级</button><button data-action="channel-keys" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">Keys</button><button data-action="channel-models" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">模型</button><button data-action="channel-discover" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">发现模型</button><button data-action="channel-model-add" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">手动接入</button><button data-action="channel-key" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">添加 Key</button><button data-action="channel-toggle" data-id="${esc(channel.id)}" data-enabled="${channel.enabled ? 'false' : 'true'}">${channel.enabled ? '停用' : '启用'}</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>渠道</th><th>Provider</th><th>优先级</th><th>权重</th><th>模型</th><th>Key</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.map((channel) => `<tr><td><span class="cell-main">${esc(channel.name)}</span><span class="cell-sub">${esc(channel.baseUrl || '默认 Base URL')}</span></td><td>${esc(channel.providerCode)}</td><td>${channel.priority}</td><td>${channel.weight}</td><td>${channel.modelCount}</td><td>${channel.keyLast4 ? '•••• ' + esc(channel.keyLast4) : '<span class="badge danger">未配置</span>'}</td><td>${status(channel.enabled ? 'active' : 'disabled')}</td><td><div class="row-actions"><button data-action="channel-edit" data-id="${esc(channel.id)}">优先级</button><button data-action="channel-keys" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">Keys</button><button data-action="channel-meta" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}" data-url="${esc(channel.baseUrl || '')}">编辑</button><button data-action="channel-delete" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">删除</button><button data-action="channel-models" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">模型</button><button data-action="channel-discover" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">发现模型</button><button data-action="channel-model-add" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">手动接入</button><button data-action="channel-key" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">添加 Key</button><button data-action="channel-toggle" data-id="${esc(channel.id)}" data-enabled="${channel.enabled ? 'false' : 'true'}">${channel.enabled ? '停用' : '启用'}</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function skillsTable(rows) {
@@ -471,16 +558,17 @@ function marginBadge(row) {
   if (row.status === 'needs_duration') return '<span class="badge warning">按秒待换算</span>';
   return '<span class="badge success">正常</span>';
 }
-function pricingTable(rows) {
+function pricingTable(rows, multiplier = 1) {
   if (!rows.length) return empty('还没有可定价的模型绑定');
+  const mult = Number(multiplier) || 1;
   const rank = { block: 0, ok: 1, needs_duration: 2, unverified: 3 };
   const sorted = [...rows].sort((a, b) => ((rank[a.status] ?? 9) - (rank[b.status] ?? 9)) || ((a.marginRate || 0) - (b.marginRate || 0)));
-  return `<div class="table-wrap"><table><thead><tr><th>模型</th><th>渠道</th><th>售价</th><th>售价(¥)</th><th>厂商原价</th><th>毛利(¥)</th><th>毛利率</th><th>状态</th><th>操作</th></tr></thead><tbody>${sorted.map((row) => `<tr><td><span class="cell-main">${esc(row.displayName || row.key || '未绑定')}</span><span class="cell-sub">${esc(row.providerModelId)}</span></td><td>${esc(row.channelName)}</td><td>${fmtNumber(row.creditsCost)} Credits</td><td>${money(row.sellCny)}</td><td>${money(row.costCny)} <span class="cell-sub">${esc(row.costCurrency)}/${esc(row.costUnit === 'per_second' ? '秒' : '张')}${row.taxIncluded ? ' 含税' : ' 未税'}${row.costVerified ? '' : ' · 未核实'}</span></td><td class="${row.marginCny < 0 ? 'negative' : ''}">${row.status === 'ok' || row.status === 'block' ? money(row.marginCny) : '—'}</td><td>${row.status === 'ok' || row.status === 'block' ? (row.marginRate * 100).toFixed(1) + '%' : '—'}</td><td>${marginBadge(row)}${row.reason ? `<span class="cell-sub">${esc(row.reason)}</span>` : ''}</td><td><div class="row-actions"><button data-action="pricing-price" data-id="${esc(row.channelModelId)}" data-model="${esc(row.logicalModelId)}">改售价</button><button data-action="pricing-cost" data-id="${esc(row.channelModelId)}">录成本</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>模型</th><th>渠道</th><th>售价</th><th>售价(¥)</th><th>厂商原价</th><th>毛利(¥)</th><th>毛利率</th><th>状态</th><th>操作</th></tr></thead><tbody>${sorted.map((row) => `<tr><td><span class="cell-main">${esc(row.displayName || row.key || '未绑定')}</span><span class="cell-sub">${esc(row.providerModelId)}</span></td><td>${esc(row.channelName)}</td><td>${fmtNumber(row.creditsCost)} Credits</td><td>${money(row.sellCny * mult)}</td><td>${money(row.costCny)} <span class="cell-sub">${esc(row.costCurrency)}/${esc(row.costUnit === 'per_second' ? '秒' : '张')}${row.taxIncluded ? ' 含税' : ' 未税'}${row.costVerified ? '' : ' · 未核实'}</span></td><td class="${row.sellCny * mult - row.costCny < 0 ? 'negative' : ''}">${row.status === 'ok' || row.status === 'block' ? money(row.sellCny * mult - row.costCny) : '—'}</td><td>${row.status === 'ok' || row.status === 'block' ? (((row.sellCny * mult - row.costCny) / (row.sellCny * mult)) * 100).toFixed(1) + '%' : '—'}</td><td>${marginBadge(row)}${row.reason ? `<span class="cell-sub">${esc(row.reason)}</span>` : ''}</td><td><div class="row-actions"><button data-action="pricing-price" data-id="${esc(row.channelModelId)}" data-model="${esc(row.logicalModelId)}">改售价</button><button data-action="pricing-cost" data-id="${esc(row.channelModelId)}">录成本</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 async function loadPricing() {
   const data = await get('/api/admin/pricing');
   const rows = data.items || []; const settings = data.settings || {};
-  state.pricing = rows; state.pricingSettings = settings;
+  state.pricing = rows; state.pricingSettings = settings; state.pricingGroups = data.groups || [];
   const blocked = rows.filter((row) => row.status === 'block').length;
   const unverified = rows.filter((row) => row.status === 'unverified' || row.status === 'needs_duration').length;
   content.innerHTML = pageHead('定价与成本', '厂商原价、售价与毛利率；低于最低毛利的模型会被拦在付费提交之外。') +
@@ -498,7 +586,7 @@ async function loadPricing() {
         <label>最低毛利率（0-1）<input name="margin" type="number" step="0.01" min="0" max="0.99" value="${esc(settings.minMarginRate)}" required /></label>
         <div><button class="primary" type="submit">保存参数</button></div>
       </form></section>
-    <section class="panel"><div class="panel-head"><div><h2>模型定价</h2><p>按毛利率升序；未核实成本不参与拦截</p></div><span class="badge gold">${rows.length} 条绑定</span></div>${pricingTable(rows)}</section>`;
+    <section class="panel"><div class="panel-head"><div><h2>模型定价</h2><p>按毛利率升序；切换分组查看该组的实付价与毛利</p></div><div class="row-actions"><select id="pricingGroup">${(data.groups || []).map((g) => `<option value="${g.priceMultiplier}">${esc(g.name)} ×${Number(g.priceMultiplier).toFixed(2)}</option>`).join('') || '<option value="1">默认 ×1.00</option>'}</select><span class="badge gold">${rows.length} 条绑定</span></div></div><div id="pricingBody">${pricingTable(rows)}</div></section>`;
   $('pricingSettingsForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = event.target.querySelector('button[type=submit]');
@@ -510,6 +598,10 @@ async function loadPricing() {
       await navigate('pricing');
     } catch (error) { toast(error.message); setBusy(button, false); }
   });
+  const groupSelect = $('pricingGroup');
+  if (groupSelect) {
+    groupSelect.addEventListener('change', () => { $('pricingBody').innerHTML = pricingTable(state.pricing, Number(groupSelect.value)); enhanceTables(); });
+  }
 }
 function pricingPriceModal(row) {
   if (!row.logicalModelId) { toast('该渠道模型还没有绑定逻辑模型'); return; }
@@ -759,6 +851,14 @@ function channelModal() {
   });
 }
 
+
+function channelMetaModal(channel) {
+  openModal('编辑渠道', `<label>名称<input name="name" value="${esc(channel.name)}" required /></label><label>Base URL<input name="baseUrl" value="${esc(channel.baseUrl || '')}" placeholder="留空使用 Provider 默认" /></label>`, '保存', async (form) => {
+    await request(`/api/admin/ai/channels/${channel.id}/meta`, { method: 'PATCH', body: JSON.stringify({ name: form.get('name'), baseUrl: form.get('baseUrl') }) });
+    await navigate('ai');
+  });
+}
+
 function channelEditModal(channel) {
   openModal('渠道优先级', `<label>渠道<input value="${esc(channel.name)}" disabled /></label><div class="form-row"><label>优先级<input name="priority" type="number" value="${channel.priority}" /></label><label>权重<input name="weight" type="number" min="0" value="${channel.weight}" /></label></div><p class="muted">同优先级按权重随机；失败会自动切换。</p>`, '保存', async (form) => {
     await patch(`/api/admin/ai/channels/${channel.id}`, { priority: Number(form.get('priority')), weight: Number(form.get('weight')) });
@@ -822,6 +922,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'invite-copy') { try { await navigator.clipboard.writeText(target.dataset.code); toast('邀请码已复制'); } catch { toast('复制失败，请手动选择'); } return; }
     if (action === 'invite-toggle') { setBusy(target, true); await patch(`/api/admin/invites/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
     if (action === 'oss-sync') { setBusy(target, true); await patch(`/api/admin/users/${target.dataset.id}/oss-sync`, { enabled: target.dataset.enabled === 'true' }); await navigate('users'); return; }
+    if (action === 'user-roles') { userRolesModal(target.dataset.id, target.dataset.email); return; }
     if (action === 'account-groups') { accountGroupsModal(target.dataset.no); return; }
     if (action === 'account-lookup') { const row = state.users.find((item) => item.accountNo === target.dataset.no); if (row) accountLookupModal(row.accountNo); return; }
     if (action === 'user-activity') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) userActivityModal(user); return; }
@@ -839,6 +940,8 @@ content.addEventListener('click', async (event) => {
     if (action === 'group-new') return groupNewModal();
     if (action === 'group-price') { const group = (state.routeGroups || []).find((item) => item.id === target.dataset.id); if (group) groupPriceModal(group); return; }
     if (action === 'group-channels') { const group = (state.routeGroups || []).find((item) => item.id === target.dataset.id); if (group) groupChannelsModal(group); return; }
+    if (action === 'channel-meta') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelMetaModal(channel); return; }
+    if (action === 'channel-delete') { if (!confirm(`删除渠道「${target.dataset.name}」？其 Key、模型与绑定会一起删除，不可恢复。`)) return; setBusy(target, true); await remove(`/api/admin/ai/channels/${target.dataset.id}`); await navigate('ai'); return; }
     if (action === 'channel-models') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelModelsModal(channel); return; }
     if (action === 'channel-model-toggle') { setBusy(target, true); await patch(`/api/admin/ai/channel-models/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelModelsModal(channel); return; }
     if (action === 'channel-discover') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelDiscoverModal(channel); return; }

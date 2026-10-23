@@ -663,6 +663,72 @@ func (s *Service) AdminAuditLogs(ctx context.Context, limit int) ([]map[string]a
 	return out, rows.Err()
 }
 
+// ListRoles 返回角色与权限数量，供后台分配。
+func (s *Service) ListRoles(ctx context.Context) ([]map[string]any, error) {
+	rows, err := s.pool.Query(ctx, `SELECT r.code, r.name, count(rp.permission_id) FROM roles r LEFT JOIN role_permissions rp ON rp.role_id=r.id GROUP BY r.code, r.name ORDER BY r.code`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var code, name string
+		var permissions int64
+		if err = rows.Scan(&code, &name, &permissions); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{"code": code, "name": name, "permissions": permissions})
+	}
+	return out, rows.Err()
+}
+
+// SetUserRoles 覆盖用户的角色集合；不允许操作者移除自己的 super_admin。
+func (s *Service) SetUserRoles(ctx context.Context, actorID, userID string, codes []string) error {
+	if actorID == userID {
+		hasSuper := false
+		for _, code := range codes {
+			if code == "super_admin" {
+				hasSuper = true
+			}
+		}
+		if !hasSuper {
+			return &generation.APIError{Code: "INVALID_REQUEST", Message: "不能移除自己的超级管理员角色", Status: 400}
+		}
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `DELETE FROM user_roles WHERE user_id=$1`, userID); err != nil {
+		return err
+	}
+	for _, code := range codes {
+		if _, err = tx.Exec(ctx, `INSERT INTO user_roles(user_id, role_id) SELECT $1, id FROM roles WHERE code=$2 ON CONFLICT DO NOTHING`, userID, code); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// ListUserRoles 返回用户的角色代码。
+func (s *Service) ListUserRoles(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT r.code FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var code string
+		if err = rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		out = append(out, code)
+	}
+	return out, rows.Err()
+}
+
 // ProviderSummary 按供应商聚合渠道与 Key 数量，供 AI Studio 供应商页展示。
 func (s *Service) ProviderSummary(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.pool.Query(ctx, `

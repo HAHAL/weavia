@@ -17,7 +17,16 @@ func (s *Server) adminPricing(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	ok(w, map[string]any{"items": rows, "settings": settings})
+	groups := []any{}
+	if s.Routing != nil {
+		if list, err := s.Routing.ListRouteGroups(r.Context()); err == nil {
+			groups = make([]any, 0, len(list))
+			for _, group := range list {
+				groups = append(groups, map[string]any{"code": group.Code, "name": group.Name, "priceMultiplier": group.Multiplier})
+			}
+		}
+	}
+	ok(w, map[string]any{"items": rows, "settings": settings, "groups": groups})
 }
 
 func (s *Server) adminUpdatePricingSettings(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +35,13 @@ func (s *Server) adminUpdatePricingSettings(w http.ResponseWriter, r *http.Reque
 		writeError(w, err)
 		return
 	}
+	before, _ := s.Pricing.Settings(r.Context())
 	settings, err := s.Pricing.UpdateSettings(r.Context(), input)
+	if err == nil {
+		_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "pricing.settings", "billing_settings", "true", clientIP(r),
+			map[string]any{"creditCnyRate": before.CreditCNYRate, "minMarginRate": before.MinMarginRate},
+			map[string]any{"creditCnyRate": settings.CreditCNYRate, "minMarginRate": settings.MinMarginRate})
+	}
 	respond(w, settings, err)
 }
 
@@ -36,7 +51,14 @@ func (s *Server) adminUpdateChannelCost(w http.ResponseWriter, r *http.Request) 
 		writeError(w, err)
 		return
 	}
-	respond(w, map[string]bool{"ok": true}, s.Pricing.UpdateCost(r.Context(), chi.URLParam(r, "channelModelID"), input))
+	channelModelID := chi.URLParam(r, "channelModelID")
+	if err := s.Pricing.UpdateCost(r.Context(), channelModelID, input); err != nil {
+		writeError(w, err)
+		return
+	}
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "pricing.cost", "channel_model", channelModelID, clientIP(r), nil,
+		map[string]any{"costAmount": input.CostAmount, "currency": input.CostCurrency, "verified": input.CostVerified})
+	ok(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) adminUpdateModelPrice(w http.ResponseWriter, r *http.Request) {
@@ -47,5 +69,12 @@ func (s *Server) adminUpdateModelPrice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	respond(w, map[string]bool{"ok": true}, s.Pricing.UpdateModelPrice(r.Context(), chi.URLParam(r, "logicalModelID"), input.CreditsCost))
+	logicalModelID := chi.URLParam(r, "logicalModelID")
+	if err := s.Pricing.UpdateModelPrice(r.Context(), logicalModelID, input.CreditsCost); err != nil {
+		writeError(w, err)
+		return
+	}
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "pricing.price", "logical_model", logicalModelID, clientIP(r), nil,
+		map[string]any{"creditsCost": input.CreditsCost})
+	ok(w, map[string]bool{"ok": true})
 }

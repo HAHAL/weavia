@@ -426,6 +426,31 @@ func (s *Service) CreateChannel(ctx context.Context, providerCode, name, baseURL
 	return Channel{}, errors.New("channel not found after create")
 }
 
+func (s *Service) UpdateChannelMeta(ctx context.Context, id, name, baseURL string) error {
+	if strings.TrimSpace(name) == "" {
+		return &generation.APIError{Code: "INVALID_REQUEST", Message: "渠道名称不能为空", Status: 400}
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE provider_channels SET name=$2, base_url=$3, updated_at=now() WHERE id=$1`, id, strings.TrimSpace(name), strings.TrimSpace(baseURL))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "渠道不存在", Status: 404}
+	}
+	return nil
+}
+
+func (s *Service) DeleteChannel(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM provider_channels WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &generation.APIError{Code: "NOT_FOUND", Message: "渠道不存在", Status: 404}
+	}
+	return nil
+}
+
 func (s *Service) UpdateChannel(ctx context.Context, id string, priority, weight *int, enabled *bool) error {
 	_, err := s.pool.Exec(ctx, `UPDATE provider_channels SET priority=COALESCE($2,priority),weight=COALESCE($3,weight),enabled=COALESCE($4,enabled),updated_at=now() WHERE id=$1`, id, priority, weight, enabled)
 	return err

@@ -29,6 +29,8 @@ type Config struct {
 	RealAIEnabled             bool
 	AIMode                    string
 	InviteRequired            bool
+	SupportEmail              string
+	SupportURL                string
 	AssetStorageDir           string
 	StorageSigningKey         string
 }
@@ -54,6 +56,8 @@ func LoadConfig() Config {
 		RealAIEnabled:             os.Getenv("ENABLE_REAL_AI") == "true",
 		AIMode:                    env("AI_MODE", "real"),
 		InviteRequired:            env("INVITE_CODE_REQUIRED", "true") != "false",
+		SupportEmail:              env("SUPPORT_EMAIL", ""),
+		SupportURL:                env("SUPPORT_URL", ""),
 		AssetStorageDir:           env("ASSET_STORAGE_DIR", "./var/assets"),
 		StorageSigningKey:         os.Getenv("STORAGE_SIGNING_KEY"),
 	}

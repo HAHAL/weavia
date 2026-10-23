@@ -80,10 +80,12 @@ func (s *Server) adminSetChannelKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.Routing.SetChannelKey(r.Context(), chi.URLParam(r, "channelID"), body.APIKey, currentUser(r).ID); err != nil {
+	channelID := chi.URLParam(r, "channelID")
+	if err := s.Routing.SetChannelKey(r.Context(), channelID, body.APIKey, currentUser(r).ID); err != nil {
 		writeError(w, err)
 		return
 	}
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "channel.key.add", "provider_channel", channelID, clientIP(r), nil, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -109,7 +111,13 @@ func (s *Server) adminUpdateChannelKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminDeleteChannelKey(w http.ResponseWriter, r *http.Request) {
-	respond(w, map[string]bool{"ok": true}, s.Routing.DeleteChannelKey(r.Context(), chi.URLParam(r, "keyID")))
+	keyID := chi.URLParam(r, "keyID")
+	if err := s.Routing.DeleteChannelKey(r.Context(), keyID); err != nil {
+		writeError(w, err)
+		return
+	}
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "channel.key.delete", "channel_key", keyID, clientIP(r), nil, nil)
+	ok(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) adminChannelKeyHealth(w http.ResponseWriter, r *http.Request) {
@@ -179,4 +187,32 @@ func (s *Server) adminSetChannelModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, map[string]bool{"ok": true}, s.Routing.SetChannelModelEnabled(r.Context(), chi.URLParam(r, "modelID"), body.Enabled))
+}
+
+func (s *Server) adminUpdateChannelMeta(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name    string `json:"name"`
+		BaseURL string `json:"baseUrl"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	id := chi.URLParam(r, "channelID")
+	if err := s.Routing.UpdateChannelMeta(r.Context(), id, body.Name, body.BaseURL); err != nil {
+		writeError(w, err)
+		return
+	}
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "channel.update", "provider_channel", id, clientIP(r), nil, map[string]any{"name": body.Name, "baseUrl": body.BaseURL})
+	ok(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) adminDeleteChannel(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "channelID")
+	if err := s.Routing.DeleteChannel(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "channel.delete", "provider_channel", id, clientIP(r), nil, nil)
+	ok(w, map[string]bool{"ok": true})
 }
