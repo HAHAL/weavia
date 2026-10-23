@@ -631,6 +631,32 @@ func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
 	return out, rows.Err()
 }
 
+// ProviderSummary 按供应商聚合渠道与 Key 数量，供 AI Studio 供应商页展示。
+func (s *Service) ProviderSummary(ctx context.Context) ([]map[string]any, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT pc.provider_code, count(DISTINCT pc.id) AS channels,
+		       count(DISTINCT ck.id) FILTER (WHERE ck.enabled) AS keys,
+		       count(DISTINCT pc.id) FILTER (WHERE pc.enabled) AS enabled_channels,
+		       COALESCE(sum(pc.consecutive_failures),0) AS failures
+		FROM provider_channels pc
+		LEFT JOIN channel_keys ck ON ck.channel_id = pc.id
+		GROUP BY pc.provider_code ORDER BY pc.provider_code`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var code string
+		var channels, keys, enabled, failures int64
+		if err = rows.Scan(&code, &channels, &keys, &enabled, &failures); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{"code": code, "channels": channels, "keys": keys, "enabledChannels": enabled, "failures": failures})
+	}
+	return items, rows.Err()
+}
+
 // UserIDByAccount 把账户 ID、UUID 或邮箱解析成用户 ID。
 func (s *Service) UserIDByAccount(ctx context.Context, accountNo string) (string, error) {
 	var id string

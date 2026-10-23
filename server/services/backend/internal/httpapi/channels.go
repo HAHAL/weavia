@@ -120,3 +120,38 @@ func (s *Server) adminChannelKeyHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	ok(w, map[string]any{"items": items})
 }
+
+func (s *Server) adminDiscoverModels(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.Routing.DiscoverModels(r.Context(), chi.URLParam(r, "channelID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]any{"items": ids})
+}
+
+func (s *Server) adminEnableModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProviderModelID string   `json:"providerModelId"`
+		DisplayName     string   `json:"displayName"`
+		Modality        string   `json:"modality"`
+		Capabilities    []string `json:"capabilities"`
+		Credits         int64    `json:"credits"`
+		LogicalKey      string   `json:"logicalKey"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	err := s.Routing.EnableModel(r.Context(), chi.URLParam(r, "channelID"), body.ProviderModelID, body.DisplayName, body.Modality, body.Capabilities, body.Credits, body.LogicalKey)
+	respond(w, map[string]bool{"ok": err == nil}, err)
+}
+
+func (s *Server) adminProviderSummary(w http.ResponseWriter, r *http.Request) {
+	items, err := s.Commercial.ProviderSummary(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, map[string]any{"items": items})
+}

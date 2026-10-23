@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/weavia/weavia/services/backend/internal/generation"
 	"github.com/weavia/weavia/services/backend/internal/modelcatalog"
 	"github.com/weavia/weavia/services/backend/internal/providerconfig"
 	"github.com/weavia/weavia/services/backend/internal/providers"
@@ -440,6 +444,116 @@ func (s *Service) DeleteChannelKey(ctx context.Context, keyID string) error {
 
 func (s *Service) SetChannelKey(ctx context.Context, id, apiKey, userID string) error {
 	return s.keys.SetChannelKey(ctx, id, apiKey, userID)
+}
+
+// DiscoverModels 用渠道 Key 拉取供应商的模型列表（只读）。
+func (s *Service) DiscoverModels(ctx context.Context, channelID string) ([]string, error) {
+	var provider, base string
+	if err := s.pool.QueryRow(ctx, `SELECT provider_code, COALESCE(NULLIF(base_url,''), '') FROM provider_channels WHERE id=$1`, channelID).Scan(&provider, &base); err != nil {
+		return nil, &generation.APIError{Code: "NOT_FOUND", Message: "渠道不存在", Status: 404}
+	}
+	key, err := s.keys.GetChannelKey(ctx, channelID)
+	if err != nil || key == "" {
+		return nil, &generation.APIError{Code: "NO_KEY", Message: "该渠道还没有可用 Key", Status: 400}
+	}
+	if provider == "dashscope" {
+		return nil, &generation.APIError{Code: "UNSUPPORTED", Message: "DashScope 不支持模型枚举，请手动添加", Status: 400}
+	}
+	if base == "" {
+		switch provider {
+		case "volcengine":
+			base = "https://ark.cn-beijing.volces.com/api/v3"
+		case "computrix":
+			base = "https://maas-api.computrix.ai/v1"
+		default:
+			base = "https://maas-api.antdigital.com/v1"
+		}
+	}
+	endpoint := strings.TrimRight(base, "/") + "/models"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, &generation.APIError{Code: "PROVIDER_UNREACHABLE", Message: "无法连接供应商模型列表接口", Status: 502}
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(raw, &payload)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &generation.APIError{Code: "PROVIDER_ERROR", Message: fmt.Sprintf("供应商返回 %d", resp.StatusCode), Status: 502}
+	}
+	ids := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		if item.ID != "" {
+			ids = append(ids, item.ID)
+		}
+	}
+	return ids, nil
+}
+
+// EnableModel 把一个渠道模型接入逻辑模型，供客户端选择。
+func (s *Service) EnableModel(ctx context.Context, channelID, providerModelID, displayName, modality string, capabilities []string, credits int64, logicalKey string) error {
+	if providerModelID == "" || displayName == "" {
+		return &generation.APIError{Code: "INVALID_REQUEST", Message: "模型 ID 与名称必填", Status: 400}
+	}
+	if modality != "image" && modality != "video" {
+		modality = "image"
+	}
+	if len(capabilities) == 0 {
+		if modality == "video" {
+			capabilities = []string{"text_to_video"}
+		} else {
+			capabilities = []string{"text_to_image"}
+		}
+	}
+	if credits <= 0 {
+		credits = 10
+	}
+	if logicalKey == "" {
+		logicalKey = providerModelID
+	}
+	caps, _ := json.Marshal(capabilities)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var channelModelID string
+	if err = tx.QueryRow(ctx, `
+		INSERT INTO channel_models(channel_id, provider_model_id, display_name, modality, capabilities, enabled)
+		VALUES($1,$2,$3,$4,$5,true)
+		ON CONFLICT (channel_id, provider_model_id) DO UPDATE SET display_name=EXCLUDED.display_name, modality=EXCLUDED.modality, capabilities=EXCLUDED.capabilities, enabled=true
+		RETURNING id::text`, channelID, providerModelID, displayName, modality, caps).Scan(&channelModelID); err != nil {
+		return err
+	}
+	icon := "sparkles"
+	if modality == "video" {
+		icon = "video"
+	}
+	var logicalID string
+	if err = tx.QueryRow(ctx, `
+		INSERT INTO logical_models(key, display_name, type, icon, modality, capabilities, credits_cost, enabled)
+		VALUES($1,$2,$3,$4,$5,$6,$7,true)
+		ON CONFLICT (key) DO UPDATE SET display_name=EXCLUDED.display_name, modality=EXCLUDED.modality, capabilities=EXCLUDED.capabilities, credits_cost=EXCLUDED.credits_cost, enabled=true
+		RETURNING id::text`, logicalKey, displayName, modality, icon, modality, caps, credits).Scan(&logicalID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `
+		INSERT INTO logical_model_abilities(logical_model_id, channel_model_id, priority, weight, enabled)
+		VALUES($1,$2,100,1,true)
+		ON CONFLICT (logical_model_id, channel_model_id) DO UPDATE SET enabled=true`, logicalID, channelModelID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) SyncCatalog(ctx context.Context, items []modelcatalog.Model) error {
