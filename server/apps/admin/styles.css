@@ -210,3 +210,8 @@ tbody tr:hover { background: #fdf9f1; }
   .activity-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .activity-head, .activity-summary, .activity-body, .activity-actions { padding-left: 14px; padding-right: 14px; }
 }
+
+/* AI Studio 概览告警 */
+.alert-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,.08); }
+.alert-row:last-child { border-bottom: none; }
+.alert-row .badge { flex: 0 0 auto; }

@@ -18,7 +18,7 @@ const defaultApiBase = location.port && location.port !== '80' && location.port 
 let apiBase = localStorage.getItem('weavia.admin.api') || defaultApiBase;
 let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
-const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'providers', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
+const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -275,17 +275,21 @@ function paymentsTable(rows) {
   return `<div class="table-wrap"><table><thead><tr><th>Provider</th><th>订单</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.provider)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.orderId.slice(0, 8))}</td><td>${fmtMoney(row.amountMinor)} ${esc(row.currency)}</td><td>${status(row.status)}</td><td>${fmtDate(row.paidAt || row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 async function loadAI() {
-  const [providers, models, routing, usage, channelData, skillData, appData, groupData] = await Promise.all([get('/api/admin/ai/providers'), get('/api/admin/ai/models'), get('/api/admin/ai/routing'), get('/api/admin/ai/usage'), get('/api/admin/ai/channels'), get('/api/admin/skills'), get('/api/admin/apps'), get('/api/admin/route-groups')]);
+  const [providers, models, routing, usage, channelData, skillData, appData, groupData, pricingData, storageData] = await Promise.all([get('/api/admin/ai/providers'), get('/api/admin/ai/models'), get('/api/admin/ai/routing'), get('/api/admin/ai/usage'), get('/api/admin/ai/channels'), get('/api/admin/skills'), get('/api/admin/apps'), get('/api/admin/route-groups'), get('/api/admin/pricing').catch(() => null), get('/api/admin/storage').catch(() => null)]);
   const channels = channelData.items || [];
-  state.providers = providers || []; state.models = models; state.platformModels = models?.platformModels || []; state.routing = routing; state.usage = usage?.usage || []; state.channels = channels || []; state.skills = skillData?.items || []; state.apps = appData?.items || []; state.routeGroups = groupData?.items || [];
+  state.providers = providers || []; state.models = models; state.platformModels = models?.platformModels || []; state.routing = routing; state.usage = usage?.usage || []; state.channels = channels || []; state.skills = skillData?.items || []; state.apps = appData?.items || []; state.routeGroups = groupData?.items || []; state.aiPricing = pricingData?.items || []; state.aiStorage = storageData || null;
   content.innerHTML = pageHead('AI Studio', 'Provider、模型目录、路由与调用成本。') + renderAITabs() + '<div id="aiBody"></div>';
   renderAIBody();
 }
 function renderAITabs() {
-  return `<div class="tabs">${[['providers', 'Provider'], ['channels', '渠道'], ['models', '模型'], ['skills', 'Skill'], ['apps', '应用'], ['routing', '路由'], ['groups', '分组'], ['usage', '用量']].map(([id, label]) => `<button type="button" class="${state.aiTab === id ? 'active' : ''}" data-action="ai-tab" data-tab="${id}">${label}</button>`).join('')}</div>`;
+  return `<div class="tabs">${[['overview', '概览'], ['providers', '供应商'], ['channels', '渠道与 Key'], ['models', '模型与能力'], ['routing', '路由'], ['groups', '分组'], ['usage', '用量'], ['skills', 'Skill'], ['apps', '应用']].map(([id, label]) => `<button type="button" class="${state.aiTab === id ? 'active' : ''}" data-action="ai-tab" data-tab="${id}">${label}</button>`).join('')}</div>`;
 }
 function renderAIBody() {
   const body = $('aiBody');
+  if (state.aiTab === 'overview') {
+    body.innerHTML = renderAIOverview();
+    return;
+  }
   if (state.aiTab === 'providers') {
     body.innerHTML = `<div class="provider-grid">${state.providers.map((provider) => `<article class="provider-card"><div class="showcase-top"><span class="badge ${provider.enabled ? 'success' : ''}">${provider.enabled ? '已启用' : '已停用'}</span><span class="badge ${provider.configured ? 'gold' : 'danger'}">${provider.configured ? 'Key 已配置' : '缺少 Key'}</span></div><h3>${esc(provider.name)}</h3><p>${esc(provider.code)} · ${esc(provider.type)}</p><p>${esc(provider.baseUrl)}</p><div class="provider-meta"><span class="badge">${provider.modelCount || 0} 个模型</span>${provider.keyLast4 ? `<span class="badge">•••• ${esc(provider.keyLast4)}</span>` : ''}<button class="mini" data-action="provider-key" data-code="${esc(provider.code)}" data-name="${esc(provider.name)}">设置 Key</button><button class="mini" data-action="provider-toggle" data-id="${esc(provider.id)}" data-enabled="${provider.enabled ? 'false' : 'true'}">${provider.enabled ? '停用' : '启用'}</button></div></article>`).join('')}</div>`;
   } else if (state.aiTab === 'channels') {
@@ -330,6 +334,47 @@ function groupChannelsModal(group) {
     await request(`/api/admin/route-groups/${group.id}/channels`, { method: 'PUT', body: JSON.stringify({ channelIds: ids }) });
     await navigate('ai');
   });
+}
+
+
+function renderAIOverview() {
+  const channels = state.channels || [];
+  const usage = state.usage || [];
+  const pricing = state.aiPricing || [];
+  const platform = state.platformModels || [];
+  const enabledChannels = channels.filter((c) => c.enabled).length;
+  const failing = channels.filter((c) => Number(c.consecutiveFailures || 0) > 0);
+  const failedCalls = usage.filter((row) => String(row.status || '').toLowerCase() === 'failed').length;
+  const failureRate = usage.length ? (failedCalls / usage.length) * 100 : 0;
+  const cost = usage.reduce((sum, row) => sum + Number(row.estimatedCost || 0), 0);
+  const blocked = pricing.filter((row) => row.status === 'block').length;
+  const unverified = pricing.filter((row) => row.status === 'unverified' || row.status === 'needs_duration').length;
+  const unavailableModels = platform.filter((m) => !m.available).length;
+  const alerts = [];
+  failing.slice(0, 3).forEach((c) => alerts.push({ level: 'danger', text: `渠道「${c.name}」连续失败 ${c.consecutiveFailures} 次` }));
+  if (blocked) alerts.push({ level: 'danger', text: `${blocked} 条定价低于毛利红线，已被拦截` });
+  if (unverified) alerts.push({ level: 'warning', text: `${unverified} 条渠道成本待合同核实` });
+  if (!state.aiStorage?.provider || state.aiStorage.provider === 'local') alerts.push({ level: 'warning', text: '对象存储仍为本地磁盘，未启用 OSS' });
+  if (failureRate >= 10) alerts.push({ level: 'warning', text: `最近调用失败率 ${failureRate.toFixed(1)}%，请检查渠道` });
+  if (unavailableModels) alerts.push({ level: 'info', text: `${unavailableModels} 个模型当前不可用` });
+  if (!alerts.length) alerts.push({ level: 'success', text: '没有需要处理的告警' });
+  return `<div class="metrics">
+      ${metric('渠道', enabledChannels + '/' + channels.length, '启用 / 总数')}
+      ${metric('最近调用', fmtNumber(usage.length), `失败 ${failedCalls} · ${failureRate.toFixed(1)}%`)}
+      ${metric('估算成本', '¥' + cost.toFixed(2), '最近 500 条调用')}
+      ${metric('定价拦截', blocked, `${unverified} 条待核实`)}
+      ${metric('模型', (platform.length - unavailableModels) + '/' + platform.length, '可用 / 总数')}
+      ${metric('对象存储', state.aiStorage?.provider === 'oss' ? 'OSS' : '本地磁盘', state.aiStorage?.bucket || '未配置')}
+    </div>
+    <div class="panel-grid">
+      <section class="panel"><div class="panel-head"><div><h2>告警</h2><p>按严重程度排序，点击跳到对应页面处理</p></div></div>
+        ${alerts.map((alert) => `<div class="alert-row"><span class="badge ${alert.level === 'danger' ? 'danger' : alert.level === 'warning' ? 'warning' : alert.level === 'success' ? 'success' : 'gold'}">${alert.level === 'danger' ? '严重' : alert.level === 'warning' ? '注意' : alert.level === 'success' ? '正常' : '提示'}</span><span>${esc(alert.text)}</span></div>`).join('')}
+      </section>
+      <section class="panel"><div class="panel-head"><div><h2>快捷入口</h2><p>常用运维操作</p></div></div>
+        <div class="row-actions"><button data-action="ai-tab" data-tab="channels">管理渠道与 Key</button><button data-action="ai-tab" data-tab="groups">配置分组</button><button data-action="ai-tab" data-tab="usage">查看调用</button><button data-action="go-pricing">定价与成本</button></div>
+        <p class="muted" style="margin-top:12px">渠道多 Key、账户绑定优质组、按秒计价的视频模型都在这里统一管理。</p>
+      </section>
+    </div>`;
 }
 
 function modelsTable(rows) {
@@ -631,6 +676,7 @@ content.addEventListener('click', async (event) => {
   if (!target) return;
   const action = target.dataset.action;
   try {
+    if (action === 'go-pricing') return navigate('pricing');
     if (action === 'go-showcase') return navigate('showcase');
     if (action === 'go-commerce') return navigate('commerce');
     if (action === 'go-tasks') return navigate('tasks');
