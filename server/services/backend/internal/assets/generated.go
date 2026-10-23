@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -39,13 +40,13 @@ func (s *Storage) SaveGenerated(ctx context.Context, ownerID, taskID string, ind
 		return "", 0, fmt.Errorf("generated asset content does not match MIME type")
 	}
 	if s.blob != nil {
-		if err = s.blob.Put(ctx, key, body, mime); err != nil {
-			return "", 0, err
+		if putErr := s.blob.Put(ctx, key, body, mime); putErr == nil {
+			if verifyErr := s.VerifyGenerated(key, body); verifyErr == nil {
+				return key, int64(len(body)), nil
+			}
 		}
-		if err = s.VerifyGenerated(key, body); err != nil {
-			return "", 0, err
-		}
-		return key, int64(len(body)), nil
+		// 对象存储抖动时先落本地，任务照常完成，后续可补传。
+		slog.Warn("object storage write failed, falling back to local disk", "key", key)
 	}
 	path := filepath.Join(s.Root, filepath.FromSlash(key))
 	if err = os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -94,20 +95,7 @@ func (s *Storage) VerifyGenerated(key string, expected []byte) error {
 	if !validGeneratedKey(key) {
 		return fmt.Errorf("invalid generated object key")
 	}
-	var body []byte
-	var err error
-	if s.blob != nil {
-		if reader, _, getErr := s.blob.Get(context.Background(), key); getErr == nil {
-			defer reader.Close()
-			body, err = io.ReadAll(reader)
-		}
-		if len(body) == 0 {
-			// 历史文件仍在本地磁盘时回退读取。
-			body, err = os.ReadFile(filepath.Join(s.Root, filepath.FromSlash(key)))
-		}
-	} else {
-		body, err = os.ReadFile(filepath.Join(s.Root, filepath.FromSlash(key)))
-	}
+	body, err := s.fetch(context.Background(), key)
 	if err != nil {
 		return err
 	}
@@ -272,7 +260,11 @@ func (s *Storage) ServeGenerated(w http.ResponseWriter, r *http.Request, key, mi
 	if !validGeneratedKey(key) {
 		return fmt.Errorf("invalid generated object key")
 	}
-	if s.blob == nil {
+	source := s.blob
+	if source == nil {
+		source = s.readBlob
+	}
+	if source == nil {
 		file, err := os.Open(filepath.Join(s.Root, filepath.FromSlash(key)))
 		if err != nil {
 			return err
@@ -285,7 +277,7 @@ func (s *Storage) ServeGenerated(w http.ResponseWriter, r *http.Request, key, mi
 		http.ServeContent(w, r, filepath.Base(key), info.ModTime(), file)
 		return nil
 	}
-	reader, size, err := s.blob.Get(r.Context(), key)
+	reader, size, err := source.Get(r.Context(), key)
 	if err != nil {
 		file, openErr := os.Open(filepath.Join(s.Root, filepath.FromSlash(key)))
 		if openErr != nil {

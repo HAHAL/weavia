@@ -119,8 +119,9 @@ func (s *Service) Apply(ctx context.Context, storage *assets.Storage) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Provider != "oss" || secret == "" {
+	if secret == "" || cfg.Bucket == "" {
 		storage.UseBlob(nil)
+		storage.UseReadThrough(nil)
 		return nil
 	}
 	endpoint := cfg.EndpointInternal
@@ -131,7 +132,14 @@ func (s *Service) Apply(ctx context.Context, storage *assets.Storage) error {
 	if err != nil {
 		return err
 	}
-	storage.UseBlob(blob)
+	if cfg.Provider == "oss" {
+		storage.UseBlob(blob)
+		storage.UseReadThrough(nil)
+	} else {
+		// 本地写入模式：OSS 作为只读二级存储，切回本地后老文件仍可读。
+		storage.UseBlob(nil)
+		storage.UseReadThrough(blob)
+	}
 	return nil
 }
 

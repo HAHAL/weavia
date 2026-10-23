@@ -3,6 +3,8 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/weavia/weavia/services/backend/internal/generation"
+
 	"github.com/weavia/weavia/services/backend/internal/storageconfig"
 )
 
@@ -40,4 +42,25 @@ func (s *Server) adminTestStorage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, cfg)
+}
+
+func (s *Server) adminMigrateStorage(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Direction string `json:"direction"`
+		DryRun    bool   `json:"dryRun"`
+	}
+	if err := decode(r, &input); err != nil {
+		writeError(w, err)
+		return
+	}
+	if input.Direction != "to_oss" && input.Direction != "to_local" {
+		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "direction 只支持 to_oss / to_local", Status: 400})
+		return
+	}
+	report, err := s.StorageConfig.Migrate(r.Context(), s.Assets, input.Direction, input.DryRun)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ok(w, report)
 }

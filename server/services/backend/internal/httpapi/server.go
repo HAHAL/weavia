@@ -210,6 +210,7 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("provider.write")).Put("/pricing/model/{logicalModelID}", s.adminUpdateModelPrice)
 		r.With(s.requirePermission("provider.write")).Put("/storage", s.adminSaveStorage)
 		r.With(s.requirePermission("provider.write")).Post("/storage/test", s.adminTestStorage)
+		r.With(s.requirePermission("provider.write")).Post("/storage/migrate", s.adminMigrateStorage)
 		r.With(s.requirePermission("provider.write")).Post("/ai/channels/{channelID}/discover", s.adminDiscoverModels)
 		r.With(s.requirePermission("provider.write")).Post("/ai/channels/{channelID}/models", s.adminEnableModel)
 		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/models", s.adminChannelModels)

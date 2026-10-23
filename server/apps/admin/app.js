@@ -549,7 +549,7 @@ async function loadStorage() {
         <label>客户端取用方式<select name="clientAssetMode"><option value="server" ${cfg.clientAssetMode !== 'cdn' ? 'selected' : ''}>走服务器代理（推荐）</option><option value="cdn" ${cfg.clientAssetMode === 'cdn' ? 'selected' : ''}>走外网 / CDN 域名</option></select></label>
         <label>外网 / CDN 域名<input name="cdnBaseUrl" value="${esc(cfg.cdnBaseUrl)}" placeholder="https://cdn.example.com" /></label>
         <label>同步展示数据<select name="syncShowcase"><option value="false" ${!cfg.syncShowcase ? 'selected' : ''}>关闭</option><option value="true" ${cfg.syncShowcase ? 'selected' : ''}>开启（宣传示例等）</option></select></label>
-        <div class="row-actions"><button class="primary" type="submit">保存</button><button class="secondary" type="button" data-action="storage-test">测试连接</button></div>
+        <div class="row-actions"><button class="primary" type="submit">保存</button><button class="secondary" type="button" data-action="storage-test">测试连接</button><button class="secondary" type="button" data-action="storage-migrate" data-direction="to_oss">迁移本地→OSS</button><button class="secondary" type="button" data-action="storage-migrate" data-direction="to_local">迁回本地</button></div>
       </form>
       <div class="muted" style="margin-top:16px;line-height:1.8">
         <p>· <b>内网 Endpoint</b> 只有同地域的阿里云 ECS 能访问，不产生公网流量费，服务端固定走这条。</p>
@@ -568,6 +568,17 @@ async function loadStorage() {
       await navigate('storage');
     } catch (error) { toast(error.message); setBusy(button, false); }
   });
+}
+
+
+async function storageMigrate(direction) {
+  const first = await post('/api/admin/storage/migrate', { direction, dryRun: true });
+  const confirmed = confirm(`盘点结果：\n扫描 ${first.scanned} 个对象\n可迁移 ${first.moved} 个（${(first.bytes / 1048576).toFixed(1)} MB）\n跳过 ${first.skipped} 个\n缺失 ${first.missing} 个\n\n确认执行迁移？`);
+  if (!confirmed) return;
+  const report = await post('/api/admin/storage/migrate', { direction, dryRun: false });
+  toast(`迁移完成：${report.moved} 个对象，更新素材 ${report.updatedAssets} 条、任务 ${report.updatedTasks} 条`);
+  if (report.errors && report.errors.length) console.warn('migration errors', report.errors);
+  await navigate('storage');
 }
 
 async function loadTasks() {
@@ -805,6 +816,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'ai-tab') { state.aiTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderAITabs(); return renderAIBody(); }
     if (action === 'task-tab') { state.taskTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = `<div class="tabs">${[['tasks', '任务'], ['runs', '执行记录']].map(([id, label]) => `<button type="button" class="${state.taskTab === id ? 'active' : ''}" data-action="task-tab" data-tab="${id}">${label}</button>`).join('')}</div>`; return renderTaskBody(); }
     if (action === 'showcase-filter') { state.showcaseFilter = target.dataset.tab; await loadShowcase(); return; }
+    if (action === 'storage-migrate') { setBusy(target, true); try { await storageMigrate(target.dataset.direction); } catch (error) { toast(error.message); } finally { setBusy(target, false); } return; }
     if (action === 'storage-test') { setBusy(target, true); try { await post('/api/admin/storage/test', {}); toast('连接正常，已写入并删除探针对象'); await navigate('storage'); } catch (error) { toast(error.message); setBusy(target, false); } return; }
     if (action === 'invite-new') return inviteNewModal();
     if (action === 'invite-copy') { try { await navigator.clipboard.writeText(target.dataset.code); toast('邀请码已复制'); } catch { toast('复制失败，请手动选择'); } return; }

@@ -15,10 +15,11 @@ import (
 )
 
 type Storage struct {
-	Root    string
-	Secret  []byte
-	blob    BlobStore
-	account func(context.Context, string) (string, error)
+	Root     string
+	Secret   []byte
+	blob     BlobStore
+	readBlob BlobStore
+	account  func(context.Context, string) (string, error)
 }
 
 func New(root, secret string) *Storage {
@@ -82,10 +83,10 @@ func (s *Storage) Put(token string, body []byte) (string, error) {
 		case strings.HasSuffix(key, ".mp4"):
 			contentType = "video/mp4"
 		}
-		if err = s.blob.Put(context.Background(), key, body, contentType); err != nil {
-			return "", err
+		if putErr := s.blob.Put(context.Background(), key, body, contentType); putErr == nil {
+			return key, nil
 		}
-		return key, nil
+		// 写失败时回退本地，参考图上传不至于中断。
 	}
 	path := filepath.Join(s.Root, filepath.FromSlash(key))
 	if err = os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -110,8 +111,12 @@ func (s *Storage) Read(objectKey string) ([]byte, bool) {
 	if strings.Contains(objectKey, "..") {
 		return nil, false
 	}
-	if s.blob != nil {
-		if reader, _, err := s.blob.Get(context.Background(), objectKey); err == nil {
+	if s.blob != nil || s.readBlob != nil {
+		reader0 := s.blob
+		if reader0 == nil {
+			reader0 = s.readBlob
+		}
+		if reader, _, err := reader0.Get(context.Background(), objectKey); err == nil {
 			defer reader.Close()
 			if body, readErr := io.ReadAll(reader); readErr == nil {
 				return body, true
