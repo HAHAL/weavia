@@ -7,6 +7,7 @@ const pages = [
   { id: 'commerce', label: '商业中心', kicker: 'COMMERCE' },
   { id: 'ai', label: 'AI Studio', kicker: 'AI OPERATIONS' },
   { id: 'pricing', label: '定价与成本', kicker: 'PRICING' },
+  { id: 'invites', label: '邀请码', kicker: 'GROWTH' },
   { id: 'tasks', label: '创作任务', kicker: 'TASKS' },
   { id: 'showcase', label: '内容管理', kicker: 'SHOWCASE' },
   { id: 'analytics', label: '数据分析', kicker: 'ANALYTICS' },
@@ -137,7 +138,7 @@ async function navigate(pageId) {
   content.innerHTML = loading();
   try { await loaders[pageId](); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
 }
-const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
+const loaders = { dashboard: loadDashboard, users: loadUsers, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
 async function loadDashboard() {
   const [overview, orders, tasks, showcase] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase')]);
@@ -170,13 +171,29 @@ async function loadUsers() {
   const [users, inviteData] = await Promise.all([get('/api/admin/users'), get('/api/admin/invites')]);
   state.users = users || [];
   state.invites = inviteData?.items || [];
-  content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态。') + `<div class="panel"><div class="toolbar"><input id="userSearch" placeholder="搜索邮箱、姓名或套餐" /><span class="spacer"></span><span class="badge gold">${state.users.length} 位用户</span></div><div id="userTable"></div></div>` + invitesPanel();
+  content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态。') + `<div class="panel"><div class="toolbar"><input id="userSearch" placeholder="搜索邮箱、姓名或套餐" /><span class="spacer"></span><span class="badge gold">${state.users.length} 位用户</span></div><div id="userTable"></div></div>`
   const draw = (rows) => { $('userTable').innerHTML = usersTable(rows); };
   draw(state.users);
   $('userSearch').addEventListener('input', (event) => {
     const query = event.target.value.trim().toLowerCase();
     draw(users.filter((user) => `${user.email} ${user.name} ${user.plan}`.toLowerCase().includes(query)));
   });
+}
+
+
+async function loadInvites() {
+  const data = await get('/api/admin/invites');
+  state.invites = data?.items || [];
+  const rows = state.invites;
+  const available = rows.filter((item) => item.enabled && !(item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) && (item.maxUses === 0 || item.usedCount < item.maxUses)).length;
+  const used = rows.reduce((sum, item) => sum + Number(item.usedCount || 0), 0);
+  content.innerHTML = pageHead('邀请码', '注册必须填写邀请码；默认 7 天有效，可限次数或随时停用。', '<button class="primary" data-action="invite-new">生成邀请码</button>') +
+    `<div class="metrics">
+      ${metric('可用邀请码', available, '未过期且未用完')}
+      ${metric('累计注册', used, '所有邀请码已用次数')}
+      ${metric('邀请码总数', rows.length, '含已停用')}
+    </div>
+    <section class="panel"><div class="panel-head"><div><h2>全部邀请码</h2><p>一个码用满或到期即失效；客户端注册页填写</p></div></div>${invitesTable(rows)}</section>`;
 }
 
 function invitesPanel() {
@@ -204,7 +221,7 @@ function inviteNewModal() {
 
 function usersTable(rows) {
   if (!rows.length) return empty('没有匹配的用户');
-  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}</td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}</td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 async function loadCommerce() {
   const [plans, orders, payments] = await Promise.all([get('/api/admin/plans'), get('/api/admin/orders'), get('/api/admin/payments')]);

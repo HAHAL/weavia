@@ -397,6 +397,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 			_ = s.Invites.Release(r.Context(), claimID)
 		}
 		slog.Error("register failed", "error", err)
+	} else if claimID != "" && s.Invites != nil {
+		_ = s.Invites.Bind(r.Context(), data.User.ID, claimID)
 	}
 	respond(w, data, err)
 }

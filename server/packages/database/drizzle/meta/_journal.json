@@ -127,6 +127,13 @@
       "when": 1792614000000,
       "tag": "0017_invite_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792617600000,
+      "tag": "0018_invite_redemption",
+      "breakpoints": true
     }
   ]
 }

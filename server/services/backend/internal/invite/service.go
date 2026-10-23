@@ -64,6 +64,15 @@ func (s *Service) Claim(ctx context.Context, code string) (string, error) {
 	return id, nil
 }
 
+// Bind 记录用户是通过哪个邀请码注册的。
+func (s *Service) Bind(ctx context.Context, userID, codeID string) error {
+	if userID == "" || codeID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE users SET invite_code_id=$2, updated_at=now() WHERE id=$1`, userID, codeID)
+	return err
+}
+
 func (s *Service) Release(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE invite_codes SET used_count = GREATEST(used_count - 1, 0) WHERE id=$1`, id)
 	return err

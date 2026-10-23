@@ -609,7 +609,7 @@ func (s *Service) ListSKUAssets(ctx context.Context, userID, skuID string) ([]As
 }
 
 func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at FROM users u LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at,coalesce(ic.code,'') FROM users u LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -620,10 +620,11 @@ func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
 		var membershipExpiresAt *time.Time
 		var balance int64
 		var created time.Time
-		if err = rows.Scan(&id, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created); err != nil {
+		var inviteCode string
+		if err = rows.Scan(&id, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created, &inviteCode); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created})
+		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created, "inviteCode": inviteCode})
 	}
 	return out, rows.Err()
 }
