@@ -118,6 +118,7 @@ type Repository interface {
 type Credits interface {
 	Reserve(context.Context, string, string, string, int64) (string, error)
 	Confirm(context.Context, string) error
+	SettleDelivered(context.Context, string, int64) error
 	Release(context.Context, string) error
 	RecordGeneratedAsset(context.Context, string, string, string, string, string, string, string, string, int64) error
 }
@@ -505,7 +506,8 @@ func (s *Service) finalize(ctx context.Context, task *Task) error {
 		}
 	}
 	if s.credits != nil && task.CreditReservationID != "" {
-		if err := s.credits.Confirm(ctx, task.CreditReservationID); err != nil {
+		// 按上游实际交付结算：少返几张就少扣几张，渠道若提交即计费则在服务端按请求数结算。
+		if err := s.credits.SettleDelivered(ctx, task.CreditReservationID, int64(len(task.Outputs))); err != nil {
 			return err
 		}
 	}

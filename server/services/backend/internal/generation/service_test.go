@@ -34,6 +34,7 @@ func (fakeEnqueuer) Enqueue(context.Context, string) error { return nil }
 
 type fakeCredits struct {
 	reserve, confirm, release, assets int
+	delivered                         int64
 	failConfirmOnce                   bool
 }
 
@@ -43,6 +44,15 @@ func (c *fakeCredits) Reserve(context.Context, string, string, string, int64) (s
 }
 func (c *fakeCredits) Confirm(context.Context, string) error {
 	c.confirm++
+	if c.failConfirmOnce {
+		c.failConfirmOnce = false
+		return errors.New("temporary ledger failure")
+	}
+	return nil
+}
+func (c *fakeCredits) SettleDelivered(_ context.Context, _ string, delivered int64) error {
+	c.confirm++
+	c.delivered = delivered
 	if c.failConfirmOnce {
 		c.failConfirmOnce = false
 		return errors.New("temporary ledger failure")
@@ -78,6 +88,9 @@ func TestCommercialSuccessFailureAndRetry(t *testing.T) {
 	}
 	if good.calls.Load() != 1 || credits.reserve != 1 || credits.confirm != 1 || credits.release != 0 || credits.assets != 1 {
 		t.Fatalf("success counts: provider=%d credits=%+v", good.calls.Load(), credits)
+	}
+	if credits.delivered != 1 {
+		t.Fatalf("settled delivered outputs = %d, want 1", credits.delivered)
 	}
 	duplicate, err := service.Create(ctx, auth.DemoUser, paidRequest("commercial-good"))
 	if err != nil || duplicate.ID != task.ID || good.calls.Load() != 1 {

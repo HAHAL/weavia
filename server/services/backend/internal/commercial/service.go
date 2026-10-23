@@ -224,12 +224,65 @@ func (s *Service) Reserve(ctx context.Context, userID, referenceID, idempotencyK
 	return reservationID, tx.Commit(ctx)
 }
 func (s *Service) Confirm(ctx context.Context, reservationID string) error {
-	return s.settle(ctx, reservationID, true)
+	return s.settle(ctx, reservationID, -1)
 }
 func (s *Service) Release(ctx context.Context, reservationID string) error {
-	return s.settle(ctx, reservationID, false)
+	return s.settle(ctx, reservationID, 0)
 }
-func (s *Service) settle(ctx context.Context, reservationID string, confirm bool) error {
+
+// SettleDelivered 按上游实际计费口径结算：默认按实际交付数量扣费；
+// 渠道若标记为“提交即计费”（billing_basis=submitted），则按请求数量扣费，
+// 避免上游已经扣款、我们却把整笔退给用户。
+func (s *Service) SettleDelivered(ctx context.Context, reservationID string, delivered int64) error {
+	var amount int64
+	var taskID string
+	if err := s.pool.QueryRow(ctx, `SELECT amount, reference_id FROM credit_reservations WHERE id=$1`, reservationID).Scan(&amount, &taskID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	var cost, requested int64
+	var provider, model string
+	if err := s.pool.QueryRow(ctx, `SELECT cost, COALESCE((input->>'numberOfImages')::bigint,1), COALESCE(provider,''), COALESCE(model,'') FROM tasks WHERE id=$1`, taskID).Scan(&cost, &requested, &provider, &model); err != nil {
+		// 读不到任务信息时按原额结算，宁可不少收。
+		return s.settle(ctx, reservationID, -1)
+	}
+	basis := "delivered"
+	_ = s.pool.QueryRow(ctx, `SELECT cm.billing_basis FROM channel_models cm JOIN provider_channels pc ON pc.id=cm.channel_id WHERE pc.provider_code=$1 AND cm.provider_model_id=$2 LIMIT 1`, provider, model).Scan(&basis)
+	return s.settle(ctx, reservationID, settleKeep(cost, amount, requested, delivered, basis))
+}
+
+// settleKeep 计算实际应扣的 Credits。cost 是全额预扣，按请求数量等分。
+func settleKeep(cost, reserved, requested, delivered int64, basis string) int64 {
+	if requested <= 0 {
+		requested = 1
+	}
+	if delivered < 0 {
+		delivered = 0
+	}
+	if delivered > requested {
+		delivered = requested
+	}
+	billed := delivered
+	if basis == "submitted" {
+		billed = requested
+	}
+	if cost <= 0 {
+		cost = reserved
+	}
+	keep := cost * billed / requested
+	if keep > reserved {
+		keep = reserved
+	}
+	if keep < 0 {
+		keep = 0
+	}
+	return keep
+}
+
+// settle 结算一笔预扣。keep 为实际消耗；-1 表示全额，0 表示全额释放。
+func (s *Service) settle(ctx context.Context, reservationID string, keep int64) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -244,7 +297,11 @@ func (s *Service) settle(ctx context.Context, reservationID string, confirm bool
 	if status != "reserved" {
 		return nil
 	}
-	if confirm {
+	if keep < 0 || keep > amount {
+		keep = amount
+	}
+	released := amount - keep
+	if keep > 0 {
 		var ready bool
 		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM assets WHERE task_id=$1 AND user_id=$2 AND kind='generated' AND upload_status='UPLOADED' AND size>0 AND object_key LIKE 'generated/' || $1::text || '/%')`, referenceID, userID).Scan(&ready)
 		if err != nil {
@@ -254,33 +311,47 @@ func (s *Service) settle(ctx context.Context, reservationID string, confirm bool
 			return fmt.Errorf("generated asset is not durable")
 		}
 	}
-	kind, action, availableDelta, reservedDelta := "consume", "credits.consumed", int64(0), -amount
-	nextStatus, timeColumn := "confirmed", "confirmed_at"
-	if !confirm {
-		kind, action = "release", "credits.released"
-		availableDelta = amount
-		nextStatus, timeColumn = "released", "released_at"
-	}
-	available += availableDelta
-	reserved += reservedDelta
+	available += released
+	reserved -= amount
 	_, err = tx.Exec(ctx, `UPDATE credit_accounts SET available_balance=$2,reserved_balance=$3,version=version+1,updated_at=now() WHERE id=$1`, accountID, available, reserved)
 	if err != nil {
 		return err
+	}
+	nextStatus, timeColumn := "confirmed", "confirmed_at"
+	if keep == 0 {
+		nextStatus, timeColumn = "released", "released_at"
 	}
 	_, err = tx.Exec(ctx, `UPDATE credit_reservations SET status=$2,updated_at=now(),`+timeColumn+`=now() WHERE id=$1`, reservationID, nextStatus)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,reservation_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,'generation_task',$8,$9,$10)`, accountID, reservationID, kind, availableDelta, reservedDelta, available, reserved, referenceID, reservationID+":"+kind, userID)
-	if err != nil {
-		return err
+	if released > 0 {
+		_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,reservation_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id) VALUES($1,$2,'release',$3,$4,$5,$6,'generation_task',$7,$8,$9)`, accountID, reservationID, released, -released, available, reserved+keep, referenceID, reservationID+":release", userID)
+		if err != nil {
+			return err
+		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,$2,'credit_reservation',$3,jsonb_build_object('amount',$4::bigint))`, userID, action, reservationID, amount)
+	if keep > 0 {
+		_, err = tx.Exec(ctx, `INSERT INTO credit_transactions_v1(account_id,reservation_id,type,available_delta,reserved_delta,balance_after,reserved_after,reference_type,reference_id,idempotency_key,actor_user_id) VALUES($1,$2,'consume',0,$3,$4,$5,'generation_task',$6,$7,$8)`, accountID, reservationID, -keep, available, reserved, referenceID, reservationID+":consume", userID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE tasks SET consumed_credits=$2,updated_at=now() WHERE credit_reservation_id=$1`, reservationID, keep)
+		if err != nil {
+			return err
+		}
+	}
+	action := "credits.consumed"
+	if keep == 0 {
+		action = "credits.released"
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,after) VALUES($1,$2,'credit_reservation',$3,jsonb_build_object('keep',$4::bigint,'released',$5::bigint,'reserved',$6::bigint))`, userID, action, reservationID, keep, released, amount)
 	if err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
+
 func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int64, reason, idempotencyKey, ip string) (CreditAccount, error) {
 	if amount == 0 {
 		return CreditAccount{}, fmt.Errorf("amount must not be zero")
