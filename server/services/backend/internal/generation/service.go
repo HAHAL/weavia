@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/weavia/weavia/services/backend/internal/auth"
@@ -106,6 +107,11 @@ type TaskError struct {
 type Enqueuer interface {
 	Enqueue(context.Context, string) error
 }
+type TaskObserver interface {
+	Record(context.Context, string, string, string, string, time.Duration) error
+	StartRun(context.Context, string) error
+	FinishRun(context.Context, string, string) error
+}
 type Generator interface {
 	Generate(context.Context, providers.ImageRequest) (providers.ImageResult, error)
 }
@@ -164,6 +170,7 @@ type Service struct {
 	registry    Registry
 	storage     GeneratedStorage
 	router      LogicalRouter
+	observer    TaskObserver
 }
 
 func NewService(realEnabled bool, provider Generator, enqueue Enqueuer, refs func(string) (string, bool), repository Repository) *Service {
@@ -177,6 +184,14 @@ func (s *Service) WithRegistry(registry Registry) *Service       { s.registry = 
 func (s *Service) WithStorage(storage GeneratedStorage) *Service { s.storage = storage; return s }
 func (s *Service) WithMock(mock bool) *Service                   { s.mock = mock; return s }
 func (s *Service) WithRouting(router LogicalRouter) *Service     { s.router = router; return s }
+func (s *Service) WithObserver(observer TaskObserver) *Service   { s.observer = observer; return s }
+func (s *Service) observe(ctx context.Context, taskID, stage, state, code string, elapsed time.Duration) {
+	if s.observer != nil {
+		if err := s.observer.Record(ctx, taskID, stage, state, code, elapsed); err != nil {
+			slog.Warn("task event recording failed", "task_id", taskID, "stage", stage, "error", err)
+		}
+	}
+}
 
 func (s *Service) Estimate(ctx context.Context, user auth.User, modelName string, count int, advanced bool) (map[string]any, error) {
 	if count != 1 {
@@ -297,6 +312,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	if task.Status != "reserved" {
 		return task, nil
 	}
+	s.observe(ctx, task.ID, "reserved", "success", "", 0)
 	if s.enqueue != nil {
 		if err := s.enqueue.Enqueue(ctx, task.ID); err != nil {
 			s.fail(ctx, &task, "PROVIDER_UNAVAILABLE", "任务队列不可用")
@@ -305,6 +321,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	} else {
 		go func() { _ = s.Execute(context.Background(), task.ID) }()
 	}
+	s.observe(ctx, task.ID, "queued", "success", "", 0)
 	return task, nil
 }
 func (s *Service) Get(ctx context.Context, userID, taskID string) (Task, bool, error) {
@@ -406,6 +423,12 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if err = s.repository.Update(ctx, task); err != nil {
 		return err
 	}
+	if s.observer != nil {
+		if err := s.observer.StartRun(ctx, task.ID); err != nil {
+			slog.Warn("task run recording failed", "task_id", task.ID, "error", err)
+		}
+	}
+	s.observe(ctx, task.ID, "worker_started", "success", "", 0)
 	input := task.Request
 	maskRef := ""
 	if input.MaskObjectKey != "" && s.refs != nil {
@@ -426,6 +449,7 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 		task.ProviderTaskID = providerTaskID
 		task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		_ = s.repository.Update(ctx, task)
+		s.observe(ctx, task.ID, "provider_submitted", "success", "", 0)
 	}})
 	if err != nil {
 		code := "GENERATION_FAILED"
@@ -453,9 +477,11 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	for i, output := range result.Outputs {
 		key, size, saveErr := s.storage.SaveGenerated(ctx, task.UserID, task.ID, i, output.URI, output.MediaType)
 		if saveErr != nil {
+			s.observe(ctx, task.ID, "asset_saved", "failed", "STORAGE_ERROR", 0)
 			return saveErr
 		}
 		task.Outputs = append(task.Outputs, Output{ObjectKey: key, Size: size, MimeType: output.MediaType})
+		s.observe(ctx, task.ID, "asset_saved", "success", "", 0)
 	}
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if err = s.repository.Update(ctx, task); err != nil {
@@ -485,7 +511,17 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 		return providers.ImageResult{}, err
 	}
 	started := time.Now()
+	s.observe(ctx, task.ID, "provider_request", "started", "", 0)
 	result, callErr := s.provider.Generate(ctx, request)
+	providerCode := ""
+	if pe, ok := callErr.(*providers.Error); ok {
+		providerCode = pe.Code
+	}
+	providerState := "success"
+	if callErr != nil {
+		providerState = "failed"
+	}
+	s.observe(ctx, task.ID, "provider_response", providerState, providerCode, time.Since(started))
 	s.router.RecordRoute(ctx, binding.ID, callErr)
 	status, code := "success", ""
 	if callErr != nil {
@@ -520,6 +556,7 @@ func (s *Service) finalize(ctx context.Context, task *Task) error {
 		}
 		key, size, err := s.storage.SaveGenerated(ctx, task.UserID, task.ID, i, source, task.Outputs[i].MimeType)
 		if err != nil {
+			s.observe(ctx, task.ID, "asset_saved", "failed", "STORAGE_ERROR", 0)
 			return err
 		}
 		task.Outputs[i].ObjectKey, task.Outputs[i].Size = key, size
@@ -547,12 +584,20 @@ func (s *Service) finalize(ctx context.Context, task *Task) error {
 	if s.credits != nil && task.CreditReservationID != "" {
 		// 按上游实际交付结算：少返几张就少扣几张，渠道若提交即计费则在服务端按请求数结算。
 		if err := s.credits.SettleDelivered(ctx, task.CreditReservationID, int64(len(task.Outputs))); err != nil {
+			s.observe(ctx, task.ID, "settled", "failed", "SETTLEMENT_ERROR", 0)
 			return err
 		}
 	}
 	task.Status = "success"
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	return s.repository.Update(ctx, *task)
+	if err := s.repository.Update(ctx, *task); err != nil {
+		return err
+	}
+	s.observe(ctx, task.ID, "settled", "success", "", 0)
+	if s.observer != nil {
+		_ = s.observer.FinishRun(ctx, task.ID, "success")
+	}
+	return nil
 }
 func (s *Service) Deliver(task *Task) error {
 	if task.Status != "success" {
@@ -583,10 +628,18 @@ func (s *Service) fail(ctx context.Context, task *Task, code, message string) er
 	if err := s.repository.Update(ctx, *task); err != nil {
 		return err
 	}
+	var releaseErr error
 	if s.credits != nil && task.CreditReservationID != "" {
-		return s.credits.Release(ctx, task.CreditReservationID)
+		releaseErr = s.credits.Release(ctx, task.CreditReservationID)
 	}
-	return nil
+	s.observe(ctx, task.ID, "failed", "failed", code, 0)
+	if releaseErr != nil {
+		s.observe(ctx, task.ID, "refund", "failed", "REFUND_ERROR", 0)
+	}
+	if s.observer != nil {
+		_ = s.observer.FinishRun(ctx, task.ID, "failed")
+	}
+	return releaseErr
 }
 func validateBase(r Request, mock bool) error {
 	if r.IdempotencyKey == "" || len(r.IdempotencyKey) > 128 {

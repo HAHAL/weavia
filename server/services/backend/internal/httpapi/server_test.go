@@ -123,6 +123,7 @@ func TestProductionRejectsAnonymousDesktopAuthorizationAndAdmin(t *testing.T) {
 		{"GET", "/api/admin/devices", nil, "", 401},
 		{"GET", "/api/admin/plans", nil, "", 401},
 		{"GET", "/api/admin/task-runs", nil, "", 401},
+		{"GET", "/api/admin/ops/status", nil, "", 401},
 		{"GET", "/api/admin/tasks/00000000-0000-4000-8000-000000000001", nil, "", 401},
 		{"GET", "/api/auth/sessions", nil, "", 401},
 		{"POST", "/api/auth/sessions/revoke-all", nil, "", 401},
@@ -139,6 +140,7 @@ func TestProductionRejectsAnonymousDesktopAuthorizationAndAdmin(t *testing.T) {
 		{"GET", "/api/admin/devices", nil, "valid", 403},
 		{"GET", "/api/admin/plans", nil, "valid", 403},
 		{"GET", "/api/admin/task-runs", nil, "valid", 403},
+		{"GET", "/api/admin/ops/status", nil, "valid", 403},
 		{"GET", "/api/admin/tasks/00000000-0000-4000-8000-000000000001", nil, "valid", 403},
 		{"PATCH", "/api/admin/ai/providers/00000000-0000-4000-8000-000000000101", map[string]bool{"enabled": true}, "valid", 403},
 	} {

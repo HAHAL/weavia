@@ -29,4 +29,5 @@ target/
 .cache/
 tmp/
 coverage/
+var/ops/
 apps/desktop/src-tauri/gen/

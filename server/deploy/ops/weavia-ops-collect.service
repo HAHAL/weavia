@@ -1,0 +1,8 @@
+[Unit]
+Description=Collect bounded WEAVIA host and Docker health snapshot
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/weavia-v2/deploy/ops/collect.py
+TimeoutStartSec=45

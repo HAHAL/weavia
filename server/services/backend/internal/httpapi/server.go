@@ -24,6 +24,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/generation"
 	"github.com/weavia/weavia/services/backend/internal/invite"
 	"github.com/weavia/weavia/services/backend/internal/modelcatalog"
+	"github.com/weavia/weavia/services/backend/internal/ops"
 	"github.com/weavia/weavia/services/backend/internal/pricing"
 	"github.com/weavia/weavia/services/backend/internal/providerconfig"
 	"github.com/weavia/weavia/services/backend/internal/quote"
@@ -59,6 +60,7 @@ type Server struct {
 	AntDigitalBaseURL    string
 	DashScopeBaseURL     string
 	Readiness            map[string]func(context.Context) error
+	Ops                  *ops.Service
 }
 
 type AuthService interface {
@@ -195,6 +197,13 @@ func (s *Server) Router() http.Handler {
 			r.Get("/route-groups", s.adminRouteGroups)
 			r.Get("/ai/provider-summary", s.adminProviderSummary)
 			r.Get("/accounts/{accountNo}/groups", s.adminAccountGroups)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(s.requirePermission("ops.read"))
+			r.Get("/ops/status", s.adminOpsStatus)
+			r.Get("/ops/history", s.adminOpsHistory)
+			r.Get("/ops/logs/{service}", s.adminOpsLogs)
+			r.Get("/ops/tasks/{taskID}/events", s.adminOpsTaskEvents)
 		})
 		r.With(s.requirePermission("provider.write")).Patch("/ai/providers/{providerID}", s.patchProvider)
 		r.With(s.requirePermission("provider.write")).Put("/ai/providers/{providerCode}/credential", s.adminSetProviderCredential)

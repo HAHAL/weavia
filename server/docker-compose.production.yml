@@ -1,5 +1,11 @@
 name: weavia-production
 
+x-logging: &bounded-logging
+  driver: local
+  options:
+    max-size: '10m'
+    max-file: '3'
+
 # Production uses an externally managed PostgreSQL database. Run the backed-up
 # application and River migrations before starting this stack.
 services:
@@ -7,6 +13,7 @@ services:
     build:
       context: .
       dockerfile: services/backend/Dockerfile
+    logging: *bounded-logging
     environment: &backend-env
       APP_ENV: production
       DEMO_MODE: 'false'
@@ -22,6 +29,7 @@ services:
       SMTP_FROM: ${SMTP_FROM:?Set SMTP_FROM}
       ENABLE_REAL_AI: ${ENABLE_REAL_AI:-false}
       AI_MODE: ${AI_MODE:-real}
+      OPS_SNAPSHOT_PATH: /app/var/ops/snapshot.json
       ANTDIGITAL_API_KEY: ${ANTDIGITAL_API_KEY:-}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_IMAGE_EDIT_MODEL: ${DASHSCOPE_IMAGE_EDIT_MODEL:-qwen-image-edit-plus}
@@ -30,6 +38,7 @@ services:
       - '127.0.0.1:8080:8080'
     volumes:
       - weavia-assets:/app/var/assets
+      - ./var/ops:/app/var/ops:ro
     restart: unless-stopped
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/api/readiness']
@@ -41,7 +50,13 @@ services:
     build:
       context: .
       dockerfile: apps/admin/Dockerfile
+    logging: *bounded-logging
     restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1/']
+      interval: 30s
+      timeout: 3s
+      retries: 3
     depends_on:
       backend:
         condition: service_healthy
@@ -51,6 +66,7 @@ services:
       context: .
       dockerfile: services/backend/Dockerfile
     command: ['worker']
+    logging: *bounded-logging
     environment: *backend-env
     volumes:
       - weavia-assets:/app/var/assets

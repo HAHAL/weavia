@@ -15,6 +15,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/commercial"
 	"github.com/weavia/weavia/services/backend/internal/generation"
 	"github.com/weavia/weavia/services/backend/internal/jobs"
+	"github.com/weavia/weavia/services/backend/internal/ops"
 	"github.com/weavia/weavia/services/backend/internal/platform"
 	"github.com/weavia/weavia/services/backend/internal/providerconfig"
 	"github.com/weavia/weavia/services/backend/internal/providers"
@@ -24,6 +25,7 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	cfg := platform.LoadConfig()
 	if err := cfg.Validate(); err != nil {
 		fatal(err)
@@ -47,7 +49,8 @@ func main() {
 		provider = &providers.Mock{Delay: 400 * time.Millisecond}
 	}
 	realEnabled := cfg.RealAIEnabled || mock
-	service := generation.NewService(realEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool)).WithCredits(commercial.New(pool)).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage).WithMock(mock).WithRouting(routingadapter.New(routingService))
+	opsService := ops.New(pool, "")
+	service := generation.NewService(realEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool)).WithCredits(commercial.New(pool)).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage).WithMock(mock).WithRouting(routingadapter.New(routingService)).WithObserver(opsService)
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Queues: map[string]river.QueueConfig{jobs.Queue: {MaxWorkers: 4}}, Workers: jobs.Workers(service)})
 	if err != nil {
 		fatal(err)
@@ -55,6 +58,30 @@ func main() {
 	if err = client.Start(ctx); err != nil {
 		fatal(err)
 	}
+	go func() {
+		heartbeat := time.NewTicker(30 * time.Second)
+		cleanup := time.NewTicker(24 * time.Hour)
+		defer heartbeat.Stop()
+		defer cleanup.Stop()
+		for {
+			checkCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+			if err := opsService.Heartbeat(checkCtx); err != nil {
+				slog.Warn("worker heartbeat failed", "error", err)
+			}
+			stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-heartbeat.C:
+			case <-cleanup.C:
+				cleanCtx, done := context.WithTimeout(ctx, 30*time.Second)
+				if err := opsService.Cleanup(cleanCtx); err != nil {
+					slog.Warn("task event cleanup failed", "error", err)
+				}
+				done()
+			}
+		}
+	}()
 	if os.Getenv("VIDEO_RECONCILE_ENABLED") == "true" {
 		go func() {
 			service.ResumeVideoTasks(ctx)

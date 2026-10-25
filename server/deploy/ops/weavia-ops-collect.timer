@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect WEAVIA operational health every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=weavia-ops-collect.service
+
+[Install]
+WantedBy=timers.target
