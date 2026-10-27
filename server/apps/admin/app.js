@@ -335,7 +335,7 @@ function usersTable(rows) {
 }
 
 const avatarIds = ['mascot-fox','mascot-bear','mascot-rabbit','mascot-cat','mascot-owl','mascot-bird'];
-function defaultAvatarId(userId = '') { let hash = 0; for (const char of userId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0; return avatarIds[hash % avatarIds.length]; }
+function defaultAvatarId(_userId = '') { return avatarIds[0]; }
 
 
 

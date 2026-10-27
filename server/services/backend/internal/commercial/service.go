@@ -650,11 +650,7 @@ func validAdminAvatarID(value string) bool {
 }
 
 func defaultAdminAvatarID(userID string) string {
-	var hash uint32
-	for i := 0; i < len(userID); i++ {
-		hash = hash*31 + uint32(userID[i])
-	}
-	return adminAvatarIDs[hash%uint32(len(adminAvatarIDs))]
+	return adminAvatarIDs[0]
 }
 
 // RecordAdminAudit 记录管理端的写操作，便于追责与回溯。

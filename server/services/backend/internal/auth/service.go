@@ -336,11 +336,7 @@ func (s *Service) Me(ctx context.Context, value string) (User, error) {
 var avatarIDs = []string{"mascot-fox", "mascot-bear", "mascot-rabbit", "mascot-cat", "mascot-owl", "mascot-bird"}
 
 func DefaultAvatarID(userID string) string {
-	var hash uint32
-	for i := 0; i < len(userID); i++ {
-		hash = hash*31 + uint32(userID[i])
-	}
-	return avatarIDs[hash%uint32(len(avatarIDs))]
+	return avatarIDs[0]
 }
 
 func (s *Service) SetAvatar(ctx context.Context, userID, avatarID string) (User, error) {

@@ -9,10 +9,8 @@ export const avatarPresets: AvatarPreset[] = [
   { id: 'mascot-bird', name: '小鸟', src: '/avatars/mascot-bird.png' },
 ];
 
-export function avatarIdForUser(userId: string): string {
-  let hash = 0;
-  for (const char of userId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return avatarPresets[hash % avatarPresets.length].id;
+export function avatarIdForUser(_userId: string): string {
+  return avatarPresets[0].id;
 }
 
 export function normalizeAvatarId(value?: string): string | undefined {
