@@ -95,7 +95,7 @@ docker compose up -d --no-build --no-deps backend worker
 - 将已确认的头像提案拆分成六张 256×256 PNG：小狐狸、小熊、小兔、小猫、猫头鹰和小鸟。客户端和后台使用同一组头像资源。
 - 客户端“账户与设置”提供六选一和恢复默认；默认使用小狐狸。账户头像保存到 `users.avatar_url`，登录、刷新令牌及 `/api/auth/me` 返回所选头像。没有增加数据库列或迁移。
 - 新增登录用户接口 `PUT /api/me/avatar`，只接受六个内置头像 ID；后台 `/api/admin/users` 返回 `avatarUrl`，用户中心在邮箱旁展示头像。
-- 客户端新版包：`output/client-2026-10-27-avatar/WEAVIA-Desktop-macOS.zip`，构建标记 `2026-10-27-avatar-b`，SHA256 为 `5bce8a5ecd59fdfaabccac117bc0129b5d30f0098b609f0a3d1d9431309daa37`。此构建目录中的 `.app` 未覆盖原安装位置。
+- 客户端新版包：`output/client-2026-10-27-avatar/WEAVIA-Desktop-macOS.zip`，构建标记 `2026-10-27-avatar-b`，SHA256 为 `1ebeb5ee64baa4be9dc997699f0345e8c655c928abae917fdb6f774c3f9e263a`。已将带图标的应用安装到 `/Users/jiangliu/Documents/WEAVIA Desktop.app`，旧应用副本保留为 `WEAVIA Desktop.app.backup-20261027`。
 - 服务器当前部署 API/Worker 镜像 `weavia-v2-backend:avatar-20261027-b` 和后台镜像 `weavia-v2-admin:avatar-20261027-b`。部署后 readiness 的 database/queue/storage 均为 ok；六张后台头像静态文件均返回 HTTP 200；头像写接口未登录时返回 401。
 - 当前版本的回滚镜像标签保存在服务器：`weavia-v2-backend:pre-avatar-20261027-b`、`weavia-v2-worker:pre-avatar-20261027-b`、`weavia-v2-admin:pre-avatar-20261027-b`。切回标签并通过 Compose 重建 backend、worker、admin 即可；头像字段数据无需回滚。
 - 本轮执行了客户端 TypeScript/Vite 生产构建、Tauri macOS 包构建、Go 后端编译和后台 JS 语法检查；未运行测试套件。
