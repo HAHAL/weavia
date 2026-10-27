@@ -1,274 +1,70 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Boxes, Check, ChevronDown, Crown, Image as ImageIcon, SlidersHorizontal, Sparkles, Video, WandSparkles } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Button, Card, Dialog, Field } from '../components/ui';
-import { AssetPicker } from '../components/AssetPicker';
-import { useApp } from '../stores/app';
-import { useAuth } from '../stores/auth';
-import { apiConfig } from '../services/api';
-import { createTask } from '../services/tasks';
-import { MODELS, type CreativeBrief, type Mode, type Model, type ProductBrief } from '../types';
-import { FALLBACK_SHOWCASE } from '../data/showcase';
-import { loadShowcase } from '../services/showcase';
-import { loadPlatformModels } from '../services/models';
-import { loadSkills, runSkill, type Skill } from '../services/recipes';
-import { trackLiveTask } from '../services/live';
+import {useEffect,useState} from 'react';
+import {useLocation,useNavigate} from 'react-router-dom';
+import {Image,Layers,Film,Sparkles,ArrowRight} from 'lucide-react';
+import {Button,Card,Field} from '../components/ui';
+import {AssetPicker} from '../components/AssetPicker';
+import {useApp} from '../stores/app';
+import {currentScope} from '../stores/scope';
+import {apiConfig} from '../services/api';
+import {loadPlatformModels} from '../services/models';
+import {makeRequest} from '../services/live';
+import {quoteAndSubmit} from '../services/submission';
+import {createMockTask} from '../services/tasks';
+import type {CreativeBrief,Model} from '../types';
 
-const scenes = [
-  { title: '商品主图', detail: '突出商品外观，适合上架展示', prompt: '为这件商品制作清晰、准确的电商主图，保持商品外观和文字真实。', mode: 'image' as const, icon: ImageIcon },
-  { title: '场景营销图', detail: '把商品放进真实使用场景', prompt: '为这件商品制作真实自然的使用场景图，保持商品外观和文字真实。', mode: 'image' as const, icon: Sparkles },
-  { title: '商品短视频', detail: '从商品信息构思短视频', prompt: '围绕这件商品制作简洁的商品短视频，展示外观和使用情境。', mode: 'video' as const, icon: Video },
-];
-
-const RATIOS = ['1:1', '4:5', '3:4', '16:9', '9:16'];
-const RESOLUTIONS = ['1K', '2K', '4K'];
-const GLYPH_COLORS = ['#B08968', '#7F5539', '#9C6644', '#6B705C', '#8D6E63', '#5E548E'];
-function glyphColor(name?: string) {
-  let hash = 0;
-  for (const char of name || '') hash = (hash * 31 + char.codePointAt(0)!) % 997;
-  return GLYPH_COLORS[hash % GLYPH_COLORS.length];
+type Goal='hero'|'scene'|'ad'|'set'|'video';
+const goals=[{id:'hero',name:'商品主图',detail:'清晰展示商品外观',icon:Image},{id:'scene',name:'场景宣传图',detail:'让商品进入使用场景',icon:Sparkles},{id:'set',name:'商品套图',detail:'按用途制作 3 / 5 / 7 张',icon:Layers},{id:'video',name:'商品短视频',detail:'从商品图开始制作',icon:Film}] as const;
+const plans=[['主图','干净背景，完整清晰展示商品外观'],['场景图','展示商品的真实使用环境'],['卖点图','用视觉突出已确认的商品卖点，不编造文字'],['细节图','近景展示材质与结构细节'],['使用图','展示自然使用情境'],['包装图','展示商品包装和组合关系'],['收尾图','统一风格的品牌宣传构图']];
+type Draft={goal:Goal;prompt:string;productId:string;references:string[];channel:string;market:string;language:string;ratio:string;resolution:string;count:number;modelId:string;duration:number;free:boolean;planNotes:string[]};
+function initial(state:Record<string,unknown>|null):Draft{
+ let saved:Partial<Draft>={};try{saved=JSON.parse(localStorage.getItem(`weavia.draft.${currentScope()}`)||'{}');}catch{/* no draft */}
+ return {goal:'hero',prompt:'',productId:'',references:[],channel:'通用电商',market:'中国大陆',language:'简体中文',ratio:'1:1',resolution:'1K',count:3,modelId:'',duration:5,free:false,planNotes:plans.map(p=>p[1]),...saved,...(state?{prompt:String(state.prompt||state.retryPrompt||saved.prompt||''),productId:String(state.productId||''),references:(state.referenceAssetIds as string[])||[],goal:state.mode==='video'?'video':(state.goal as Goal)||'hero',modelId:String(state.modelId||''),channel:String(state.channel||saved.channel||'通用电商'),market:String(state.market||saved.market||'中国大陆'),language:String(state.language||saved.language||'简体中文')}:{} )};
 }
-function ModelGlyph({ icon, name, size = 18 }: { icon?: string; name?: string; size?: number }) {
-  if (icon === 'crown') return <Crown size={size} aria-hidden="true" />;
-  if (icon === 'wand') return <WandSparkles size={size} aria-hidden="true" />;
-  if (icon === 'video') return <Video size={size} aria-hidden="true" />;
-  if (name) {
-    return <span className="model-glyph" style={{ width: size, height: size, background: glyphColor(name), fontSize: Math.round(size * 0.52) }} aria-hidden="true">{(name.trim()[0] || 'M').toUpperCase()}</span>;
-  }
-  return <Sparkles size={size} aria-hidden="true" />;
-}
-
-function ModelLogo({ model, size = 22 }: { model?: Model; size?: number }) {
-  if (model?.logo) return <img className="model-logo" src={model.logo} alt={`${model.name} logo`} width={size} height={size} />;
-  return <ModelGlyph icon={model?.icon} name={model?.name} size={size} />;
-}
-
-function sizeFor(ratio: string, resolution: string) {
-  const long = resolution === '4K' ? 4096 : resolution === '2K' ? 2048 : 1024;
-  const short = resolution === '4K' ? 2304 : resolution === '2K' ? 1152 : 576;
-  const map: Record<string, string> = {
-    '1:1': `${long}x${long}`,
-    '4:5': `${Math.round(long * 0.8)}x${long}`,
-    '3:4': `${Math.round(long * 0.75)}x${long}`,
-    '16:9': `${long}x${short}`,
-    '9:16': `${short}x${long}`,
-  };
-  return map[ratio] || '1024x1024';
-}
-
-
-export function HomePage() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const routeState = location.state as { retryPrompt?: string; prompt?: string; productId?: string; mode?: Mode; channel?: string; market?: string; language?: string; audience?: string; videoRatio?: string; videoDuration?: number } | null;
-  const { tasks, works, products, assets } = useApp();
-  const user = useAuth(state => state.user);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
-  const modelRef = useRef<HTMLDetailsElement>(null);
-  const paramWrapRef = useRef<HTMLDivElement>(null);
-  const paramButtonRef = useRef<HTMLButtonElement>(null);
-  const [prompt, setPrompt] = useState(routeState?.retryPrompt || routeState?.prompt || '');
-  const [mode, setMode] = useState<Mode>(routeState?.mode === 'video' ? 'video' : 'image');
-  const [modelId, setModelId] = useState(apiConfig.mode === 'live' ? 'qwen-image-2.0' : 'image-balanced');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [showcase, setShowcase] = useState(FALLBACK_SHOWCASE);
-  const [modelOptions, setModelOptions] = useState<Model[]>(apiConfig.mode === 'live' ? [] : MODELS);
-  const [ratio, setRatio] = useState('1:1');
-  const [resolution, setResolution] = useState('1K');
-  const [count, setCount] = useState(1);
-  const [videoRatio, setVideoRatio] = useState(routeState?.videoRatio || '16:9');
-  const [videoResolution, setVideoResolution] = useState('720P');
-  const [duration, setDuration] = useState(routeState?.videoDuration || 5);
-  const [promptExtend, setPromptExtend] = useState(true);
-  const [negativePrompt, setNegativePrompt] = useState('');
-  const [seed, setSeed] = useState('');
-  const [outputFormat, setOutputFormat] = useState('png');
-  const [watermark, setWatermark] = useState(false);
-  const [referenceStrength, setReferenceStrength] = useState(0.65);
-  const [paramsOpen, setParamsOpen] = useState(false);
-  const [agentOpen, setAgentOpen] = useState(false);
-  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
-  const [productId, setProductId] = useState(routeState?.productId || '');
-  const [purpose, setPurpose] = useState<CreativeBrief['purpose']>(routeState?.mode === 'video' ? 'video' : 'hero');
-  const [channel, setChannel] = useState(routeState?.channel || '通用电商');
-  const [market, setMarket] = useState(routeState?.market || '中国大陆');
-  const [language, setLanguage] = useState(routeState?.language || '简体中文');
-  const [audience, setAudience] = useState(routeState?.audience || '');
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
-  const [paramPlacement, setParamPlacement] = useState<'down' | 'up'>('down');
-  const [paramMaxHeight, setParamMaxHeight] = useState(520);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const selectedProduct = products.find(item => item.id === productId);
-  const selectedReferences = selectedProduct?.sourceAssetId ? [selectedProduct.sourceAssetId, ...attachmentIds.filter(id => id !== selectedProduct.sourceAssetId)] : attachmentIds;
-  const models = modelOptions.filter(item => item.modes.includes(mode) && (mode === 'video' ? item.capabilities?.includes('text_to_video') : !item.capabilities || item.capabilities.includes(selectedReferences.length ? 'image_to_image' : 'text_to_image')));
-  const videoAvailable = modelOptions.some(item => item.modes.includes('video') && item.capabilities?.includes('text_to_video') && item.available === true && (item.channels || 0) > 0);
-  const latestTask = [...tasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  const showcaseImages = showcase.filter(item => item.kind === 'image');
-  const showcaseWorks = showcase.filter(item => item.kind === 'work');
-  const selectedModel = models.find(item => item.id === modelId) || models.find(item => item.available !== false) || models[0];
-  const resolutionMultiplier = resolution === '4K' ? 4 : resolution === '2K' ? 2 : 1;
-  const credits = mode === 'video'
-    ? (selectedModel?.creditBase || 8)
-    : (selectedModel?.creditBase || 8) * count * resolutionMultiplier;
-  const paramSummary = mode === 'video' ? `${videoRatio} · ${videoResolution} · ${duration}s` : `${ratio} · ${resolution} · ${count} 张`;
-  const recommendedModels = models.filter(item => item.available !== false);
-  const otherModels = models.filter(item => item.available === false);
-
-  function chooseProduct(id: string) {
-    const previousSource = products.find(item => item.id === productId)?.sourceAssetId;
-    setProductId(id);
-    setAttachmentIds(current => {
-      return current.filter(item => item !== previousSource);
-    });
-    setError('');
-  }
-
-  function modelOption(item: Model) {
-    return <button type="button" key={item.id} className={`model-option ${item.id === modelId ? 'selected' : ''}`} disabled={item.available === false} onClick={() => { setModelId(item.id); modelRef.current?.removeAttribute('open'); }}><span className="model-option-icon"><ModelLogo model={item} size={24} /></span><span className="model-option-copy"><strong>{item.name}</strong><small>{item.description || (item.modes.includes('video') ? '视频生成' : '图片生成')}</small></span><span className="model-option-meta">{item.available === false ? <em>维护中</em> : <>{item.creditBase} Credits</>}{item.id === modelId && <Check size={15} aria-hidden="true" />}</span></button>;
-  }
-
-
-  useEffect(() => {
-    let active = true;
-    loadShowcase().then(items => { if (active) setShowcase(items); });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!paramsOpen) return;
-    function close(event: MouseEvent) {
-      if (!paramWrapRef.current?.contains(event.target as Node)) setParamsOpen(false);
-    }
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [paramsOpen]);
-
-  useEffect(() => {
-    function closeModel(event: MouseEvent) {
-      const picker = modelRef.current;
-      if (picker && !picker.contains(event.target as Node)) picker.removeAttribute('open');
-    }
-    document.addEventListener('mousedown', closeModel);
-    return () => document.removeEventListener('mousedown', closeModel);
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSkillsLoading(true);
-    loadSkills().then(items => setSkills(items.filter(item => item.status === 'published'))).catch(() => {}).finally(() => setSkillsLoading(false));
-  }, [user]);
-
-  useEffect(() => {
-    let active = true;
-    loadPlatformModels().then(items => {
-      if (!active || !items.length) return;
-      setModelOptions(items);
-      setModelId(current => items.some(item => item.id === current) ? current : (items.find(item => item.id === 'qwen-image-2.0' && item.available !== false) || items.find(item => item.modes.includes('image') && item.available !== false) || items[0]).id);
-    });
-    return () => { active = false; };
-  }, []);
-
-  function selectMode(nextMode: Mode) {
-    if (nextMode === 'video' && !videoAvailable) { setError('视频生成暂未开放，目前可以使用图片创作。'); return; }
-    setMode(nextMode);
-    setPurpose(nextMode === 'video' ? 'video' : 'hero');
-    setError('');
-    const candidate = modelOptions.find(item => item.modes.includes(nextMode) && (nextMode !== 'video' || item.capabilities?.includes('text_to_video')) && item.available !== false) || modelOptions.find(item => item.modes.includes(nextMode) && (nextMode !== 'video' || item.capabilities?.includes('text_to_video')));
-    if (candidate) setModelId(candidate.id);
-    if (nextMode === 'video') { setVideoRatio('16:9'); setVideoResolution('720P'); setDuration(5); setCount(1); }
-    else { setRatio('1:1'); setResolution('1K'); setCount(1); }
-  }
-
-  function applyShowcase(item: (typeof FALLBACK_SHOWCASE)[number]) {
-    setPrompt(item.prompt);
-    selectMode('image');
-    setError('');
-    promptRef.current?.focus();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  function openParams() {
-    const rect = paramButtonRef.current?.getBoundingClientRect();
-    if (!rect) { setParamsOpen(true); return; }
-    const below = window.innerHeight - rect.bottom - 16;
-    const above = rect.top - 16;
-    const placement: 'down' | 'up' = below >= 360 || below >= above ? 'down' : 'up';
-    setParamPlacement(placement);
-    setParamMaxHeight(Math.min(600, Math.max(280, placement === 'down' ? below : above)));
-    setParamsOpen(true);
-  }
-
-  async function generate(nextPrompt = prompt, nextMode = mode) {
-    if (!nextPrompt.trim()) { setError('先描述你想制作的内容，或选择下方场景。'); promptRef.current?.focus(); return; }
-    if (selectedProduct && nextMode === 'image' && (!selectedProduct.sourceAssetId || !assets.some(item => item.id === selectedProduct.sourceAssetId))) { setError('商品图片创作需要依据图，请先到商品库补充。'); return; }
-    if (nextMode === 'video' && !videoAvailable) { setError('视频服务尚未配置，暂不能提交渲染任务。'); return; }
-    setBusy(true);
-    setError('');
-    try {
-      const selectedModel = models.find(item => item.id === modelId) || models.find(item => item.available !== false) || models[0];
-      if (!selectedModel || selectedModel.available === false) throw new Error('当前没有可用模型，请先在服务端配置。');
-      const product: ProductBrief | undefined = selectedProduct ? { id: selectedProduct.id, name: selectedProduct.name, sku: selectedProduct.sku, description: selectedProduct.description, verifiedFacts: selectedProduct.verifiedFacts || '', forbiddenClaims: selectedProduct.forbiddenClaims || '', sourceAssetId: selectedProduct.sourceAssetId || '' } : undefined;
-      const creative: CreativeBrief = { purpose: nextMode === 'video' ? 'video' : purpose === 'video' ? 'hero' : purpose, channel: channel.trim(), market: market.trim(), language: language.trim(), audience: audience.trim(), product: product ? { localId: product.id, name: product.name, sku: product.sku, description: product.description, verifiedFacts: product.verifiedFacts, forbiddenClaims: product.forbiddenClaims } : undefined };
-      if (!creative.channel || !creative.market || !creative.language) throw new Error('请填写渠道、市场和输出语言。');
-      const taskId = await createTask({
-        prompt: nextPrompt.trim(),
-        mode: nextMode,
-        modelId: selectedModel.id,
-        params: nextMode === 'video' ? { ratio: videoRatio, resolution: videoResolution, duration, count: 1, promptExtend, size: videoRatio === '9:16' ? (videoResolution === '1080P' ? '1080*1920' : '720*1280') : (videoResolution === '1080P' ? '1920*1080' : '1280*720'), negativePrompt, seed, outputFormat: 'mp4', watermark, referenceStrength } : { ratio, resolution, count, promptExtend, size: sizeFor(ratio, resolution), negativePrompt, seed, outputFormat, watermark, referenceStrength },
-        referenceAssetIds: nextMode === 'video' ? [] : selectedReferences,
-        product,
-        creative,
-
-      });
-      navigate('/create', { state: { taskId } });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '任务创建失败');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return <div className="page home-page">
-    <section className="home-hero">
-      <div className="home-hero-heading"><span className="home-eyebrow">WEAVIA AI Commerce Studio</span><h1>今天，为商品创作什么？</h1><p>描述你的想法，直接生成。结果会留在这次创作会话里。</p></div>
-      <div className="creative-brief"><div className="creative-brief-title"><strong>创作资料</strong><span>先确定商品和投放场景，再生成素材</span></div><div className="creative-brief-grid"><label>商品<select value={productId} onChange={event => chooseProduct(event.target.value)}><option value="">自由创作</option>{products.map(item => <option key={item.id} value={item.id}>{item.name} · {item.sku}</option>)}</select></label><label>投放渠道<input list="creative-channels" value={channel} onChange={event => setChannel(event.target.value)} maxLength={80} /><datalist id="creative-channels"><option value="通用电商" /><option value="抖音电商" /><option value="淘宝 / 天猫" /><option value="京东" /><option value="拼多多" /><option value="TikTok Shop" /><option value="Amazon" /><option value="Shopee" /><option value="Lazada" /><option value="独立站" /></datalist></label><label>目标市场<input list="creative-markets" value={market} onChange={event => setMarket(event.target.value)} maxLength={80} /><datalist id="creative-markets"><option value="中国大陆" /><option value="美国" /><option value="东南亚" /><option value="欧洲" /><option value="全球" /></datalist></label><label>输出语言<input list="creative-languages" value={language} onChange={event => setLanguage(event.target.value)} maxLength={32} /><datalist id="creative-languages"><option value="简体中文" /><option value="English" /><option value="Español" /><option value="日本語" /><option value="Bahasa Indonesia" /></datalist></label></div><div className="creative-purpose" role="group" aria-label="创作目标">{(mode === 'video' ? [{ id: 'video', label: '宣传视频' }] : [{ id: 'hero', label: '商品主图' }, { id: 'scene', label: '场景图' }, { id: 'ad', label: '宣传图' }]).map(item => <button type="button" key={item.id} className={purpose === item.id ? 'selected' : ''} onClick={() => setPurpose(item.id as CreativeBrief['purpose'])}>{item.label}</button>)}</div><label className="creative-audience">目标人群（选填）<input value={audience} onChange={event => setAudience(event.target.value)} maxLength={300} placeholder="例如：通勤女性、北美户外爱好者" /></label>{selectedProduct && <p className="creative-product-note">已核实事实：{selectedProduct.verifiedFacts || '尚未填写'} · 依据图：{selectedProduct.sourceAssetId ? '已关联' : '未关联'}</p>}</div>
-      <div className="home-composer"><label className="sr-only" htmlFor="home-prompt">创作描述</label><textarea ref={promptRef} id="home-prompt" value={prompt} onChange={event => { setPrompt(event.target.value); setError(''); }} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void generate(); } }} placeholder="例如：为这款商品制作一张自然光场景图，突出包装和材质…" />
-        {mode === 'image' && <AssetPicker selected={selectedReferences} onChange={setAttachmentIds} />}
-        <div className="home-composer-footer"><div className="home-composer-controls"><div className="home-mode" role="group" aria-label="创作类型"><button type="button" className={mode === 'image' ? 'selected' : ''} aria-pressed={mode === 'image'} onClick={() => selectMode('image')}><ImageIcon size={16} />图片</button><button type="button" className={mode === 'video' ? 'selected' : ''} aria-pressed={mode === 'video'} disabled={!videoAvailable} aria-describedby={!videoAvailable ? 'video-mode-note' : undefined} onClick={() => selectMode('video')}><Video size={16} />视频</button></div>{!videoAvailable && <span id="video-mode-note" className="home-mode-note">视频生成暂未开放</span>}<button type="button" className="home-agent-trigger" onClick={() => { if (!user) { navigate('/login'); return; } setAgentOpen(true); }}><Boxes size={16} />Agent</button><details className="model-picker" ref={modelRef} onToggle={event => { if (event.currentTarget.open) setParamsOpen(false); }}><summary className="model-trigger"><span className="model-trigger-icon"><ModelLogo model={selectedModel} /></span><span>{selectedModel?.name || '选择模型'}</span><ChevronDown size={14} aria-hidden="true" /></summary><div className="model-popover"><div className="model-popover-head"><span>{mode === 'image' ? '选择图片模型' : '选择视频模型'}</span><small>{models.length} 个</small></div><div className="model-popover-body">{recommendedModels.length > 0 && <div className="model-group"><div className="model-group-label">推荐</div>{recommendedModels.map(modelOption)}</div>}{otherModels.length > 0 && <div className="model-group"><div className="model-group-label">更多模型</div>{otherModels.map(modelOption)}</div>}</div><div className="model-popover-foot">{models.length} 个模型 · 自动选择可用渠道</div></div></details><div className="param-picker-wrap" ref={paramWrapRef}><button type="button" ref={paramButtonRef} className="param-trigger" onClick={() => { if (paramsOpen) { setParamsOpen(false); return; } modelRef.current?.removeAttribute('open'); openParams(); }}><SlidersHorizontal size={15} aria-hidden="true" /><span>参数</span><small>{paramSummary}</small></button>{paramsOpen && mode === 'video' && <VideoParams ratio={videoRatio} resolution={videoResolution} duration={duration} promptExtend={promptExtend} negativePrompt={negativePrompt} seed={seed} watermark={watermark} credits={credits} maxHeight={paramMaxHeight} placement={paramPlacement} onRatio={setVideoRatio} onResolution={setVideoResolution} onDuration={setDuration} onPromptExtend={setPromptExtend} onNegative={setNegativePrompt} onSeed={setSeed} onWatermark={setWatermark} onClose={() => setParamsOpen(false)} />}{paramsOpen && mode !== 'video' && <div className={`param-popover-detail ${paramPlacement === 'up' ? 'above' : ''}`} style={{ maxHeight: paramMaxHeight }} role="dialog" aria-label="图片参数"><header className="param-drawer-head"><div><h2>图片参数</h2><p>参数会随任务一起提交</p></div><button type="button" className="param-close" aria-label="关闭参数" onClick={() => setParamsOpen(false)}>×</button></header><div className="param-drawer-body"><section className="param-section"><h3>基础</h3><div className="param-group"><label>比例</label><div className="param-options">{RATIOS.map(value => <button type="button" key={value} className={ratio === value ? 'selected' : ''} onClick={() => setRatio(value)}>{value}</button>)}</div></div><div className="param-group"><label>清晰度</label><div className="param-options">{RESOLUTIONS.map(value => <button type="button" key={value} className={resolution === value ? 'selected' : ''} onClick={() => setResolution(value)}>{value}</button>)}</div></div><div className="param-group"><label>数量</label><div className="param-options">{[1, 2, 4].map(value => <button type="button" key={value} className={count === value ? 'selected' : ''} onClick={() => setCount(value)}>{value} 张</button>)}</div></div><label className="param-toggle"><span>提示词增强</span><input type="checkbox" checked={promptExtend} onChange={event => setPromptExtend(event.target.checked)} /></label></section><button type="button" className={`param-advanced-toggle ${advancedOpen ? 'open' : ''}`} onClick={() => setAdvancedOpen(value => !value)}>高级设置<ChevronDown size={15} aria-hidden="true" /></button>{advancedOpen && <section className="param-section param-advanced"><label className="param-field">负向提示词<textarea value={negativePrompt} onChange={event => setNegativePrompt(event.target.value)} placeholder="不想出现的内容，例如：文字、水印、变形" rows={3} /></label><label className="param-field">随机种子<input value={seed} onChange={event => setSeed(event.target.value)} placeholder="留空为随机" inputMode="numeric" /></label><div className="param-group"><label>输出格式</label><div className="param-options">{['png', 'jpg'].map(value => <button type="button" key={value} className={outputFormat === value ? 'selected' : ''} onClick={() => setOutputFormat(value)}>{value.toUpperCase()}</button>)}</div></div><label className="param-toggle"><span>水印</span><input type="checkbox" checked={watermark} onChange={event => setWatermark(event.target.checked)} /></label><label className="param-field">参考图强度<span className="param-range"><input type="range" min="0" max="1" step="0.05" value={referenceStrength} disabled onChange={event => setReferenceStrength(Number(event.target.value))} /><b>{referenceStrength.toFixed(2)}</b></span><small>参考图输入将在阶段 2 开放</small></label></section>}</div><footer className="param-drawer-foot"><div className="param-cost"><small>预计</small><strong>{credits} Credits</strong><span>{selectedModel?.creditBase || 8} × {count} 张 × {resolutionMultiplier} 倍率</span></div><div className="param-actions"><button type="button" className="param-reset" onClick={() => { setRatio('1:1'); setResolution('1K'); setCount(1); setPromptExtend(true); setNegativePrompt(''); setSeed(''); setOutputFormat('png'); setWatermark(false); setReferenceStrength(0.65); }}>重置</button><button type="button" className="param-apply" onClick={() => setParamsOpen(false)}>应用参数</button></div></footer></div>}</div></div><Button className="home-composer-submit" disabled={busy || (mode === 'video' && !videoAvailable)} onClick={() => void generate()}>{busy ? '创建中…' : <>{mode === 'image' ? '生成图片' : '生成视频'} <ArrowUp size={17} /></>}</Button></div>
-      </div>
-      {mode === 'video' && <p className="creative-video-note">当前视频生成按文字脚本提交；商品依据图不会送入视频模型。请在作品中心核对外观与文案后再发布。</p>}
-      {error && <p className="home-composer-error" role="alert">{error}</p>}
-      <div className="home-prompt-chips" aria-label="常用创作场景">{scenes.map(scene => <button type="button" key={scene.title} disabled={scene.mode === 'video' && !videoAvailable} title={scene.mode === 'video' && !videoAvailable ? '视频生成暂未开放' : undefined} onClick={() => { setPrompt(scene.prompt); selectMode(scene.mode); setError(''); }}><scene.icon size={16} aria-hidden="true" />{scene.title}{scene.mode === 'video' && !videoAvailable && <small>暂未开放</small>}</button>)}</div>
-    </section>
-    <section className="home-section"><div className="section-heading"><div><h2>灵感示例</h2><p>点击任意一张，把提示词带入上方创作框</p></div><span className="badge">示例</span></div><div className="showcase-grid">{showcaseImages.map(item => <button type="button" key={item.id} className="showcase-card" aria-label={`使用示例：${item.title}`} onClick={() => applyShowcase(item)}><img src={item.imageUrl} alt={item.title} loading="lazy" /><span className="showcase-overlay"><strong>{item.title}</strong><small>{item.tag}</small></span></button>)}</div></section>
-    {showcaseWorks.length > 0 && <section className="home-section"><div className="section-heading"><div><h2>示例作品</h2><p>后台发布的完整案例，点击查看提示词</p></div><span className="badge">示例</span></div><div className="showcase-grid">{showcaseWorks.map(item => <button type="button" key={item.id} className="showcase-card" aria-label={`使用示例：${item.title}`} onClick={() => applyShowcase(item)}><img src={item.imageUrl} alt={item.title} loading="lazy" /><span className="showcase-overlay"><strong>{item.title}</strong><small>{item.tag}</small></span></button>)}</div></section>}
-    <section className="home-section"><div className="section-heading"><div><h2>继续你的工作</h2><p>查看最近的任务与作品</p></div></div><div className="home-recent-grid"><Card className="home-recent"><strong>最近任务</strong>{latestTask ? <><p>{latestTask.title}</p><small>{latestTask.status === 'Succeeded' ? '已完成' : latestTask.status === 'Running' ? '进行中' : latestTask.status === 'Queued' ? '排队中' : latestTask.status === 'Failed' ? '失败' : '已取消'} · {latestTask.source === 'mock' ? '演示任务' : '云端任务'}</small></> : <p>还没有任务</p>}<Button variant="secondary" onClick={() => navigate('/tasks')}>查看任务</Button></Card><Card className="home-recent"><strong>作品中心</strong><p>{works.length ? `已有 ${works.length} 件作品` : '还没有作品'}</p><small>查看版本与继续编辑</small><Button variant="secondary" onClick={() => navigate('/works')}>查看作品</Button></Card></div></section>
-
-    {agentOpen && <AgentDialog skills={skills} loading={skillsLoading} onClose={() => setAgentOpen(false)} onDone={taskId => { setAgentOpen(false); navigate('/create', { state: { taskId } }); }} />}
-  </div>;
-}
-
-
-function VideoParams({ ratio, resolution, duration, promptExtend, negativePrompt, seed, watermark, credits, maxHeight, placement, onRatio, onResolution, onDuration, onPromptExtend, onNegative, onSeed, onWatermark, onClose }: { ratio: string; resolution: string; duration: number; promptExtend: boolean; negativePrompt: string; seed: string; watermark: boolean; credits: number; maxHeight: number; placement: 'down' | 'up'; onRatio: (v: string) => void; onResolution: (v: string) => void; onDuration: (v: number) => void; onPromptExtend: (v: boolean) => void; onNegative: (v: string) => void; onSeed: (v: string) => void; onWatermark: (v: boolean) => void; onClose: () => void }) {
-  return <div className={`param-popover-detail ${placement === 'up' ? 'above' : ''}`} style={{ maxHeight }} role="dialog" aria-label="视频参数"><header className="param-drawer-head"><div><h2>视频参数</h2><p>视频模型专用参数</p></div><button type="button" className="param-close" aria-label="关闭参数" onClick={onClose}>×</button></header><div className="param-drawer-body"><section className="param-section"><h3>基础</h3><div className="param-group"><label>画面比例</label><div className="param-options">{['16:9', '9:16'].map(value => <button type="button" key={value} className={ratio === value ? 'selected' : ''} onClick={() => onRatio(value)}>{value}</button>)}</div></div><div className="param-group"><label>视频清晰度</label><div className="param-options">{['720P', '1080P'].map(value => <button type="button" key={value} className={resolution === value ? 'selected' : ''} onClick={() => onResolution(value)}>{value}</button>)}</div></div><div className="param-group"><label>时长</label><div className="param-options">{[5, 10].map(value => <button type="button" key={value} className={duration === value ? 'selected' : ''} onClick={() => onDuration(value)}>{value} 秒</button>)}</div></div><label className="param-toggle"><span>提示词增强</span><input type="checkbox" checked={promptExtend} onChange={event => onPromptExtend(event.target.checked)} /></label></section><button type="button" className="param-advanced-toggle" onClick={event => { const panel = event.currentTarget.nextElementSibling as HTMLElement | null; if (panel) panel.hidden = !panel.hidden; }}>高级设置<ChevronDown size={15} aria-hidden="true" /></button><section className="param-section param-advanced" hidden><label className="param-field">负向提示词<textarea value={negativePrompt} onChange={event => onNegative(event.target.value)} placeholder="不想出现的画面" rows={3} /></label><label className="param-field">随机种子<input value={seed} onChange={event => onSeed(event.target.value)} placeholder="留空为随机" inputMode="numeric" /></label><label className="param-toggle"><span>水印</span><input type="checkbox" checked={watermark} onChange={event => onWatermark(event.target.checked)} /></label></section></div><footer className="param-drawer-foot"><div className="param-cost"><small>预计</small><strong>{credits} Credits</strong><span>{duration} 秒 · {resolution}</span></div><div className="param-actions"><button type="button" className="param-reset" onClick={() => { onRatio('16:9'); onResolution('720P'); onDuration(5); onPromptExtend(true); onNegative(''); onSeed(''); onWatermark(false); }}>重置</button><button type="button" className="param-apply" onClick={onClose}>应用参数</button></div></footer></div>;
-}
-
-function AgentDialog({ skills, loading, onClose, onDone }: { skills: Skill[]; loading: boolean; onClose: () => void; onDone: (taskId: string) => void }) {
-  const [skillId, setSkillId] = useState(skills[0]?.id || '');
-  const skill = skills.find(item => item.id === skillId);
-  const [inputs, setInputs] = useState<Record<string, string>>({});
-  const [model, setModel] = useState('qwen-image-2.0');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function run() {
-    if (!skill) { setError('请选择 Skill'); return; }
-    setBusy(true); setError('');
-    try { const task = await runSkill(skill.id, inputs, model); trackLiveTask(task, skill.name); onDone(task.id); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : '执行失败'); }
-    finally { setBusy(false); }
-  }
-  return <Dialog title="Agent 模式" onClose={onClose} wide><div className="dialog-content form-stack"><p>选择一个 Skill，填写输入，系统会按 Skill 模板生成。</p><Field label="Skill"><select value={skillId} onChange={event => { setSkillId(event.target.value); setInputs({}); }}><option value="">{loading ? '加载中…' : skills.length ? '选择 Skill' : '暂无 Skill'}</option>{skills.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category}</option>)}</select></Field>{skill?.manifest?.inputs?.map(input => <Field key={input.key} label={`${input.label}${input.required ? ' *' : ''}`}><input value={inputs[input.key] || ''} onChange={event => setInputs(current => ({ ...current, [input.key]: event.target.value }))} placeholder={input.label} /></Field>)}<Field label="模型"><select value={model} onChange={event => setModel(event.target.value)}><option value="qwen-image-2.0">Qwen Image 2.0</option><option value="qwen-image-max">Qwen Image Max</option></select></Field>{error && <p className="form-error">{error}</p>}<div className="dialog-actions"><Button variant="secondary" onClick={onClose}>取消</Button><Button disabled={busy || !skill} onClick={() => void run()}>{busy ? '执行中…' : '执行 Agent'}</Button></div></div></Dialog>;
+function imageSize(ratio:string,resolution:string){const n=resolution==='2K'?2048:1024;const [a,b]=ratio.split(':').map(Number);return a>=b?`${n}x${Math.round(n*b/a)}`:`${Math.round(n*a/b)}x${n}`;}
+export function HomePage(){
+ const navigate=useNavigate(),location=useLocation();
+ const {products,assets,tasks}=useApp();
+ const [draft,setDraft]=useState(()=>initial(location.state));
+ const [models,setModels]=useState<Model[]>([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const patch=(next:Partial<Draft>)=>{setDraft(v=>({...v,...next}));setError('');};
+ useEffect(()=>{let live=true;loadPlatformModels().then(v=>{if(live)setModels(v);}).finally(()=>{if(live)setLoading(false);});return()=>{live=false;};},[]);
+ useEffect(()=>{localStorage.setItem(`weavia.draft.${currentScope()}`,JSON.stringify(draft));},[draft]);
+ const product=products.find(p=>p.id===draft.productId);
+ const refs=[...new Set([...(product?.sourceAssetId?[product.sourceAssetId]:[]),...draft.references])].filter(id=>assets.some(a=>a.id===id));
+ const video=draft.goal==='video';
+ const capability=video?(refs.length?'image_to_video':'text_to_video'):(refs.length?'image_to_image':'text_to_image');
+ const usable=models.filter(m=>m.available!==false&&m.modes.includes(video?'video':'image')&&(!m.capabilities||m.capabilities.includes(capability)));
+ const model=usable.find(m=>m.id===draft.modelId)||usable[0];
+ const outputs=draft.goal==='set'?plans.slice(0,draft.count):[[goals.find(g=>g.id===draft.goal)?.name||'宣传图',draft.prompt||'保持商品外观与已核实事实']];
+ const recent=[...tasks].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,3);
+ async function generate(){
+  if(!refs.length&&!draft.free){setError('先上传一张商品图，或在更多设置中选择自由创作。');return;}
+  if(!model){setError('当前创作方式暂无可用模型，请稍后重试或联系运营。');return;}
+  const base=draft.prompt.trim()||`为商品制作${goals.find(g=>g.id===draft.goal)?.name||'宣传图'}，保持商品外观、包装和标识一致。`;
+  const brief:CreativeBrief={purpose:video?'video':draft.goal==='set'?'hero':draft.goal,channel:draft.channel.trim(),market:draft.market.trim(),language:draft.language.trim(),product:product?{localId:product.id,name:product.name,sku:product.sku,description:product.description,verifiedFacts:product.verifiedFacts,forbiddenClaims:product.forbiddenClaims}:undefined};
+  if(!brief.channel||!brief.market||!brief.language){setError('请补全渠道、市场和输出语言');return;}
+  setBusy(true);setError('');
+  try{
+   const batchId=crypto.randomUUID();
+   const requests=outputs.map((item,i)=>({title:(product?.name?product.name+' · ':'')+item[0],prompt:draft.goal==='set'?`${base}。本张用途：${item[0]}。${draft.planNotes[i]}。整套风格一致，准确保留商品外观。`:base}));
+   let ids:string[];
+   if(apiConfig.mode==='mock'){
+    ids=requests.map(item=>{const id=createMockTask(item.prompt,video?'video':'image',{creative:brief,referenceAssetIds:refs});useApp.getState().updateTask(id,{title:item.title,batchId});return id;});
+   }else{
+    const prepared=[];
+    for(const item of requests){const params={ratio:draft.ratio,resolution:video?'720P':draft.resolution,count:1,promptExtend:true,duration:draft.duration,size:video?(draft.ratio==='9:16'?'720*1280':'1280*720'):imageSize(draft.ratio,draft.resolution)};
+     prepared.push({body:await makeRequest(item.prompt,model.id,params,refs,video?'video':'image',brief),title:item.title,referenceAssetIds:refs,product:product?{...product,verifiedFacts:product.verifiedFacts||'',forbiddenClaims:product.forbiddenClaims||'',sourceAssetId:product.sourceAssetId||''}:undefined});}
+    ids=await quoteAndSubmit(prepared);
+   }
+   navigate(`/create?task=${ids[0]}`);
+  }catch(e){setError(e instanceof Error?e.message:'提交未完成，请到任务中心核对');}finally{setBusy(false);}
+ }
+ return <div className="page studio-home"><div className="page-header"><div><h1>开始一次商品创作</h1><p>选好用途，上传商品图，把结果带回你的店铺。</p></div><span className="draft-note">草稿自动保存在本机</span></div>
+ <div className="goal-picker" role="group" aria-label="创作目标">{goals.map(g=><button key={g.id} type="button" aria-pressed={draft.goal===g.id} className={draft.goal===g.id?'selected':''} onClick={()=>patch({goal:g.id,ratio:g.id==='video'?'9:16':'1:1'})}><g.icon size={22}/><strong>{g.name}</strong><small>{g.detail}</small></button>)}</div>
+ <div className="studio-layout"><div className="studio-inputs"><Card className="studio-section"><h2>商品与依据图</h2><p>原图用于保留商品外观、包装和标识。</p>{products.length>0&&<Field label="选择已有商品（选填）"><select value={draft.productId} onChange={e=>patch({productId:e.target.value})}><option value="">这次直接上传</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>}<AssetPicker selected={refs} onChange={references=>patch({references,productId:product?.sourceAssetId&&!references.includes(product.sourceAssetId)?'':draft.productId})}/>{refs.length>0&&<p className="field-hint">已选择 {refs.length} 张依据图。生成后请对照原图核对商品。</p>}<Field label="你希望怎样展示商品？（选填）"><textarea rows={3} value={draft.prompt} onChange={e=>patch({prompt:e.target.value})} placeholder="例如：自然光下的浴室场景，突出瓶身材质，保持包装文字不变。"/></Field></Card>
+ <Card className="studio-section"><h2>投放与规格</h2><div className="studio-fields"><Field label="投放渠道"><select value={draft.channel} onChange={e=>patch({channel:e.target.value})}>{['通用电商','淘宝 / 天猫','京东','拼多多','抖音电商','TikTok Shop','Amazon','Shopee','Lazada','独立站'].map(v=><option key={v}>{v}</option>)}</select></Field><Field label="目标市场"><input value={draft.market} onChange={e=>patch({market:e.target.value})}/></Field><Field label="输出语言"><select value={draft.language} onChange={e=>patch({language:e.target.value})}>{['简体中文','English','Español','日本語','Bahasa Indonesia'].map(v=><option key={v}>{v}</option>)}</select></Field><Field label="画面比例"><select value={draft.ratio} onChange={e=>patch({ratio:e.target.value})}>{(video?['9:16','16:9']:['1:1','4:5','3:4','16:9','9:16']).map(v=><option key={v}>{v}</option>)}</select></Field></div><p className="field-hint">渠道用于创作参考，发布前请核对平台当前的素材要求。</p>
+ <details className="advanced-settings"><summary>更多设置</summary><div className="studio-fields"><Field label="模型"><select value={model?.id||''} onChange={e=>patch({modelId:e.target.value})}>{usable.length?usable.map(m=><option key={m.id} value={m.id}>{m.name}</option>):<option value="">暂无可用模型</option>}</select></Field>{video?<Field label="时长"><select value={draft.duration} onChange={e=>patch({duration:Number(e.target.value)})}><option value={5}>5 秒</option><option value={10}>10 秒</option></select></Field>:<Field label="清晰度"><select value={draft.resolution} onChange={e=>patch({resolution:e.target.value})}><option>1K</option><option>2K</option></select></Field>}</div><label className="switch-row">自由创作（允许不使用商品图）<input type="checkbox" checked={draft.free} onChange={e=>patch({free:e.target.checked})}/></label></details></Card></div>
+ <aside className="output-plan"><Card className="studio-section"><h2>本次将得到</h2>{draft.goal==='set'&&<div className="segmented" role="group" aria-label="套图数量">{[3,5,7].map(n=><button type="button" key={n} aria-pressed={draft.count===n} className={draft.count===n?'selected':''} onClick={()=>patch({count:n})}>{n} 张</button>)}</div>}<ol className="plan-list">{outputs.map((item,i)=><li key={item[0]}><strong>{item[0]}</strong>{draft.goal==='set'?<textarea aria-label={`${item[0]}要求`} value={draft.planNotes[i]} onChange={e=>patch({planNotes:draft.planNotes.map((n,j)=>j===i?e.target.value:n)})}/>:<p>{video?'可播放的视频；商品图模式仅在已核实模型开放后可用。':'生成后可对照原图、修改和下载。'}</p>}</li>)}</ol><div className="creation-commit"><p>{loading?'正在读取可用模型':model?`推荐：${model.name}`:video?'视频能力或价格尚未核实，暂未开放':'当前没有匹配的可用模型'}</p><small>{apiConfig.mode==='mock'?'演示模式不调用模型、不扣费':'下一步显示服务端总报价，确认后才提交'}</small><Button disabled={busy||loading||!model} onClick={()=>void generate()}>{busy?'正在准备…':apiConfig.mode==='mock'?'体验生成流程':'查看报价并生成'}<ArrowRight size={16}/></Button>{error&&<p className="form-error" role="alert">{error}</p>}</div></Card></aside></div>
+ {recent.length>0&&<section className="studio-recent"><h2>继续上次的工作</h2><div>{recent.map(t=><button key={t.id} onClick={()=>navigate(`/create?task=${t.id}`)}><strong>{t.title}</strong><small>{new Date(t.createdAt).toLocaleDateString('zh-CN')} · {t.status==='Succeeded'?'查看结果':t.status==='Failed'?'查看未完成原因':'查看进度'}</small><ArrowRight size={16}/></button>)}</div></section>}
+ </div>;
 }

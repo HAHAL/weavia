@@ -18,12 +18,14 @@ import { LoginPage } from './pages/Login';
 import { RegisterPage } from './pages/Register';
 import { useAuth } from './stores/auth';
 import './styles.css';
+import { apiConfig } from './services/api';
 import { initDatabase } from './services/database';
 const WorkflowPage = React.lazy(() => import('./pages/Workflow').then(m => ({ default: m.WorkflowPage })));
 
 function RequireAuth() {
   const user = useAuth(state => state.user);
   const status = useAuth(state => state.status);
+  if(apiConfig.mode==='mock')return <Outlet />;
   if (!user) {
     if (status === 'loading') return <div className="page" role="status">正在检查登录状态…</div>;
     return <Navigate to="/login" replace />;

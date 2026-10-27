@@ -35,6 +35,6 @@ export function LoginPage() {
       {error && <p className="form-error auth-error" role="alert">{error}</p>}
       <Button className="auth-submit" type="submit" disabled={busy}>{busy ? '登录中…' : '登录'}</Button>
     </form>
-    <div className="auth-meta"><span className={`auth-mode ${apiConfig.mode === 'live' ? 'live' : ''}`}>{apiConfig.mode === 'live' ? 'Live 测试环境' : '演示模式'}</span>{import.meta.env.DEV && <span>开发账号：dev@weavia.local</span>}</div>
+    <div className="auth-meta">{apiConfig.mode==='mock' && <Link to="/">进入演示工作区（不扣费）</Link>}<span className={`auth-mode ${apiConfig.mode === 'live' ? 'live' : ''}`}>{apiConfig.mode === 'live' ? 'Live 测试环境' : '演示模式'}</span>{import.meta.env.DEV && <span>开发账号：dev@weavia.local</span>}</div>
   </AuthShell>;
 }

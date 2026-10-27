@@ -3,6 +3,7 @@ import { BaseDirectory } from '@tauri-apps/api/path';
 import { mkdir, readFile, remove, writeFile } from '@tauri-apps/plugin-fs';
 import type { Asset } from '../types';
 import { log } from '../lib/logger';
+import { apiBlob } from './api';
 import { currentScope } from '../stores/scope';
 // 素材文件按账号分目录；旧路径 assets/<id>.<ext> 仍按记录的原路径读取。
 const assetDir=()=>`assets/${currentScope()}`;
@@ -18,7 +19,10 @@ export async function importAsset(file:File):Promise<Asset>{
 }
 export async function loadAssetPreview(asset:Asset):Promise<string>{
   if(asset.dataUrl)return asset.dataUrl;
-  if(!asset.localPath||!isTauri())throw new Error('素材文件路径不可用');
-  try{const bytes=await readFile(asset.localPath,{baseDir:BaseDirectory.AppLocalData});if(asset.sha256&&await sha256(bytes)!==asset.sha256)throw new Error('素材校验失败');return URL.createObjectURL(new Blob([bytes as BlobPart],{type:asset.mime}));}catch{log('error','asset.read',asset.id);throw new Error('素材文件丢失或校验失败');}
+  if(asset.localPath&&isTauri()){
+    try{const bytes=await readFile(asset.localPath,{baseDir:BaseDirectory.AppLocalData});if(asset.sha256&&await sha256(bytes)!==asset.sha256)throw new Error('素材校验失败');return URL.createObjectURL(new Blob([bytes as BlobPart],{type:asset.mime}));}catch{log('error','asset.read',asset.id);}
+  }
+  if(asset.remoteTaskId){const blob=await apiBlob(`/api/ai/tasks/${asset.remoteTaskId}/outputs/${asset.outputIndex??0}`);return URL.createObjectURL(blob);}
+  throw new Error('素材文件丢失或校验失败');
 }
 export async function removeAssetFile(asset:Asset){if(!asset.localPath||!isTauri())return;try{await remove(asset.localPath,{baseDir:BaseDirectory.AppLocalData});}catch{log('error','asset.delete',asset.id);throw new Error('关联文件删除失败，素材记录仍保留');}}

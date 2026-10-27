@@ -35,5 +35,5 @@ export function useAssetPreview(assetId?: string, dataUrl?: string) {
     };
   }, [asset, dataUrl]);
 
-  return { url: url || undefined, missing: Boolean(assetId) && !asset };
+  return { url: url || undefined, missing: Boolean(assetId) && (!asset || (resolved?.asset===asset&&!resolved.url)) };
 }

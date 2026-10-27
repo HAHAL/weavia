@@ -1,0 +1,5 @@
+import {useEffect,useState} from 'react';
+import {apiConfig,apiRequest} from '../services/api';
+import {Card} from './ui';
+type Row={id:string;type:string;availableDelta:number;reservedDelta:number;balanceAfter:number;createdAt:string;referenceId:string};
+export function CreditLedger(){const [rows,setRows]=useState<Row[]>([]),[error,setError]=useState('');useEffect(()=>{if(apiConfig.mode!=='live')return;let active=true;apiRequest<Row[]>('/api/credits/transactions').then(v=>{if(active)setRows(v);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[]);return <Card className="settings-card"><h2>最近费用流水</h2>{error?<p role="alert">{error}</p>:rows.length?<div className="ledger-table"><table><thead><tr><th>时间</th><th>动作</th><th>可用变动</th><th>冻结变动</th><th>余额</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{new Date(r.createdAt).toLocaleString('zh-CN')}</td><td>{({reserve:'预占',consume:'结算',release:'返还',grant:'发放',refund:'退款'} as Record<string,string>)[r.type]||r.type}</td><td>{r.availableDelta}</td><td>{r.reservedDelta}</td><td>{r.balanceAfter}</td></tr>)}</tbody></table></div>:<p>暂无流水；演示流程不会扣费。</p>}</Card>;}

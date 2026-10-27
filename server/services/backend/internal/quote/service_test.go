@@ -87,3 +87,22 @@ func TestExpiredQuote(t *testing.T) {
 		t.Fatalf("expired: %#v", err)
 	}
 }
+
+func TestPricedQuoteLocksDurationResolutionAndRoute(t *testing.T) {
+	svc, _ := newTestService()
+	req := Request{Model: "video", ModelKey: "route-a", Mode: "text_to_video", Prompt: "product", Size: "1280x720", NumberOfImages: 1, Duration: 5, Resolution: "1K"}
+	q, err := svc.CreatePriced(context.Background(), "u1", req, 20)
+	if err != nil || q.TotalCredits != 20 {
+		t.Fatalf("quote: %+v %v", q, err)
+	}
+	for _, change := range []func(*Request){func(r *Request) { r.Duration = 10 }, func(r *Request) { r.Resolution = "2K" }, func(r *Request) { r.ModelKey = "route-b" }} {
+		other := req
+		change(&other)
+		if _, err = svc.ValidateForTask(context.Background(), "u1", "q1", other); err == nil {
+			t.Fatal("mutated request accepted")
+		}
+	}
+	if _, err = svc.ValidateForTask(context.Background(), "other-account", "q1", req); err == nil {
+		t.Fatal("another account accepted")
+	}
+}

@@ -743,14 +743,33 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if input.NumberOfImages == 0 {
 		input.NumberOfImages = 1
 	}
-	if input.QuoteID != "" && s.Quotes != nil {
-		if _, err := s.Quotes.ValidateForTask(r.Context(), userID, input.QuoteID, quoteRequestForTask(input)); err != nil {
+	if input.QuoteID != "" {
+		if s.Quotes == nil {
+			writeError(w, &generation.APIError{Code: "UNAVAILABLE", Message: "报价服务不可用", Status: 503})
+			return
+		}
+		input.IdempotencyKey = "quote-" + input.QuoteID
+		if existing, found, err := s.Generation.FindIdempotent(r.Context(), userID, input.IdempotencyKey); err != nil {
+			writeError(w, err)
+			return
+		} else if found {
+			ok(w, existing)
+			return
+		}
+		q, err := s.Quotes.ValidateForTask(r.Context(), userID, input.QuoteID, quoteRequestForTask(input))
+		if err != nil {
 			writeError(w, err)
 			return
 		}
+		input.QuotedCost = &q.TotalCredits
 	}
 	if s.Pricing != nil {
-		if err := s.Pricing.CheckModel(r.Context(), input.LogicalModel); err != nil {
+		if err := s.Pricing.CheckModel(r.Context(), func() string {
+			if input.ModelKey != "" {
+				return input.ModelKey
+			}
+			return input.LogicalModel
+		}()); err != nil {
 			writeError(w, err)
 			return
 		}

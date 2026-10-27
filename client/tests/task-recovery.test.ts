@@ -1,0 +1,11 @@
+import {describe,it,expect} from 'vitest';
+import {restoreOutputs,toTask,taskLabel} from '../src/services/taskState';
+import type {ServerTask} from '../src/services/taskState';
+import type {Work,Asset} from '../src/types';
+const server:ServerTask={id:'t1',status:'success',prompt:'商品主图',clientBatchId:'batch1',outputs:[{objectKey:'file1',mimeType:'image/png'},{objectKey:'file2',mimeType:'image/png'}]};
+describe('cloud result recovery',()=>{
+ it('restores every output even when old savedOutputs says downloaded',()=>{const task={...toTask(server),savedOutputs:[0,1]};const a=restoreOutputs(task,server,[],[]);expect(a.works).toHaveLength(2);expect(a.assets).toHaveLength(2);expect(a.works[0].batchId).toBe('batch1');const b=restoreOutputs(task,server,a.works,a.assets);expect(b.works).toHaveLength(2);expect(b.assets).toHaveLength(2);expect(b.assets[0]).toBe(a.assets[0]);});
+ it('preserves review notes and reconnects missing local files to the cloud',()=>{const works:Work[]=[{id:'w1',taskId:'t1',title:'已审核',mode:'image',reviewStatus:'approved',versions:[{id:'v1',assetId:'a1',createdAt:'2026-10-27',prompt:'旧描述'}]}];const assets:Asset[]=[{id:'a1',name:'主图',category:'作品',mime:'image/png',createdAt:'2026-10-27',localPath:'missing.png'}];const a=restoreOutputs(toTask(server),server,works,assets);expect(a.works[0].reviewStatus).toBe('approved');expect(a.assets.find(x=>x.id==='a1')?.remoteTaskId).toBe('t1');expect(assets[0].remoteTaskId).toBeUndefined();});
+ it('adds an actual edit output once and keeps original versions immutable',()=>{const original:Work={id:'w0',taskId:'old',title:'主图',mode:'image',versions:[{id:'v0',assetId:'old',prompt:'old',createdAt:'2026-10-26'}]};const edit={...server,parentWorkId:'w0',outputs:server.outputs!.slice(0,1)};const a=restoreOutputs(toTask(edit),edit,[original],[]);const b=restoreOutputs(toTask(edit),edit,a.works,a.assets);expect(b.works[0].versions).toHaveLength(2);expect(original.versions).toHaveLength(1);});
+ it('represents actual stages without invented progress',()=>{const t=toTask({...server,status:'reconciling'});expect(t.progress).toBe(0);expect(taskLabel(t)).toBe('核对上游状态');expect(taskLabel({...t,syncError:'offline'})).toBe('等待连接');});
+});

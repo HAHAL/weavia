@@ -78,7 +78,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, option
     log(response.ok ? 'info' : 'error', 'api.response', `${url.pathname} ${response.status}`);
     if (!response.ok) {
       const body = (payload && typeof payload === 'object' ? payload : {}) as { code?: string; message?: string; retryable?: boolean };
-      if (response.status === 401) window.dispatchEvent(new Event('weavia:unauthorized'));
+      if (response.status === 401 && token===activeToken()) window.dispatchEvent(new Event('weavia:unauthorized'));
       throw new ApiError(body.code || `HTTP_${response.status}`, body.message || `服务请求失败 (${response.status})`, response.status, body.retryable);
     }
     // The Go API wraps successful responses as { "data": ... }.

@@ -3,6 +3,7 @@ package generation
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,10 @@ import (
 
 type Request struct {
 	IdempotencyKey      string           `json:"idempotencyKey"`
+	ClientBatchID       string           `json:"clientBatchId,omitempty"`
+	ClientTitle         string           `json:"clientTitle,omitempty"`
+	ParentWorkID        string           `json:"parentWorkId,omitempty"`
+	QuotedCost          *int64           `json:"-"`
 	QuoteID             string           `json:"quoteId"`
 	ConversationID      string           `json:"conversationId"`
 	MessageID           string           `json:"messageId"`
@@ -72,6 +77,9 @@ type GeneratedStorage interface {
 	GeneratedDataURL(string, string) (string, error)
 }
 type Task struct {
+	ClientBatchID       string         `json:"clientBatchId,omitempty"`
+	ClientTitle         string         `json:"clientTitle,omitempty"`
+	ParentWorkID        string         `json:"parentWorkId,omitempty"`
 	ID                  string         `json:"id"`
 	UserID              string         `json:"userId"`
 	IdempotencyKey      string         `json:"idempotencyKey"`
@@ -85,6 +93,7 @@ type Task struct {
 	Model               string         `json:"model"`
 	Cost                int64          `json:"cost"`
 	BillingBasis        string         `json:"billingBasis,omitempty"`
+	Billing             *TaskBilling   `json:"billing,omitempty"`
 	Status              string         `json:"status"`
 	Prompt              string         `json:"prompt,omitempty"`
 	Mode                string         `json:"mode,omitempty"`
@@ -132,6 +141,7 @@ type Credits interface {
 }
 
 type RouteModel struct {
+	Params       map[string]any
 	Key          string
 	DisplayName  string
 	CreditsCost  int64
@@ -252,45 +262,31 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	if err := prepareCreative(&input); err != nil {
 		return Task{}, err
 	}
-	var model RegisteredModel
-	var err error
-	if input.ModelKey != "" && s.router != nil {
-		info, routeErr := s.router.LookupRoute(ctx, input.ModelKey)
-		if routeErr != nil {
-			return Task{}, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
-		}
-		bindings, routeErr := s.bindingsFor(ctx, user.ID, input.ModelKey)
-		if routeErr != nil || len(bindings) == 0 {
-			return Task{}, &APIError{"MODEL_UNAVAILABLE", "生成服务繁忙，请稍后重试", 503}
-		}
-		input.LogicalModel = input.ModelKey
-		input.Model = bindings[0].ProviderModelID
-		model = RegisteredModel{Name: bindings[0].ProviderModelID, Provider: bindings[0].Provider, Enabled: true, CreditCost: s.priceFor(ctx, user.ID, input.ModelKey, info.CreditsCost), Capabilities: info.Capabilities}
-	} else {
-		model, err = s.registry.Lookup(ctx, input.Model)
-		if err != nil || !model.Enabled || model.Provider == "" || model.CreditCost <= 0 {
-			return Task{}, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
-		}
-	}
-	if !supports(model.Capabilities, input.Mode) {
-		return Task{}, &APIError{"UNSUPPORTED_CAPABILITY", "当前模型不支持所选生成方式", 400}
-	}
-	if max, ok := model.Metadata["maxReferences"].(float64); ok && len(input.ReferenceAssets) > int(max) {
-		return Task{}, &APIError{"INVALID_REQUEST", "参考图数量超过模型限制", 400}
+	model, err := s.resolveModel(ctx, user, &input)
+	if err != nil {
+		return Task{}, err
 	}
 	if !s.realEnabled && !s.mock {
 		return Task{}, &APIError{"REAL_AI_DISABLED", "真实 AI 当前未启用", 503}
 	}
+	if previous, found, lookupErr := s.FindIdempotent(ctx, user.ID, input.IdempotencyKey); lookupErr != nil {
+		return Task{}, lookupErr
+	} else if found {
+		return previous, nil
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	taskID := id()
-	multiplier := int64(1)
-	switch input.Resolution {
-	case "2K":
-		multiplier = 2
-	case "4K":
-		multiplier = 4
+	if input.IdempotencyKey != "" {
+		sum := sha256.Sum256([]byte(user.ID + "\x00" + input.IdempotencyKey))
+		taskID = fmt.Sprintf("%x-%x-%x-%x-%x", sum[:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 	}
-	cost := model.CreditCost * int64(input.NumberOfImages) * multiplier
+	cost, err := requestCost(model, input)
+	if err != nil {
+		return Task{}, err
+	}
+	if input.QuotedCost != nil && *input.QuotedCost != cost {
+		return Task{}, &APIError{"QUOTE_CHANGED", "价格已更新，请重新确认报价", 409}
+	}
 	reservationID := ""
 	if s.credits != nil {
 		var reserveErr error
@@ -302,7 +298,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	input.CreditReservationID = reservationID
 	input.ResolvedProvider = model.Provider
 	input.ResolvedCost = cost
-	task, err := s.repository.Create(ctx, Task{ID: taskID, UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, WorkspaceID: input.WorkspaceID, ProductID: input.ProductID, SKUID: input.SKUID, CreditReservationID: reservationID, Provider: model.Provider, Model: input.Model, Cost: cost, Status: "reserved", Prompt: input.DisplayPrompt, Mode: input.Mode, Ratio: input.Ratio, Resolution: input.Resolution, Count: input.NumberOfImages, Creative: input.Creative, Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
+	task, err := s.repository.Create(ctx, Task{ClientBatchID: input.ClientBatchID, ClientTitle: input.ClientTitle, ParentWorkID: input.ParentWorkID, ID: taskID, UserID: user.ID, IdempotencyKey: input.IdempotencyKey, Workflow: input.Workflow, LogicalModel: input.LogicalModel, WorkspaceID: input.WorkspaceID, ProductID: input.ProductID, SKUID: input.SKUID, CreditReservationID: reservationID, Provider: model.Provider, Model: input.Model, Cost: cost, Status: "reserved", Prompt: input.DisplayPrompt, Mode: input.Mode, Ratio: input.Ratio, Resolution: input.Resolution, Count: input.NumberOfImages, Creative: input.Creative, Outputs: []Output{}, CreatedAt: now, UpdatedAt: now, Request: input})
 	if err != nil {
 		if reservationID != "" {
 			_ = s.credits.Release(ctx, reservationID)
@@ -689,4 +685,92 @@ func id() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b[:4]) + "-" + hex.EncodeToString(b[4:6]) + "-4" + hex.EncodeToString(b[6:8])[1:] + "-8" + hex.EncodeToString(b[8:10])[1:] + "-" + hex.EncodeToString(b[10:])
+}
+
+// Preview uses the exact same route and account price as Create, without reserving credits.
+func (s *Service) Preview(ctx context.Context, user auth.User, input Request) (int64, error) {
+	input.IdempotencyKey = "preview"
+	if err := validateBase(input, s.mock); err != nil {
+		return 0, err
+	}
+	if err := prepareCreative(&input); err != nil {
+		return 0, err
+	}
+	model, err := s.resolveModel(ctx, user, &input)
+	if err != nil {
+		return 0, err
+	}
+	if !s.realEnabled && !s.mock {
+		return 0, &APIError{"REAL_AI_DISABLED", "真实 AI 当前未启用", 503}
+	}
+	return requestCost(model, input)
+}
+func (s *Service) resolveModel(ctx context.Context, user auth.User, input *Request) (RegisteredModel, error) {
+	var model RegisteredModel
+	var err error
+	if input.ModelKey != "" && s.router != nil {
+		info, routeErr := s.router.LookupRoute(ctx, input.ModelKey)
+		if routeErr != nil {
+			return RegisteredModel{}, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
+		}
+		bindings, routeErr := s.bindingsFor(ctx, user.ID, input.ModelKey)
+		if routeErr != nil || len(bindings) == 0 {
+			return RegisteredModel{}, &APIError{"MODEL_UNAVAILABLE", "生成服务繁忙，请稍后重试", 503}
+		}
+		input.LogicalModel = input.ModelKey
+		input.Model = bindings[0].ProviderModelID
+		model = RegisteredModel{Name: bindings[0].ProviderModelID, Provider: bindings[0].Provider, Enabled: true, CreditCost: s.priceFor(ctx, user.ID, input.ModelKey, info.CreditsCost), Capabilities: info.Capabilities, Metadata: info.Params}
+	} else {
+		model, err = s.registry.Lookup(ctx, input.Model)
+		if err != nil || !model.Enabled || model.Provider == "" || model.CreditCost <= 0 {
+			return RegisteredModel{}, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
+		}
+	}
+	if !supports(model.Capabilities, input.Mode) {
+		return RegisteredModel{}, &APIError{"UNSUPPORTED_CAPABILITY", "当前模型不支持所选生成方式", 400}
+	}
+	if max, ok := model.Metadata["maxReferences"].(float64); ok && len(input.ReferenceAssets) > int(max) {
+		return RegisteredModel{}, &APIError{"INVALID_REQUEST", "参考图数量超过模型限制", 400}
+	}
+	return model, nil
+}
+func requestCost(model RegisteredModel, input Request) (int64, error) {
+	multiplier := int64(1)
+	switch input.Resolution {
+	case "2K":
+		multiplier = 2
+	case "4K":
+		multiplier = 4
+	}
+	if input.Mode == "text_to_video" || input.Mode == "image_to_video" {
+		// The configured base price is per second only after an operator verifies it.
+		verified, _ := model.Metadata["videoPricingVerified"].(bool)
+		if !verified {
+			return 0, &APIError{"VIDEO_PRICING_UNVERIFIED", "视频价格尚未核实，暂不能提交；请联系运营开通", 409}
+		}
+		return model.CreditCost * int64(input.Duration), nil
+	}
+	return model.CreditCost * int64(input.NumberOfImages) * multiplier, nil
+}
+
+type TaskBilling struct {
+	Reserved int64  `json:"reserved"`
+	Consumed int64  `json:"consumed"`
+	Released int64  `json:"released"`
+	Basis    string `json:"basis"`
+}
+
+func (s *Service) FindIdempotent(ctx context.Context, userID, key string) (Task, bool, error) {
+	if finder, ok := s.repository.(interface {
+		FindIdempotent(context.Context, string, string) (Task, bool, error)
+	}); ok {
+		return finder.FindIdempotent(ctx, userID, key)
+	}
+	tasks, err := s.repository.List(ctx, userID)
+	for _, task := range tasks {
+		if task.IdempotencyKey == key {
+			return task, true, nil
+		}
+	}
+	return Task{}, false, err
 }

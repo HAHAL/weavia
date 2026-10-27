@@ -72,8 +72,8 @@ export function Products() {
   }
 
   function save() {
-    if (!name.trim() || !sku.trim()) {
-      setError('请填写商品名称和 SKU');
+    if (!name.trim()) {
+      setError('请填写商品名称');
       return;
     }
     if (uploading) return;
@@ -113,12 +113,12 @@ export function Products() {
     {modal && <Dialog title={editing ? '编辑商品' : '创建商品'} onClose={() => setModal(false)}>
       <div className="dialog-content form-stack">
         <Field label="商品名称"><input value={name} onChange={event => setName(event.target.value)} placeholder="例如 Signature 香水" /></Field>
-        <Field label="分类"><select value={category} onChange={event => setCategory(event.target.value)}>{categories.slice(1).map(value => <option key={value}>{value}</option>)}</select></Field>
-        <Field label="SKU"><input value={sku} onChange={event => setSku(event.target.value)} placeholder="例如 PERFUME-001" /></Field>
+        <details className="advanced-settings"><summary>商品档案与事实（选填）</summary><Field label="分类"><select value={category} onChange={event => setCategory(event.target.value)}>{categories.slice(1).map(value => <option key={value}>{value}</option>)}</select></Field>
+        <Field label="SKU（选填）"><input value={sku} onChange={event => setSku(event.target.value)} placeholder="例如 PERFUME-001" /></Field>
         <Field label="描述"><textarea value={description} onChange={event => setDescription(event.target.value)} placeholder="用途与创作背景" /></Field>
         <Field label="已核实的商品事实"><textarea value={verifiedFacts} onChange={event => setVerifiedFacts(event.target.value)} placeholder="例如瓶身为琥珀色玻璃，金色瓶盖，容量 50ml" /></Field>
         <Field label="不可添加的商品声明"><textarea value={forbiddenClaims} onChange={event => setForbiddenClaims(event.target.value)} placeholder="例如不要声称防水、纯手工或医用功效" /></Field>
-        <Field label="商品依据图"><select value={sourceAssetId} onChange={event => setSourceAssetId(event.target.value)}><option value="">尚未选择</option>{assets.filter(asset => asset.category !== '作品').map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></Field>
+        </details><Field label="商品依据图"><select value={sourceAssetId} onChange={event => setSourceAssetId(event.target.value)}><option value="">尚未选择</option>{assets.filter(asset => asset.category !== '作品').map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></Field>
         <div className="source-asset-picker"><Button variant="secondary" disabled={uploading} onClick={() => fileRef.current?.click()}><ImagePlus size={16} />{uploading ? '导入中…' : '上传商品依据图'}</Button><input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { void uploadSource(event.target.files?.[0]); event.target.value = ''; }} />{selectedAsset && <span>{selectedAsset.name}</span>}</div>
         {sourceAssetId && (sourcePreview.url ? <img className="source-asset-preview" src={sourcePreview.url} alt="所选商品依据图预览" /> : <p className="form-error">所选素材不可读取，请重新上传或选择。</p>)}
         <p className="field-hint">依据图上传后会保存在素材中心，可供其他商品复用；取消编辑不会删除素材。</p>

@@ -65,9 +65,12 @@ func (r *TaskRepository) Get(ctx context.Context, id string) (generation.Task, b
 	}
 	task, err := decodeRow(row.ID, row.UserID, row.Status, row.IdempotencyKey, row.Input, row.Output, row.Error, row.CreatedAt, row.UpdatedAt)
 	if err == nil && task.Provider == "" {
-		err = r.pool.QueryRow(ctx, `SELECT p.code,m.credit_cost FROM ai_models m JOIN ai_providers p ON p.id=m.provider_id WHERE m.model_name=$1`, task.Model).Scan(&task.Provider, &task.Cost)
+		_ = r.pool.QueryRow(ctx, `SELECT p.code,m.credit_cost FROM ai_models m JOIN ai_providers p ON p.id=m.provider_id WHERE m.model_name=$1`, task.Model).Scan(&task.Provider, &task.Cost)
 		task.Request.ResolvedProvider = task.Provider
 		task.Request.ResolvedCost = task.Cost
+	}
+	if err == nil {
+		err = r.loadBilling(ctx, &task)
 	}
 	return task, true, err
 }
@@ -83,6 +86,33 @@ func (r *TaskRepository) List(ctx context.Context, userID string) ([]generation.
 			return nil, decodeErr
 		}
 		result = append(result, task)
+	}
+	if len(result) > 0 {
+		ids := make([]string, len(result))
+		positions := map[string]int{}
+		for i, t := range result {
+			ids[i] = t.ID
+			positions[t.ID] = i
+		}
+		billRows, err := r.pool.Query(ctx, `SELECT t.id::text,t.reserved_credits,
+ CASE WHEN t.credit_reservation_id IS NULL THEN t.consumed_credits ELSE coalesce((SELECT -sum(c.reserved_delta) FROM credit_transactions_v1 c WHERE c.reservation_id=t.credit_reservation_id AND c.type='consume'),0)::bigint END,
+ coalesce((SELECT sum(c.available_delta) FROM credit_transactions_v1 c WHERE c.reservation_id=t.credit_reservation_id AND c.type='release'),0)::bigint,
+ coalesce(t.pricing_snapshot->>'billingBasis','') FROM tasks t WHERE t.id=ANY($1::uuid[])`, ids)
+		if err != nil {
+			return nil, err
+		}
+		defer billRows.Close()
+		for billRows.Next() {
+			var id string
+			b := generation.TaskBilling{}
+			if err = billRows.Scan(&id, &b.Reserved, &b.Consumed, &b.Released, &b.Basis); err != nil {
+				return nil, err
+			}
+			result[positions[id]].Billing = &b
+		}
+		if err = billRows.Err(); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
@@ -132,7 +162,7 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 	if err := json.Unmarshal(input, &request); err != nil {
 		return generation.Task{}, err
 	}
-	task := generation.Task{ID: id, UserID: userID, IdempotencyKey: idem, Workflow: request.Workflow, LogicalModel: request.LogicalModel, Status: status, Outputs: []generation.Output{}, CreatedAt: created.Time.UTC().Format(time.RFC3339Nano), UpdatedAt: updated.Time.UTC().Format(time.RFC3339Nano), Request: request, Creative: request.Creative}
+	task := generation.Task{ClientBatchID: request.ClientBatchID, ClientTitle: request.ClientTitle, ParentWorkID: request.ParentWorkID, ID: id, UserID: userID, IdempotencyKey: idem, Workflow: request.Workflow, LogicalModel: request.LogicalModel, Status: status, Outputs: []generation.Output{}, CreatedAt: created.Time.UTC().Format(time.RFC3339Nano), UpdatedAt: updated.Time.UTC().Format(time.RFC3339Nano), Request: request, Creative: request.Creative}
 	task.WorkspaceID = request.WorkspaceID
 	task.ProductID = request.ProductID
 	task.SKUID = request.SKUID
@@ -164,4 +194,27 @@ func decodeRow(id, userID, status, idem string, input, output, errorJSON []byte,
 		_ = json.Unmarshal(errorJSON, task.Error)
 	}
 	return task, nil
+}
+
+func (r *TaskRepository) FindIdempotent(ctx context.Context, userID, key string) (generation.Task, bool, error) {
+	var id string
+	err := r.pool.QueryRow(ctx, `SELECT id::text FROM tasks WHERE user_id=$1 AND idempotency_key=$2`, userID, key).Scan(&id)
+	if err == pgx.ErrNoRows {
+		return generation.Task{}, false, nil
+	}
+	if err != nil {
+		return generation.Task{}, false, err
+	}
+	return r.Get(ctx, id)
+}
+func (r *TaskRepository) loadBilling(ctx context.Context, t *generation.Task) error {
+	b := generation.TaskBilling{}
+	err := r.pool.QueryRow(ctx, `SELECT t.reserved_credits,
+ CASE WHEN t.credit_reservation_id IS NULL THEN t.consumed_credits ELSE coalesce((SELECT -sum(c.reserved_delta) FROM credit_transactions_v1 c WHERE c.reservation_id=t.credit_reservation_id AND c.type='consume'),0)::bigint END,
+ coalesce((SELECT sum(c.available_delta) FROM credit_transactions_v1 c WHERE c.reservation_id=t.credit_reservation_id AND c.type='release'),0)::bigint,
+ coalesce(t.pricing_snapshot->>'billingBasis','') FROM tasks t WHERE t.id=$1`, t.ID).Scan(&b.Reserved, &b.Consumed, &b.Released, &b.Basis)
+	if err == nil {
+		t.Billing = &b
+	}
+	return err
 }

@@ -1,10 +1,10 @@
 import { apiConfig, apiRequest, ApiError, getApiSession } from './api';
-import { useApp } from '../stores/app';
-import type { Task, TaskStatus } from '../types';
+import type { ServerTask } from './taskState';
 import type { Model } from '../types';
 import type { Skill, App } from './recipes';
 import type { ShowcaseItem } from '../data/showcase';
-import { resumeLiveTasks } from './live';
+import { resumeLiveTasks, applyServerTask } from './live';
+import { currentScope } from '../stores/scope';
 
 export type SyncState = 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
 export type SyncSnapshot = {
@@ -17,26 +17,25 @@ export type SyncSnapshot = {
   tasks: ServerTask[];
   syncedAt: string;
 };
-type ServerTask = {
-  id: string; status: string; prompt?: string; mode?: string; model?: string; provider?: string; providerTaskId?: string; cost?: number; creative?: Task['creative'];
-  createdAt?: string; outputs?: { objectKey?: string; mimeType?: string }[]; error?: { code?: string; message?: string };
-};
 const CACHE_KEY = 'weavia.sync.v3';
 let snapshot: SyncSnapshot | null = null;
+let epoch=0;
+window.addEventListener('weavia:scope',()=>{epoch++;snapshot=null;inflight=null;emit('idle');});
 let inflight: Promise<SyncSnapshot | null> | null = null;
 let state: SyncState = 'idle';
 const listeners = new Set<(value: SyncState) => void>();
 
 function emit(next: SyncState) { state = next; listeners.forEach(fn => fn(next)); }
 export function getSyncState() { return state; }
-export function subscribeSync(fn: (value: SyncState) => void) { listeners.add(fn); return () => listeners.delete(fn); }
+export function subscribeSync(fn: (value: SyncState) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
 
 function readCache(): SyncSnapshot | null {
-  if (snapshot) return snapshot;
+  if (snapshot?.userId===currentScope()) return snapshot;
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
-    snapshot = JSON.parse(raw) as SyncSnapshot;
+    const saved=JSON.parse(raw) as SyncSnapshot;
+    snapshot=saved.userId===currentScope()?saved:null;
     return snapshot;
   } catch { return null; }
 }
@@ -51,91 +50,63 @@ export function getCachedApps(): App[] | null { return readCache()?.apps || null
 export function getCachedShowcase(): ShowcaseItem[] | null { return readCache()?.showcase || null; }
 export function getCachedSync(): SyncSnapshot | null { return readCache(); }
 
-function mapStatus(status: string): TaskStatus {
-  if (status === 'success') return 'Succeeded';
-  if (status === 'failed') return 'Failed';
-  if (status === 'cancelled') return 'Cancelled';
-  if (status === 'running' || status === 'downloading' || status === 'reconciling') return 'Running';
-  return 'Queued';
-}
-function toTask(server: ServerTask): Task {
-  const prompt = server.prompt || '历史生成任务';
-  const product = server.creative?.product;
-  return {
-    id: server.id, title: prompt.slice(0, 28), prompt, mode: server.mode?.includes('video') ? 'video' : 'image',
-    status: mapStatus(server.status), progress: server.status === 'success' ? 100 : mapStatus(server.status) === 'Running' ? 60 : 20,
-    createdAt: server.createdAt || new Date().toISOString(), source: 'live', error: server.error?.message, errorCode: server.error?.code,
-    provider: server.provider, providerTaskId: server.providerTaskId, model: server.model,
-    creative: server.creative,
-    product: product ? { id: product.localId || '', name: product.name, sku: product.sku || '', description: product.description || '', verifiedFacts: product.verifiedFacts || '', forbiddenClaims: product.forbiddenClaims || '', sourceAssetId: '' } : undefined,
-  };
+function hydrate(value: SyncSnapshot) {
+ if(currentScope()!==value.userId)return;
+ for(const task of value.tasks)applyServerTask(task);
+ resumeLiveTasks();window.dispatchEvent(new Event('weavia:credits'));
 }
 
-function hydrate(snapshotValue: SyncSnapshot) {
-  // Server tasks are the authoritative task history; keep local-only tasks
-  // that were created before the sync cache existed.
-  const local = useApp.getState().tasks;
-  const localById = new Map(local.map(task => [task.id, task]));
-  const serverTasks = snapshotValue.tasks.map(server => {
-    const task = toTask(server);
-    const previous = localById.get(task.id);
-    return previous ? { ...task, product: previous.product || task.product, referenceAssetIds: previous.referenceAssetIds, workId: previous.workId } : task;
-  });
-  const serverIds = new Set(serverTasks.map(task => task.id));
-  useApp.setState({ tasks: [...serverTasks, ...local.filter(task => !serverIds.has(task.id) && task.source !== 'live')] });
-  resumeLiveTasks();
-  window.dispatchEvent(new Event('weavia:credits'));
-}
-
-async function rawManifest(etag?: string) {
+async function rawManifest(etag?: string, userId?:string) {
   const url = new URL('/api/sync/manifest', apiConfig.baseUrl + '/');
   const headers = new Headers({ Accept: 'application/json' });
   const token = getApiSession();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (etag) headers.set('If-None-Match', `"${etag}"`);
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers, signal:AbortSignal.timeout(10000) });
   if (response.status === 304) return { notModified: true as const, etag };
-  if (response.status === 401) { window.dispatchEvent(new Event('weavia:unauthorized')); throw new ApiError('AUTH_REQUIRED', '登录已过期', 401); }
+  if (response.status === 401) { if(currentScope()===userId)window.dispatchEvent(new Event('weavia:unauthorized')); throw new ApiError('AUTH_REQUIRED', '登录已过期', 401); }
   if (!response.ok) throw new ApiError(`HTTP_${response.status}`, `同步检查失败 (${response.status})`, response.status);
   const body = await response.json() as { data?: { version?: string } };
   return { notModified: false as const, etag: body.data?.version || '' };
 }
 
 export async function startupSync(userId: string): Promise<SyncSnapshot | null> {
+  if(apiConfig.mode!=='live'||currentScope()!==userId)return null;
   if (inflight) return inflight;
+  const runEpoch=epoch;
+  const valid=()=>runEpoch===epoch&&currentScope()===userId;
   inflight = (async () => {
-    const cached = readCache();
-    const cacheForUser = cached?.userId === userId ? cached : null;
+    const cacheForUser=readCache();
     emit('syncing');
     try {
-      const manifest = await rawManifest(cacheForUser?.etag);
-      if (manifest.notModified && cacheForUser) {
-        hydrate(cacheForUser);
-        emit('synced');
-        return cacheForUser;
-      }
-      const [models, skills, apps, showcase, tasks] = await Promise.all([
-        apiRequest<{ items: Model[] }>('/api/ai/models', {}, { auth: false }),
-        apiRequest<{ items: Skill[] }>('/api/skills', {}, { auth: false }),
-        apiRequest<{ items: App[] }>('/api/apps', {}, { auth: false }),
-        apiRequest<{ items: ShowcaseItem[] }>('/api/showcase', {}, { auth: false }),
-        apiRequest<ServerTask[]>('/api/ai/tasks'),
-      ]);
-      const next: SyncSnapshot = {
-        userId, etag: manifest.etag || cacheForUser?.etag || '', models: models.items || [], skills: skills.items || [], apps: apps.items || [],
-        showcase: (showcase.items || []).map(item => ({ ...item, imageUrl: item.imageUrl ? (item.imageUrl.startsWith('http') ? item.imageUrl : apiConfig.baseUrl + (item.imageUrl.startsWith('/') ? item.imageUrl : '/' + item.imageUrl)) : '' })), tasks: tasks || [], syncedAt: new Date().toISOString(),
-      };
+      // Task recovery must not depend on the template/gallery service or its ETag.
+      const taskRequest=apiRequest<ServerTask[]>('/api/ai/tasks').then(tasks=>{
+        if(valid())hydrate({userId,tasks} as SyncSnapshot);
+        return tasks;
+      });
+      const catalogRequest=(async()=>{
+        const manifest=await rawManifest(cacheForUser?.etag,userId);
+        if(manifest.notModified&&cacheForUser)return cacheForUser;
+        const [models,skills,apps,showcase]=await Promise.all([
+          apiRequest<{items:Model[]}>('/api/ai/models',{}, {auth:false}),
+          apiRequest<{items:Skill[]}>('/api/skills',{}, {auth:false}),
+          apiRequest<{items:App[]}>('/api/apps',{}, {auth:false}),
+          apiRequest<{items:ShowcaseItem[]}>('/api/showcase',{}, {auth:false}),
+        ]);
+        return {etag:manifest.etag||'',models:models.items||[],skills:skills.items||[],apps:apps.items||[],
+          showcase:(showcase.items||[]).map(item=>({...item,imageUrl:item.imageUrl?new URL(item.imageUrl,apiConfig.baseUrl+'/').href:''}))};
+      })();
+      const [taskResult,catalogResult]=await Promise.allSettled([taskRequest,catalogRequest]);
+      if(!valid())return null;
+      const catalog=catalogResult.status==='fulfilled'?catalogResult.value:cacheForUser;
+      if(!catalog){emit('error');return null;}
+      const next:SyncSnapshot={...catalog,userId,tasks:taskResult.status==='fulfilled'?taskResult.value:cacheForUser?.tasks||[],syncedAt:new Date().toISOString()};
       writeCache(next);
-      hydrate(next);
-      emit('synced');
+      // Never overwrite fresher polling data with a cached task list on failure.
+      resumeLiveTasks();
+      emit(taskResult.status==='fulfilled'&&catalogResult.status==='fulfilled'?'synced':'offline');
       return next;
-    } catch (error) {
-      if (cacheForUser) { hydrate(cacheForUser); emit('offline'); return cacheForUser; }
-      emit('error');
-      throw error;
-    } finally {
-      inflight = null;
-    }
+    } finally { if(valid())inflight=null; }
   })();
   return inflight;
 }

@@ -52,7 +52,8 @@
 - `src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png`
 - `src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_round.png`
 - `src-tauri/icons/android/values/ic_launcher_background.xml`
-- `src-tauri/icons/app-icon.svg`
+- `public/brand/weavia-icon.png`
+- `public/brand/weavia-wordmark.png`
 - `src-tauri/icons/icon.icns`
 - `src-tauri/icons/icon.ico`
 - `src-tauri/icons/icon.png`

@@ -5,7 +5,10 @@ import { Badge, Button, Card, Field, StatePanel } from '../components/ui';
 import { useApp } from '../stores/app';
 import { importAsset, loadAssetPreview } from '../services/assets';
 import { createLiveEditTask } from '../services/live';
-import type { Work } from '../types';
+import { loadPlatformModels } from '../services/models';
+import { saveBlob } from '../services/export';
+import { isTauri } from '@tauri-apps/api/core';
+import type { Model, Work } from '../types';
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -34,7 +37,9 @@ export function ImageEditingPage() {
   const [saving, setSaving] = useState(false);
   const [assetId, setAssetId] = useState(originalVersion?.assetId || '');
   const [editPrompt, setEditPrompt] = useState('');
-  const [editModel, setEditModel] = useState('wanx2.1-imageedit');
+  const [editModel, setEditModel] = useState('');
+  const [models,setModels]=useState<Model[]>([]);
+  useEffect(()=>{let active=true;void loadPlatformModels('image').then(items=>{if(!active)return;const editable=items.filter(m=>m.available!==false&&m.capabilities?.some(c=>['image_edit','image_to_image'].includes(c)));setModels(editable);setEditModel(editable[0]?.id||'');});return()=>{active=false;};},[]);
   const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => () => { if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current); }, []);
@@ -80,7 +85,7 @@ export function ImageEditingPage() {
   async function upload(file: File | undefined) {
     if (!file) return;
     if (!file.type.startsWith('image/')) { notify('请选择图片文件'); return; }
-    if (file.size > 15 * 1024 * 1024) { notify('图片不能超过 15 MB'); return; }
+    if (file.size > (isTauri()?10:2) * 1024 * 1024) { notify(isTauri()?'图片不能超过 10 MB':'网页体验版图片不能超过 2 MB'); return; }
     setBusy(true);
     try {
       const asset = await importAsset(file);
@@ -93,17 +98,9 @@ export function ImageEditingPage() {
     finally { setBusy(false); }
   }
 
-  function getOutput() {
-    return canvasRef.current?.toDataURL('image/png') || '';
-  }
-
-  function download() {
-    const dataUrl = getOutput();
-    if (!dataUrl) return;
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = `${name || 'weavia-image'}.png`;
-    link.click();
+  async function download() {
+    if(!canvasRef.current)return;
+    try{await saveBlob(await canvasToBlob(canvasRef.current,'image/png'),`${name||'weavia-image'}.png`);}catch(error){notify(error instanceof Error?error.message:'导出失败');}
   }
 
   async function save() {
@@ -150,15 +147,15 @@ export function ImageEditingPage() {
   return (
     <div className="page editor-page">
       <div className="page-header">
-        <div><h1>Image Editing</h1><p>用图片模型进行 AI 编辑，同时保留本地亮度/对比度调整。</p></div>
+        <div><h1>图片编辑</h1><p>用图片模型进行 AI 编辑，同时保留本地亮度/对比度调整。</p></div>
         <div className="header-actions">
-          <Button variant="secondary" disabled={!source} onClick={download}><Download size={15} /> 导出 PNG</Button>
+          <Button variant="secondary" disabled={!source} onClick={()=>void download()}><Download size={15} /> 导出 PNG</Button>
           <Button disabled={!source || saving} onClick={() => void save()}><Save size={15} /> {saving ? '保存中…' : '保存作品版本'}</Button>
         </div>
       </div>
       <div className="editor-layout">
         <Card className="editor-stage">
-          {source ? <canvas ref={canvasRef} aria-label="图片编辑预览" /> : busy ? <StatePanel type="loading" title="正在读取图片…" /> : <StatePanel type="empty" title="导入图片开始编辑" detail="支持本地 PNG、JPEG、WebP 等图片，最大 15 MB。" action={<Button onClick={() => fileRef.current?.click()}><ImagePlus size={15} /> 导入图片</Button>} />}
+          {source ? <canvas ref={canvasRef} aria-label="图片编辑预览" /> : busy ? <StatePanel type="loading" title="正在读取图片…" /> : <StatePanel type="empty" title="导入图片开始编辑" detail="支持本地 PNG、JPEG、WebP 等图片，桌面端最大 10 MB，网页体验版最大 2 MB。" action={<Button onClick={() => fileRef.current?.click()}><ImagePlus size={15} /> 导入图片</Button>} />}
         </Card>
         <Card className="editor-controls">
           <h2><SlidersHorizontal size={17} /> 调整</h2>
@@ -169,10 +166,10 @@ export function ImageEditingPage() {
           <Button variant="ghost" disabled={!source} onClick={() => { setBrightness(100); setContrast(100); setRotation(0); }}>重置调整</Button>
           <hr />
           <Badge>AI 编辑</Badge>
-          <Field label="从素材中心选择"><select value={assetId} onChange={async event => { const id = event.target.value; setAssetId(id); const asset = assets.find(item => item.id === id); if (asset) setSource(await loadAssetPreview(asset)); }}><option value="">选择已有素材</option>{assets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></Field>
+          <Field label="从素材中心选择"><select value={assetId} onChange={async event => { const id = event.target.value; setAssetId(id); const asset = assets.find(item => item.id === id); if (asset) setSource(await loadAssetPreview(asset)); }}><option value="">选择已有素材</option>{assets.filter(asset=>asset.mime.startsWith('image/')).map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></Field>
           <Field label="编辑要求"><textarea value={editPrompt} onChange={event => setEditPrompt(event.target.value)} placeholder="例如：换成暖光咖啡店场景，保留商品外观和文字" rows={3} /></Field>
-          <Field label="图片编辑模型"><select value={editModel} onChange={event => setEditModel(event.target.value)}><option value="wanx2.1-imageedit">Wan2.1 Image Edit</option><option value="qwen-image-2.0">Qwen Image 2.0 参考图</option></select></Field>
-          <Button disabled={aiBusy || !source || !editPrompt.trim()} onClick={() => void aiEdit()}>{aiBusy ? '提交中…' : 'AI 编辑并生成新版本'}</Button>
+          <Field label="图片编辑模型"><select value={editModel} onChange={event => setEditModel(event.target.value)}>{!models.length&&<option value="">暂无可用编辑模型</option>}{models.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
+          <Button disabled={aiBusy || !source || !editPrompt.trim() || !editModel} onClick={() => void aiEdit()}>{aiBusy ? '提交中…' : '查看报价并生成新版本'}</Button>
           <hr />
           <Badge>本地处理</Badge>
           <p>编辑在本机 Canvas 中完成。保存时写入本地素材库，作品只保留素材引用。</p>

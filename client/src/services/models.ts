@@ -11,7 +11,7 @@ type ServerModel = {
   available: boolean;
   creditsCost?: number;
   channels?: number;
-  icon?: string;
+  icon?: string; params?: { videoPricingVerified?: boolean };
 };
 
 function logoFor(item: ServerModel) {
@@ -42,7 +42,8 @@ function toModel(item: ServerModel): Model {
     maxCount: 4,
     creditBase: item.creditsCost || 8,
     description: (item.capabilities || []).map(capabilityLabel).join(' · '),
-    available: item.available,
+    available: item.available && (item.modality!=='video'||item.params?.videoPricingVerified===true),
+    videoPricingVerified:item.params?.videoPricingVerified,
     provider: item.provider,
     icon: item.icon || iconFor(item),
     logo: logoFor(item),

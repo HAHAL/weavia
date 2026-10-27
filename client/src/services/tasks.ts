@@ -59,7 +59,7 @@ export function runMockTask(id: string) {
     if (!task || task.status !== 'Running') return;
     const state = useApp.getState();
     const workId = crypto.randomUUID();
-    const work: Work = { id: workId, title: task.title, mode: task.mode, taskId: id, source: 'mock', product: task.product, versions: [{ id: crypto.randomUUID(), createdAt: new Date().toISOString(), prompt: task.prompt }] };
+    const work: Work = { id: workId, title: task.title, mode: task.mode, taskId: id, source: 'mock', product: task.product, versions: [{ id: crypto.randomUUID(), createdAt: new Date().toISOString(), prompt: task.prompt, dataUrl:'data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><rect width="1024" height="1024" fill="#f4f1ea"/><text x="512" y="480" text-anchor="middle" font-size="42" fill="#765d35">WEAVIA 演示结果</text><text x="512" y="550" text-anchor="middle" font-size="24">此图片用于体验流程，不是 AI 生成</text></svg>') }] };
     state.addWork(work);
     state.updateTask(id, { status: 'Succeeded', progress: 100, workId });
     state.notify('演示任务已完成，作品已加入作品中心');

@@ -1,239 +1,64 @@
-import { apiBlob, apiRequest } from './api';
-import { importAsset } from './assets';
+import { apiRequest } from './api';
 import { uploadReferenceAsset } from './serverAssets';
 import { useApp } from '../stores/app';
-import { isResultSaveFailure, missingIndexes, savedIndexes } from '../lib/outputs';
-import type { CreativeBrief, ProductBrief, Task, TaskStatus, Work } from '../types';
-
-export type ServerTask = {
-  id: string;
-  status: string;
-  outputs?: { base64Data?: string; objectKey?: string; mimeType?: string }[];
-  error?: { code?: string; message?: string };
-  model?: string;
-  mode?: string;
-  provider?: string;
-  providerTaskId?: string;
-  cost?: number;
-  createdAt?: string;
-  prompt?: string;
-  creative?: CreativeBrief;
-};
-
-const timers = new Map<string, number>();
-const parentWorks = new Map<string, string>();
-const attempts = new Map<string, number>();
-const LIVE_MODELS: Record<string, string> = { 'image-balanced': 'qwen-image-2.0', 'image-detail': 'qwen-image-2.0', 'image-max': 'qwen-image-max' };
-
-function mapStatus(status: string): TaskStatus {
-  switch (status) {
-    case 'success': return 'Succeeded';
-    case 'failed': return 'Failed';
-    case 'cancelled': return 'Cancelled';
-    case 'running':
-    case 'downloading':
-    case 'reconciling': return 'Running';
-    default: return 'Queued';
-  }
+import { currentScope } from '../stores/scope';
+import { toTask,restoreOutputs,type ServerTask } from './taskState';
+import { loadPlatformModels } from './models';
+import { quoteAndSubmit } from './submission';
+import type { CreativeBrief,ProductBrief,Task } from '../types';
+export type { ServerTask } from './taskState';
+export { toTask } from './taskState';
+const timers=new Map<string,ReturnType<typeof setTimeout>>();
+const active=new Set<string>();
+let epoch=0;
+window.addEventListener('weavia:scope',()=>{epoch++;for(const timer of timers.values())clearTimeout(timer);timers.clear();active.clear();});
+export function applyServerTask(server:ServerTask,previous?:Task){
+ const state=useApp.getState();const task=toTask(server,server.prompt||previous?.prompt,previous||state.tasks.find(t=>t.id===server.id));
+ const restored=restoreOutputs(task,server,state.works,state.assets);
+ const work=restored.works.find(w=>w.id===task.parentWorkId||w.taskId===task.id);if(work)task.workId=work.id;
+ useApp.setState({...restored,tasks:[task,...state.tasks.filter(t=>t.id!==task.id)]});
 }
-
-export function toTask(server: ServerTask, prompt: string, product?: ProductBrief): Task {
-  const snapshot = server.creative?.product;
-  return {
-    id: server.id,
-    title: prompt.slice(0, 28),
-    prompt,
-    mode: server.mode?.includes('video') ? 'video' : 'image',
-    status: mapStatus(server.status),
-    progress: server.status === 'success' ? 100 : mapStatus(server.status) === 'Running' ? 60 : 20,
-    createdAt: server.createdAt || new Date().toISOString(),
-    source: 'live',
-    error: server.error?.message,
-    errorCode: server.error?.code,
-    providerTaskId: server.providerTaskId,
-    provider: server.provider,
-    model: server.model,
-    creative: server.creative,
-    product: product || (snapshot ? { id: snapshot.localId || '', name: snapshot.name, sku: snapshot.sku || '', description: snapshot.description || '', verifiedFacts: snapshot.verifiedFacts || '', forbiddenClaims: snapshot.forbiddenClaims || '', sourceAssetId: '' } : undefined),
-  };
+export function trackLiveTask(server:ServerTask,prompt:string,_parentWorkId?:string,product?:ProductBrief){
+ const task=toTask(server,prompt);if(product)task.product=product;
+ applyServerTask({...server,prompt},task); if(!['success','failed','cancelled'].includes(server.status))poll(server.id);
+ window.dispatchEvent(new Event('weavia:credits'));
 }
-
-async function complete(id: string, server: ServerTask) {
-  const task = useApp.getState().tasks.find(item => item.id === id);
-  const outputs = (server.outputs || []).map((item, index) => ({ ...item, index })).filter(item => item.base64Data || item.objectKey);
-  if (!task || !outputs.length) {
-    useApp.getState().updateTask(id, { status: 'Failed', errorCode: 'RESULT_SAVE_FAILED', error: '任务成功但没有可读取的结果' });
-    timers.delete(id); attempts.delete(id); parentWorks.delete(id);
-    return;
-  }
-  const total = outputs.length;
-  const saved = new Set(savedIndexes(task, useApp.getState().works));
-  const parentId = parentWorks.get(id);
-  const parent = parentId ? useApp.getState().works.find(item => item.id === parentId) : undefined;
-  let firstWorkId = task.workId || parent?.id || '';
-  for (const index of missingIndexes([...saved], total)) {
-    const output = outputs.find(item => item.index === index);
-    if (!output) continue;
-    try {
-      const mime = output.mimeType || (task.mode === 'video' ? 'video/mp4' : 'image/png');
-      const blob = output.base64Data ? await (await fetch(output.base64Data)).blob() : await apiBlob(`/api/ai/tasks/${id}/outputs/${output.index}`);
-      const extension = mime === 'video/mp4' ? 'mp4' : mime === 'video/webm' ? 'webm' : mime === 'image/jpeg' ? 'jpg' : 'png';
-      const asset = await importAsset(new File([blob], `${id}-${index + 1}.${extension}`, { type: mime }));
-      useApp.getState().addAsset({ ...asset, category: '作品' });
-      const version = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), prompt: task.prompt, assetId: asset.id, mimeType: mime };
-      if (parent && index === 0) {
-        useApp.getState().updateWork({ ...parent, versions: [...parent.versions, version] });
-      } else if (!useApp.getState().works.some(work => work.taskId === id && work.outputIndex === index)) {
-        const workId = crypto.randomUUID();
-        const work: Work = { id: workId, title: total > 1 ? `${task.title} · ${index + 1}` : task.title, mode: task.mode, taskId: id, source: 'live', product: task.product, reviewStatus: 'pending', versions: [version], outputIndex: index };
-        useApp.getState().addWork(work);
-        if (!firstWorkId) firstWorkId = workId;
-      }
-      // 每存成功一张立刻记账，崩溃或断网后只补缺失的序号。
-      saved.add(index);
-      useApp.getState().updateTask(id, { savedOutputs: [...saved].sort((a, b) => a - b), expectedOutputs: total });
-      window.dispatchEvent(new Event('weavia:credits'));
-    } catch { /* 单张失败不阻断其余输出，最终按缺失集合提示重试 */ }
-  }
-  const savedList = [...saved].sort((a, b) => a - b);
-  if (savedList.length >= total) {
-    useApp.getState().updateTask(id, { status: 'Succeeded', progress: 100, workId: firstWorkId, expectedOutputs: total, savedOutputs: savedList, error: undefined, errorCode: undefined });
-    useApp.getState().notify(parent ? 'AI 编辑已保存为新版本' : `${task.mode === 'video' ? '视频' : '图片'}生成完成，已保存 ${savedList.length} 件作品`);
-  } else {
-    useApp.getState().updateTask(id, { status: 'Failed', progress: 100, errorCode: 'RESULT_SAVE_INCOMPLETE', error: `已保存 ${savedList.length}/${total}，可重新获取缺失结果`, expectedOutputs: total, savedOutputs: savedList });
-  }
-  timers.delete(id);
-  attempts.delete(id);
-  parentWorks.delete(id);
+export function poll(id:string){
+ if(active.has(id)||timers.has(id))return;
+ const runEpoch=epoch,scope=currentScope();
+ const tick=async()=>{
+  timers.delete(id);if(epoch!==runEpoch||currentScope()!==scope)return;
+  if(active.size>=3){timers.set(id,setTimeout(()=>void tick(),1000));return;}
+  active.add(id);
+  let again=true;
+  try{
+   const server=await apiRequest<ServerTask>(`/api/ai/tasks/${id}`,{},{timeoutMs:15000});
+   if(epoch!==runEpoch||currentScope()!==scope)return;
+   applyServerTask(server);again=!['success','failed','cancelled'].includes(server.status);
+   if(!again)window.dispatchEvent(new Event('weavia:credits'));
+  }catch(cause){if(epoch===runEpoch)useApp.getState().updateTask(id,{syncError:cause instanceof Error?cause.message:'暂时无法查询，请检查连接'});}
+  finally{if(epoch===runEpoch){active.delete(id);if(again)timers.set(id,setTimeout(()=>void tick(),10000));}}
+ };void tick();
 }
-
-export function trackLiveTask(server: ServerTask, prompt: string, parentWorkId?: string, product?: ProductBrief) {
-  if (parentWorkId) parentWorks.set(server.id, parentWorkId);
-  useApp.getState().submitTask(toTask(server, prompt, product));
-  poll(server.id);
+export function resumeLiveTasks(){for(const t of useApp.getState().tasks)if(t.source==='live'&&(['Queued','Running'].includes(t.status)||(t.status==='Succeeded'&&!useApp.getState().works.some(w=>w.taskId===t.id||w.id===t.workId))))poll(t.id);}
+export function retryLiveResult(id:string){const timer=timers.get(id);if(timer)clearTimeout(timer);timers.delete(id);poll(id);}
+export async function makeRequest(prompt:string,modelId:string,params?:{ratio:string;resolution:string;count:number;promptExtend:boolean;duration?:number;size?:string;negativePrompt?:string;seed?:string;outputFormat?:string;watermark?:boolean;referenceStrength?:number},referenceAssetIds:string[]=[],mode:'image'|'video'='image',creative?:CreativeBrief){
+ const scope=currentScope();
+ if(referenceAssetIds.length>1)throw new Error('当前生成通道使用一张商品依据图，请选择最能代表商品的一张。');
+ const refs=[];
+ for(const id of referenceAssetIds){const asset=useApp.getState().assets.find(a=>a.id===id);if(!asset)throw new Error('参考素材不可读取，请重新选择');refs.push(await uploadReferenceAsset(asset));}
+ if(currentScope()!==scope)throw new Error('账户已切换，请重新开始');
+ return {idempotencyKey:crypto.randomUUID(),modelKey:modelId,model:modelId,mode:mode==='video'?(refs.length?'image_to_video':'text_to_video'):refs.length?'image_to_image':'text_to_image',projectId:refs.length?'local-assets':'',prompt,referenceAssets:refs,inputAssetId:refs[0]?.assetId||'',size:params?.size||'1024x1024',numberOfImages:mode==='video'?1:params?.count||1,duration:mode==='video'?params?.duration||5:undefined,ratio:params?.ratio||'1:1',resolution:params?.resolution||'1K',promptExtend:params?.promptExtend??true,negativePrompt:params?.negativePrompt||'',seed:params?.seed||'',outputFormat:params?.outputFormat||(mode==='video'?'mp4':'png'),watermark:params?.watermark??false,workflow:'image_generation',creative};
 }
-
-function poll(id: string) {
-  if (timers.has(id)) return;
-  timers.set(id, 0);
-  const tick = async () => {
-    try {
-      const server = await apiRequest<ServerTask>(`/api/ai/tasks/${id}`, {}, { timeoutMs: 15000 });
-      const count = (attempts.get(id) || 0) + 1;
-      attempts.set(id, count);
-      const status = mapStatus(server.status);
-      if (status === 'Succeeded') {
-        const current = useApp.getState().tasks.find(item => item.id === id);
-        const total = (server.outputs || []).filter(item => item.base64Data || item.objectKey).length;
-        const saved = current ? savedIndexes(current, useApp.getState().works) : [];
-        if (current && total > 0 && missingIndexes(saved, total).length === 0) {
-          useApp.getState().updateTask(id, { status: 'Succeeded', progress: 100, expectedOutputs: total });
-          timers.delete(id); attempts.delete(id); return;
-        }
-        await complete(id, server); return;
-      }
-      if (status === 'Failed' || status === 'Cancelled') {
-        useApp.getState().updateTask(id, { status, error: server.error?.message || '任务未完成' });
-        timers.delete(id);
-        attempts.delete(id);
-        return;
-      }
-      useApp.getState().updateTask(id, { status, progress: status === 'Running' ? 60 : 20, providerTaskId: server.providerTaskId, provider: server.provider, model: server.model });
-      timers.set(id, window.setTimeout(() => { void tick(); }, Math.min(15000, 1500 + count * 250)));
-    } catch {
-      const count = (attempts.get(id) || 0) + 1;
-      attempts.set(id, count);
-      useApp.getState().updateTask(id, { error: '暂时无法查询服务端状态，正在重试' });
-      timers.set(id, window.setTimeout(() => { void tick(); }, Math.min(30000, 3000 + count * 1000)));
-    }
-  };
-  void tick();
+export async function createLiveTask(prompt:string,modelId:string,params?:Parameters<typeof makeRequest>[2],referenceAssetIds:string[]=[],mode:'image'|'video'='image',creative?:CreativeBrief,product?:ProductBrief){
+ const body=await makeRequest(prompt,modelId,params,referenceAssetIds,mode,creative);
+ const tasks=await quoteAndSubmit([{body,title:prompt.slice(0,40),product,referenceAssetIds}]);return tasks[0];
 }
-
-export async function createLiveTask(prompt: string, modelId: string, params?: { ratio: string; resolution: string; count: number; promptExtend: boolean; duration?: number; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number }, referenceAssetIds: string[] = [], mode: 'image' | 'video' = 'image', creative?: CreativeBrief, product?: ProductBrief): Promise<string> {
-  const model = LIVE_MODELS[modelId] || modelId;
-  if (!model) throw new Error('当前模型尚未接入云端生成');
-  const references = await Promise.all(referenceAssetIds.map(async id => {
-    const asset = useApp.getState().assets.find(item => item.id === id);
-    return asset ? uploadReferenceAsset(asset) : null;
-  }));
-  const referenceAssets = references.filter(Boolean).map(item => ({ assetId: item!.assetId, objectKey: item!.objectKey, mimeType: item!.mimeType }));
-  const server = await apiRequest<ServerTask>('/api/ai/tasks', {
-    method: 'POST',
-    body: JSON.stringify({
-      idempotencyKey: crypto.randomUUID(),
-      modelKey: modelId,
-      model,
-      mode: mode === 'video' ? 'text_to_video' : referenceAssets.length ? 'image_to_image' : 'text_to_image',
-      projectId: referenceAssets.length && mode === 'image' ? 'local-assets' : '',
-      prompt,
-      referenceAssets,
-      inputAssetId: referenceAssets[0]?.assetId || '',
-      size: mode === 'video' ? (params?.resolution === '1080P' ? '1920*1080' : '1280*720') : params?.size || '1024x1024',
-      numberOfImages: mode === 'video' ? 1 : Math.max(1, Math.min(4, params?.count || 1)),
-      duration: mode === 'video' ? params?.duration || 5 : undefined,
-      ratio: params?.ratio || '1:1',
-      resolution: params?.resolution || '1K',
-      promptExtend: params?.promptExtend ?? true,
-      negativePrompt: params?.negativePrompt || '',
-      seed: params?.seed || '',
-      outputFormat: params?.outputFormat || 'png',
-      watermark: params?.watermark ?? false,
-      referenceStrength: params?.referenceStrength ?? 0.65,
-      workflow: 'image_generation',
-      creative,
-    }),
-  });
-  trackLiveTask(server, prompt, undefined, product);
-  return server.id;
+export async function createLiveEditTask(prompt:string,modelId:string,asset:import('../types').Asset,parentWorkId?:string){
+ const body=await makeRequest(prompt,modelId,{ratio:'1:1',resolution:'1K',count:1,promptExtend:true},[asset.id]);
+ const models=await loadPlatformModels('image');
+ const selected=models.find(m=>m.id===modelId);
+ if(selected?.capabilities?.includes('image_edit'))body.mode='image_edit';
+ const tasks=await quoteAndSubmit([{body,title:prompt.slice(0,40),parentWorkId}]);return tasks[0];
 }
-
-export function resumeLiveTasks() {
-  const state = useApp.getState();
-  for (const task of state.tasks) {
-    if (task.source !== 'live') continue;
-    if (task.status === 'Queued' || task.status === 'Running') { poll(task.id); continue; }
-    const saved = savedIndexes(task, state.works).length;
-    const expected = task.expectedOutputs ?? 0;
-    if (expected > saved && (task.status === 'Succeeded' || isResultSaveFailure(task.errorCode))) { poll(task.id); continue; }
-    if (task.status === 'Succeeded' && saved === 0) poll(task.id);
-  }
-}
-
-export function retryLiveResult(id: string) {
-  useApp.getState().updateTask(id, { status: 'Running', error: undefined, errorCode: undefined });
-  poll(id);
-}
-
-export async function createLiveEditTask(prompt: string, modelId: string, asset: import('../types').Asset, parentWorkId?: string): Promise<string> {
-  const model = modelId || 'qwen-image-edit-plus';
-  const reference = await uploadReferenceAsset(asset);
-  const server = await apiRequest<ServerTask>('/api/ai/tasks', {
-    method: 'POST',
-    body: JSON.stringify({
-      idempotencyKey: crypto.randomUUID(),
-      modelKey: model,
-      model,
-      mode: model === 'qwen-image-2.0' ? 'image_to_image' : 'image_edit',
-      editMode: 'whole',
-      projectId: 'local-assets',
-      inputAssetId: reference.assetId,
-      referenceAssets: [{ assetId: reference.assetId, objectKey: reference.objectKey, mimeType: reference.mimeType }],
-      prompt,
-      size: '1024x1024',
-      numberOfImages: 1,
-      workflow: 'image_generation',
-    }),
-  });
-  trackLiveTask(server, prompt.slice(0, 28), parentWorkId);
-  return server.id;
-}
-
-export function cancelLiveTask(id: string) {
-  const timer = timers.get(id);
-  if (timer) window.clearTimeout(timer);
-  timers.delete(id);
-  attempts.delete(id);
-  // This only stops local tracking. The server has no cancellation endpoint.
-  useApp.getState().updateTask(id, { error: '已暂停本机状态查询；服务端任务仍可能继续执行' });
-}
+export function cancelLiveTask(id:string){const timer=timers.get(id);if(timer)clearTimeout(timer);timers.delete(id);useApp.getState().updateTask(id,{syncError:'本机已暂停查询，服务端仍可能继续执行'});}

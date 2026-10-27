@@ -11,6 +11,7 @@ export function currentScope(): string {
 export function setScope(next: string | null | undefined): void {
   const value = typeof next === 'string' ? next.trim() : '';
   scope = value || ANONYMOUS_SCOPE;
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('weavia:scope'));
 }
 
 export function partitionKey(scopeId: string = scope, name: string = STATE_STORAGE_NAME): string {

@@ -2,6 +2,52 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "WEAVIA desktop permissions",
-  "windows": ["main"],
-  "permissions": ["core:default", "sql:default", "sql:allow-execute", "sql:allow-select", "dialog:default", "fs:default", {"identifier":"fs:allow-mkdir","allow":[{"path":"$APPLOCALDATA/assets"}]}, {"identifier":"fs:allow-write-file","allow":[{"path":"$APPLOCALDATA/assets/*"}]}, {"identifier":"fs:allow-remove","allow":[{"path":"$APPLOCALDATA/assets/*"}]}, "log:default", "opener:default"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "sql:default",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "dialog:default",
+    "fs:default",
+    "log:default",
+    "opener:default",
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [
+        {
+          "path": "$APPLOCALDATA/assets"
+        },
+        {
+          "path": "$APPLOCALDATA/assets/**"
+        }
+      ]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [
+        {
+          "path": "$APPLOCALDATA/assets/**"
+        }
+      ]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        {
+          "path": "$APPLOCALDATA/assets/**"
+        }
+      ]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [
+        {
+          "path": "$APPLOCALDATA/assets/**"
+        }
+      ]
+    }
+  ]
 }

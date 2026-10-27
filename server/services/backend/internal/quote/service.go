@@ -19,6 +19,9 @@ type Request struct {
 	ConversationID    string   `json:"conversationId,omitempty"`
 	WorkspaceID       string   `json:"workspaceId,omitempty"`
 	ProjectID         string   `json:"projectId,omitempty"`
+	ModelKey          string   `json:"modelKey,omitempty"`
+	Resolution        string   `json:"resolution,omitempty"`
+	Duration          int      `json:"duration,omitempty"`
 	Model             string   `json:"model"`
 	Mode              string   `json:"mode"`
 	EditMode          string   `json:"editMode,omitempty"`
@@ -184,6 +187,11 @@ func (s *Service) ValidateForTask(ctx context.Context, userID, quoteID string, r
 	if q.Status != "active" || !q.ExpiresAt.After(s.now()) {
 		return Quote{}, &generation.APIError{Code: "QUOTE_EXPIRED", Message: "报价已失效，请重新报价", Status: 409}
 	}
+	var snapshot Request
+	_ = json.Unmarshal(q.Request, &snapshot)
+	if snapshot.ModelKey != req.ModelKey || snapshot.Resolution != req.Resolution || snapshot.Duration != req.Duration {
+		return Quote{}, &generation.APIError{Code: "QUOTE_MISMATCH", Message: "报价规格已变化，请重新报价", Status: 409}
+	}
 	if q.RequestModel != req.Model || q.RequestMode != req.Mode || q.RequestPrompt != req.Prompt || q.RequestEditMode != req.EditMode || q.RequestSize != req.Size || q.RequestCount != req.NumberOfImages || q.RequestMaskAssetID != req.MaskAssetID || !sameStrings(q.RequestReferenceIDs, req.ReferenceAssetIDs) {
 		return Quote{}, &generation.APIError{Code: "QUOTE_MISMATCH", Message: "报价参数已变化，请重新报价", Status: 409}
 	}
@@ -300,4 +308,20 @@ func (s *postgresStore) Consume(ctx context.Context, userID, id string) (Quote, 
 		return Quote{}, err
 	}
 	return row.Quote, nil
+}
+
+// CreatePriced receives a price already validated by the generation service.
+func (s *Service) CreatePriced(ctx context.Context, userID string, req Request, total int64) (Quote, error) {
+	if total <= 0 {
+		return Quote{}, &generation.APIError{Code: "INVALID_PRICE", Message: "价格不可用", Status: 409}
+	}
+	now := s.now().UTC()
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return Quote{}, err
+	}
+	return s.store.Create(ctx, Quote{UserID: userID, Currency: "credits", TotalCredits: total,
+		LineItems: []LineItem{{Model: req.Model, Quantity: req.NumberOfImages, TotalCredits: total, Note: "以本次规格及账户价格报价"}},
+		Status:    "active", ExpiresAt: now.Add(5 * time.Minute), CreatedAt: now, Request: raw, IdempotencyKey: "quote-" + newID(),
+		RequestModel: req.Model, RequestMode: req.Mode, RequestPrompt: req.Prompt, RequestEditMode: req.EditMode, RequestSize: req.Size, RequestCount: req.NumberOfImages, RequestReferenceIDs: req.ReferenceAssetIDs, RequestMaskAssetID: req.MaskAssetID})
 }

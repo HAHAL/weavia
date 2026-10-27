@@ -17,7 +17,7 @@ func (a *Adapter) LookupRoute(ctx context.Context, key string) (generation.Route
 	if err != nil {
 		return generation.RouteModel{}, err
 	}
-	return generation.RouteModel{Key: item.Key, DisplayName: item.DisplayName, CreditsCost: item.CreditsCost, Capabilities: item.Capabilities}, nil
+	return generation.RouteModel{Key: item.Key, DisplayName: item.DisplayName, CreditsCost: item.CreditsCost, Capabilities: item.Capabilities, Params: item.Params}, nil
 }
 
 func (a *Adapter) BindingsFor(ctx context.Context, key string) ([]generation.RouteBinding, error) {
