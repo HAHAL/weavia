@@ -1,5 +1,6 @@
 # WEAVIA 开发交接（Codex）
 
+> 2026-10-27 更新：客户端体验改造、API/Worker 发布、安装包、最终验收与未完成边界见 [客户端交付与自评](./CLIENT_EXPERIENCE_DELIVERY_2026-10-27.md)。实现分支 `codex/client-experience`，提交 `7fa07db`。
 > 2026-10-24 更新：最新状态、环境与待办以 [HANDOFF_CURRENT_2026-10-24.md](./HANDOFF_CURRENT_2026-10-24.md) 为准。
 > 2026-10-23 补充：当前代码、Git 状态、待确认 PRD 和已知问题，以 [最新交接文档](./HANDOFF_CURRENT_2026-10-23.md) 为准。用户已决定 DAG 始终在客户端执行；本文后续关于“DAG 服务端执行器”的建议已失效。
 
