@@ -302,6 +302,12 @@ paths:
       operationId: adminUsers
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
+  /me/avatar:
+    put:
+      operationId: updateMyAvatar
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/JSON' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
   /admin/overview:
     get:
       operationId: adminOverview

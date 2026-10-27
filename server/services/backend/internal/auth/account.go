@@ -222,7 +222,7 @@ func (s *Service) VerifyRegistration(ctx context.Context, email, code, linkToken
 		return SessionResult{}, invalidCode
 	}
 	var user User
-	err = tx.QueryRow(ctx, `INSERT INTO users(email,name,status,email_verified_at) VALUES($1,$2,'active',now()) RETURNING id::text,email,coalesce(name,''),status`, email, name).Scan(&user.ID, &user.Email, &user.Name, &user.Status)
+	err = tx.QueryRow(ctx, `INSERT INTO users(email,name,status,email_verified_at) VALUES($1,$2,'active',now()) RETURNING id::text,email,coalesce(name,''),status,coalesce(avatar_url,'')`, email, name).Scan(&user.ID, &user.Email, &user.Name, &user.Status, &user.AvatarURL)
 	if err != nil {
 		return SessionResult{}, err
 	}

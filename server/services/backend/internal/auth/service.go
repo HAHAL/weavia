@@ -22,10 +22,11 @@ import (
 const DemoUserID = "00000000-0000-4000-8000-000000000001"
 
 type User struct {
-	ID     string `json:"id"`
-	Email  string `json:"email"`
-	Name   string `json:"name,omitempty"`
-	Status string `json:"status"`
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name,omitempty"`
+	Status    string `json:"status"`
+	AvatarURL string `json:"avatarUrl"`
 }
 
 var DemoUser = User{ID: DemoUserID, Email: "demo@weavia.local", Name: "WEAVIA Demo", Status: "active"}
@@ -106,7 +107,7 @@ func (s *Service) Register(ctx context.Context, email, password, name string, in
 	}
 	defer tx.Rollback(ctx)
 	var user User
-	err = tx.QueryRow(ctx, `INSERT INTO users(email,name,status,email_verified_at,account_no) VALUES($1,$2,'active',now(),'WA'||lpad(nextval('user_account_no_seq')::text,6,'0')) RETURNING id::text,email,coalesce(name,''),status`, email, name).Scan(&user.ID, &user.Email, &user.Name, &user.Status)
+	err = tx.QueryRow(ctx, `INSERT INTO users(email,name,status,email_verified_at,account_no) VALUES($1,$2,'active',now(),'WA'||lpad(nextval('user_account_no_seq')::text,6,'0')) RETURNING id::text,email,coalesce(name,''),status,coalesce(avatar_url,'')`, email, name).Scan(&user.ID, &user.Email, &user.Name, &user.Status, &user.AvatarURL)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -141,7 +142,7 @@ func (s *Service) Login(ctx context.Context, email, password string, info Device
 	info = normalizeDevice(info, "web")
 	var user User
 	var stored string
-	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,a.password_hash FROM users u JOIN accounts a ON a.user_id=u.id AND a.provider='password' WHERE u.email=$1`, strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.Email, &user.Name, &user.Status, &stored)
+	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(u.avatar_url,''),a.password_hash FROM users u JOIN accounts a ON a.user_id=u.id AND a.provider='password' WHERE u.email=$1`, strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.Email, &user.Name, &user.Status, &user.AvatarURL, &stored)
 	if err != nil || !verifyPassword(stored, password) {
 		s.recordLogin(ctx, user.ID, "", info.Platform, "invalid_credentials", false)
 		return SessionResult{}, &Error{Code: "INVALID_CREDENTIALS", Message: "邮箱或密码错误", Status: 401}
@@ -232,7 +233,7 @@ func (s *Service) Exchange(ctx context.Context, code, state string, info DeviceI
 	var used *time.Time
 	var stateHash string
 	var user User
-	err = tx.QueryRow(ctx, `SELECT c.id::text,c.expires_at,c.used_at,r.state_hash,u.id::text,u.email,coalesce(u.name,''),u.status FROM auth_codes c JOIN auth_requests r ON r.id=c.auth_request_id JOIN users u ON u.id=r.user_id WHERE c.code_hash=$1 FOR UPDATE`, digest(code)).Scan(&codeID, &expires, &used, &stateHash, &user.ID, &user.Email, &user.Name, &user.Status)
+	err = tx.QueryRow(ctx, `SELECT c.id::text,c.expires_at,c.used_at,r.state_hash,u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(u.avatar_url,'') FROM auth_codes c JOIN auth_requests r ON r.id=c.auth_request_id JOIN users u ON u.id=r.user_id WHERE c.code_hash=$1 FOR UPDATE`, digest(code)).Scan(&codeID, &expires, &used, &stateHash, &user.ID, &user.Email, &user.Name, &user.Status, &user.AvatarURL)
 	if err != nil {
 		s.recordLogin(ctx, "", "", "desktop", "oauth_failed", false)
 		return SessionResult{}, &Error{Code: "INVALID_TOKEN", Message: "授权码无效", Status: 400}
@@ -281,7 +282,7 @@ func (s *Service) Refresh(ctx context.Context, value string) (SessionResult, err
 	var revoked *time.Time
 	var user User
 	var info DeviceInfo
-	err = tx.QueryRow(ctx, `SELECT s.id::text,s.refresh_expires_at,s.revoked_at,s.token_family_id::text,s.revoked_reason,u.id::text,u.email,coalesce(u.name,''),u.status,d.device_fingerprint_hash,d.name,d.platform,coalesce(d.app_version,'') FROM sessions s JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id WHERE s.refresh_token_hash=$1 FOR UPDATE OF s`, digest(value)).Scan(&sessionID, &expires, &revoked, &family, &reason, &user.ID, &user.Email, &user.Name, &user.Status, &info.DeviceID, &info.DeviceName, &info.Platform, &info.AppVersion)
+	err = tx.QueryRow(ctx, `SELECT s.id::text,s.refresh_expires_at,s.revoked_at,s.token_family_id::text,s.revoked_reason,u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(u.avatar_url,''),d.device_fingerprint_hash,d.name,d.platform,coalesce(d.app_version,'') FROM sessions s JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id WHERE s.refresh_token_hash=$1 FOR UPDATE OF s`, digest(value)).Scan(&sessionID, &expires, &revoked, &family, &reason, &user.ID, &user.Email, &user.Name, &user.Status, &user.AvatarURL, &info.DeviceID, &info.DeviceName, &info.Platform, &info.AppVersion)
 	if err == nil && revoked != nil && reason != nil && *reason == "rotated" && family != nil {
 		_ = tx.Rollback(ctx)
 		_, _ = s.pool.Exec(ctx, `UPDATE sessions SET revoked_at=coalesce(revoked_at,now()),revoked_reason='refresh_replay',updated_at=now() WHERE token_family_id=$1 AND revoked_at IS NULL`, *family)
@@ -321,12 +322,44 @@ func (s *Service) Logout(ctx context.Context, value string) error {
 }
 func (s *Service) Me(ctx context.Context, value string) (User, error) {
 	var u User
-	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.access_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.status='active'`, digest(value)).Scan(&u.ID, &u.Email, &u.Name, &u.Status)
+	err := s.pool.QueryRow(ctx, `SELECT u.id::text,u.email,coalesce(u.name,''),u.status,coalesce(u.avatar_url,'') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.access_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.status='active'`, digest(value)).Scan(&u.ID, &u.Email, &u.Name, &u.Status, &u.AvatarURL)
 	if err != nil {
 		return User{}, &Error{Code: "INVALID_TOKEN", Message: "访问令牌无效", Status: 401}
 	}
 	_, _ = s.pool.Exec(ctx, `UPDATE sessions SET last_active_at=now() WHERE access_token_hash=$1`, digest(value))
+	if u.AvatarURL == "" {
+		u.AvatarURL = DefaultAvatarID(u.ID)
+	}
 	return u, nil
+}
+
+var avatarIDs = []string{"mascot-fox", "mascot-bear", "mascot-rabbit", "mascot-cat", "mascot-owl", "mascot-bird"}
+
+func DefaultAvatarID(userID string) string {
+	var hash uint32
+	for i := 0; i < len(userID); i++ {
+		hash = hash*31 + uint32(userID[i])
+	}
+	return avatarIDs[hash%uint32(len(avatarIDs))]
+}
+
+func (s *Service) SetAvatar(ctx context.Context, userID, avatarID string) (User, error) {
+	valid := false
+	for _, id := range avatarIDs {
+		if id == avatarID {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return User{}, &Error{Code: "INVALID_AVATAR", Message: "头像选项无效", Status: 400}
+	}
+	var user User
+	err := s.pool.QueryRow(ctx, `UPDATE users SET avatar_url=$2,updated_at=now() WHERE id=$1 AND status='active' RETURNING id::text,email,coalesce(name,''),status,avatar_url`, userID, avatarID).Scan(&user.ID, &user.Email, &user.Name, &user.Status, &user.AvatarURL)
+	if err != nil {
+		return User{}, err
+	}
+	return user, nil
 }
 func (s *Service) ListDevices(ctx context.Context, userID string) ([]Device, error) {
 	rows, err := s.pool.Query(ctx, `SELECT device_fingerprint_hash,name,platform,coalesce(app_version,''),created_at,last_active_at,revoked_at FROM devices WHERE user_id=$1 ORDER BY last_active_at DESC`, userID)

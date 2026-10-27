@@ -613,7 +613,7 @@ func (s *Service) ListSKUAssets(ctx context.Context, userID, skuID string) ([]As
 }
 
 func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.account_no,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at,coalesce(ic.code,''),u.oss_sync_enabled FROM users u LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
+	rows, err := s.pool.Query(ctx, `SELECT u.id::text,u.account_no,u.email,coalesce(u.name,''),u.status,coalesce(p.code,'free'),coalesce(s.status::text,'none'),s.current_period_end,coalesce(c.available_balance,0),u.created_at,coalesce(ic.code,''),u.oss_sync_enabled,coalesce(u.avatar_url,'') FROM users u LEFT JOIN invite_codes ic ON ic.id=u.invite_code_id LEFT JOIN LATERAL(SELECT plan_id,status,current_period_end FROM subscriptions WHERE user_id=u.id ORDER BY (status IN('active','trialing')) DESC,created_at DESC LIMIT 1)s ON true LEFT JOIN plans p ON p.id=s.plan_id LEFT JOIN credit_accounts c ON c.user_id=u.id ORDER BY u.created_at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -626,12 +626,35 @@ func (s *Service) AdminUsers(ctx context.Context) ([]map[string]any, error) {
 		var created time.Time
 		var inviteCode string
 		var ossSync bool
-		if err = rows.Scan(&id, &accountNo, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created, &inviteCode, &ossSync); err != nil {
+		var avatarID string
+		if err = rows.Scan(&id, &accountNo, &email, &name, &status, &plan, &membershipStatus, &membershipExpiresAt, &balance, &created, &inviteCode, &ossSync, &avatarID); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created, "inviteCode": inviteCode, "accountNo": accountNo, "ossSync": ossSync})
+		if !validAdminAvatarID(avatarID) {
+			avatarID = defaultAdminAvatarID(id)
+		}
+		out = append(out, map[string]any{"id": id, "email": email, "name": name, "status": status, "plan": plan, "membershipStatus": membershipStatus, "membershipExpiresAt": membershipExpiresAt, "credits": balance, "createdAt": created, "inviteCode": inviteCode, "accountNo": accountNo, "ossSync": ossSync, "avatarUrl": avatarID})
 	}
 	return out, rows.Err()
+}
+
+var adminAvatarIDs = []string{"mascot-fox", "mascot-bear", "mascot-rabbit", "mascot-cat", "mascot-owl", "mascot-bird"}
+
+func validAdminAvatarID(value string) bool {
+	for _, id := range adminAvatarIDs {
+		if id == value {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultAdminAvatarID(userID string) string {
+	var hash uint32
+	for i := 0; i < len(userID); i++ {
+		hash = hash*31 + uint32(userID[i])
+	}
+	return adminAvatarIDs[hash%uint32(len(adminAvatarIDs))]
 }
 
 // RecordAdminAudit 记录管理端的写操作，便于追责与回溯。
