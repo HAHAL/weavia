@@ -22,6 +22,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/invite"
 	"github.com/weavia/weavia/services/backend/internal/jobs"
 	"github.com/weavia/weavia/services/backend/internal/modelcatalog"
+	"github.com/weavia/weavia/services/backend/internal/ops"
 	"github.com/weavia/weavia/services/backend/internal/platform"
 	"github.com/weavia/weavia/services/backend/internal/pricing"
 	"github.com/weavia/weavia/services/backend/internal/providerconfig"
@@ -79,7 +80,8 @@ func main() {
 	realEnabled := cfg.RealAIEnabled || mock
 	commercialService := commercial.New(pool)
 	service := generation.NewService(realEnabled, provider, jobs.Enqueuer{Client: riverClient}, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, repository).WithCredits(commercialService).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage).WithMock(mock).WithRouting(routingadapter.New(routingService))
-	api := &httpapi.Server{Auth: auth.NewService(pool, cfg.WebOrigin, cfg.DemoMode), Commercial: commercialService, Generation: service, Conversations: conversation.NewPostgres(pool), Quotes: quote.NewPostgres(pool), Showcase: showcase.New(pool, cfg.AssetStorageDir), Credentials: credentials, Models: modelCatalog, Pricing: pricing.New(pool), Invites: invite.New(pool, cfg.InviteRequired), StorageConfig: storageconfig.New(pool, cfg.StorageSigningKey), SupportEmail: cfg.SupportEmail, SupportURL: cfg.SupportURL, Routing: routingService, Recipes: recipesService, Workflows: workflows.New(pool), Assets: storage, AntDigitalConfigured: cfg.AntDigitalAPIKey != "", ComputrixConfigured: cfg.ComputrixAPIKey != "", DashScopeConfigured: cfg.DashScopeAPIKey != "", RealAIEnabled: cfg.RealAIEnabled, AntDigitalBaseURL: cfg.AntDigitalBaseURL, DashScopeBaseURL: cfg.DashScopeBaseURL, Readiness: map[string]func(context.Context) error{
+	opsService := ops.New(pool, os.Getenv("OPS_SNAPSHOT_PATH"))
+	api := &httpapi.Server{Auth: auth.NewService(pool, cfg.WebOrigin, cfg.DemoMode), Commercial: commercialService, Generation: service, Conversations: conversation.NewPostgres(pool), Quotes: quote.NewPostgres(pool), Showcase: showcase.New(pool, cfg.AssetStorageDir), Credentials: credentials, Models: modelCatalog, Ops: opsService, Pricing: pricing.New(pool), Invites: invite.New(pool, cfg.InviteRequired), StorageConfig: storageconfig.New(pool, cfg.StorageSigningKey), SupportEmail: cfg.SupportEmail, SupportURL: cfg.SupportURL, Routing: routingService, Recipes: recipesService, Workflows: workflows.New(pool), Assets: storage, AntDigitalConfigured: cfg.AntDigitalAPIKey != "", ComputrixConfigured: cfg.ComputrixAPIKey != "", DashScopeConfigured: cfg.DashScopeAPIKey != "", RealAIEnabled: cfg.RealAIEnabled, AntDigitalBaseURL: cfg.AntDigitalBaseURL, DashScopeBaseURL: cfg.DashScopeBaseURL, Readiness: map[string]func(context.Context) error{
 		"database": pool.Ping,
 		"queue": func(ctx context.Context) error {
 			var exists bool

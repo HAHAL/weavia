@@ -15,6 +15,7 @@ import (
 	"github.com/weavia/weavia/services/backend/internal/commercial"
 	"github.com/weavia/weavia/services/backend/internal/generation"
 	"github.com/weavia/weavia/services/backend/internal/jobs"
+	"github.com/weavia/weavia/services/backend/internal/ops"
 	"github.com/weavia/weavia/services/backend/internal/platform"
 	"github.com/weavia/weavia/services/backend/internal/providerconfig"
 	"github.com/weavia/weavia/services/backend/internal/providers"
@@ -47,6 +48,7 @@ func main() {
 		provider = &providers.Mock{Delay: 400 * time.Millisecond}
 	}
 	realEnabled := cfg.RealAIEnabled || mock
+	opsService := ops.New(pool, "")
 	service := generation.NewService(realEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool)).WithCredits(commercial.New(pool)).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage).WithMock(mock).WithRouting(routingadapter.New(routingService))
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Queues: map[string]river.QueueConfig{jobs.Queue: {MaxWorkers: 4}}, Workers: jobs.Workers(service)})
 	if err != nil {
@@ -70,6 +72,24 @@ func main() {
 			}
 		}()
 	}
+	go func() {
+		// The admin console reads worker_heartbeats to tell a dead worker from a
+		// quiet one; without it the ops page shows the worker as down.
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			beatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			if err := opsService.Heartbeat(beatCtx); err != nil {
+				slog.Warn("worker heartbeat failed", "error", err)
+			}
+			cancel()
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	slog.Info("WEAVIA worker started", "queue", jobs.Queue, "ai_mode", cfg.AIMode, "real_ai_enabled", realEnabled)
 	<-ctx.Done()
 	stopCtx, stop := context.WithTimeout(context.Background(), 20*time.Second)
