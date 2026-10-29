@@ -1,11 +1,15 @@
 import type { ReactNode } from 'react';
 import { Sparkles, ShieldCheck, WandSparkles } from 'lucide-react';
 import { apiConfig } from '../services/api';
+import { useServiceHealth } from '../hooks/useServiceHealth';
 
 export function AuthShell({ title, subtitle, eyebrow = 'WEAVIA ACCOUNT', children, footer }: { title: string; subtitle: string; eyebrow?: string; children: ReactNode; footer?: ReactNode }) {
+  const { health } = useServiceHealth();
+  const host = apiConfig.baseUrl.replace(/^https?:\/\//, '');
+  const statusLabel = health === 'ok' ? `服务已连接 · ${host}` : health === 'checking' ? '正在检测服务…' : `服务不可用 · ${host}`;
   return <div className="auth-page">
     <section className="auth-visual" aria-label="WEAVIA 产品介绍">
-      <div className="auth-brand"><span className="brand-mark">W</span><span>WEAVIA<small>AI Commerce Studio</small></span></div>
+      <div className="auth-brand"><img className="brand-mark" src="/brand/weavia-icon.png" alt="WEAVIA" /><span className="brand-label"><img className="brand-wordmark" src="/brand/weavia-wordmark.png" alt="" /><small>AI Commerce Studio</small></span></div>
       <div className="auth-visual-copy">
         <span className="auth-eyebrow">AI COMMERCE STUDIO</span>
         <h1>把商品，<br />变成会说话的视觉。</h1>
@@ -16,7 +20,7 @@ export function AuthShell({ title, subtitle, eyebrow = 'WEAVIA ACCOUNT', childre
           <div><ShieldCheck size={17} /><span><b>Credits 透明</b><small>每次生成前明确费用</small></span></div>
         </div>
       </div>
-      <div className="auth-visual-foot"><span className="auth-status-dot" />服务已连接 · {apiConfig.baseUrl.replace(/^https?:\/\//, '')}</div>
+      <div className={`auth-visual-foot ${health === 'down' ? 'is-down' : ''}`} role="status"><span className="auth-status-dot" />{statusLabel}</div>
     </section>
     <section className="auth-panel">
       <div className="auth-card">

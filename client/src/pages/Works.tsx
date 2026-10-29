@@ -73,7 +73,7 @@ export function Works() {
           ))}
         </div>
       ) : (
-        <StatePanel type="empty" title="还没有作品" detail="完成演示任务后，这里会出现作品记录。当前不会生成真实图片或视频。" action={<Button onClick={() => navigate('/')}>开始创作</Button>} />
+        <StatePanel type="empty" title="还没有作品" detail="生成结果会保存在这里，可按版本核对与下载。" action={<Button onClick={() => navigate('/')}>开始创作</Button>} />
       )}
       {selected && (
         <Dialog title={selected.title} onClose={() => setSelected(null)} wide>

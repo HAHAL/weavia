@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/weavia/weavia/services/backend/internal/auth"
@@ -548,6 +549,12 @@ func (s *Service) finalize(ctx context.Context, task *Task) error {
 }
 func (s *Service) Deliver(task *Task) error {
 	if task.Status != "success" {
+		return nil
+	}
+	// Inlining base64 reads only the local disk, which breaks every task once
+	// generated assets live in object storage. Clients download results through
+	// GET /api/ai/tasks/{id}/outputs/{index}, so keep inlining opt-in.
+	if os.Getenv("INLINE_OUTPUT_BASE64") != "true" {
 		return nil
 	}
 	for i := range task.Outputs {

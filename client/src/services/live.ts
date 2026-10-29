@@ -150,7 +150,7 @@ function poll(id: string) {
   void tick();
 }
 
-export async function createLiveTask(prompt: string, modelId: string, params?: { ratio: string; resolution: string; count: number; promptExtend: boolean; duration?: number; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number }, referenceAssetIds: string[] = [], mode: 'image' | 'video' = 'image', creative?: CreativeBrief, product?: ProductBrief): Promise<string> {
+export async function createLiveTask(prompt: string, modelId: string, params?: { ratio: string; resolution: string; count: number; promptExtend: boolean; duration?: number; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number }, referenceAssetIds: string[] = [], mode: 'image' | 'video' = 'image', creative?: CreativeBrief, product?: ProductBrief, quoteId?: string): Promise<string> {
   const model = LIVE_MODELS[modelId] || modelId;
   if (!model) throw new Error('当前模型尚未接入云端生成');
   const references = await Promise.all(referenceAssetIds.map(async id => {
@@ -162,6 +162,7 @@ export async function createLiveTask(prompt: string, modelId: string, params?: {
     method: 'POST',
     body: JSON.stringify({
       idempotencyKey: crypto.randomUUID(),
+      quoteId: quoteId || '',
       modelKey: modelId,
       model,
       mode: mode === 'video' ? 'text_to_video' : referenceAssets.length ? 'image_to_image' : 'text_to_image',
@@ -190,14 +191,26 @@ export async function createLiveTask(prompt: string, modelId: string, params?: {
 
 export function resumeLiveTasks() {
   const state = useApp.getState();
+  const pending: string[] = [];
   for (const task of state.tasks) {
     if (task.source !== 'live') continue;
     if (task.status === 'Queued' || task.status === 'Running') { poll(task.id); continue; }
     const saved = savedIndexes(task, state.works).length;
     const expected = task.expectedOutputs ?? 0;
-    if (expected > saved && (task.status === 'Succeeded' || isResultSaveFailure(task.errorCode))) { poll(task.id); continue; }
-    if (task.status === 'Succeeded' && saved === 0) poll(task.id);
+    if (expected > saved && (task.status === 'Succeeded' || isResultSaveFailure(task.errorCode))) { pending.push(task.id); continue; }
+    if (task.status === 'Succeeded' && saved === 0) pending.push(task.id);
   }
+  // Recovering a device from scratch must not fire one download per historical
+  // task: the browser allows six connections per host, so a burst starves every
+  // other request (quotes, polling) until they time out.
+  pending
+    .sort((a, b) => {
+      const left = state.tasks.find(task => task.id === a)?.createdAt || '';
+      const right = state.tasks.find(task => task.id === b)?.createdAt || '';
+      return right.localeCompare(left);
+    })
+    .slice(0, 3)
+    .forEach((id, index) => { window.setTimeout(() => poll(id), index * 600); });
 }
 
 export function retryLiveResult(id: string) {

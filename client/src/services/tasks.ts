@@ -4,7 +4,7 @@ import { cancelLiveTask, createLiveTask } from './live';
 import type { CreativeBrief, Mode, ProductBrief, Task, Work } from '../types';
 
 export type ImageParams = { ratio: string; resolution: string; count: number; promptExtend: boolean; duration?: number; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number };
-export type CreationInput = { prompt: string; mode: Mode; modelId: string; product?: ProductBrief; creative?: CreativeBrief; referenceAssetIds?: string[]; params?: ImageParams };
+export type CreationInput = { prompt: string; mode: Mode; modelId: string; product?: ProductBrief; creative?: CreativeBrief; referenceAssetIds?: string[]; params?: ImageParams; quoteId?: string };
 
 type Run = { runId: string; timers: number[] };
 const runs = new Map<string, Run>();
@@ -85,9 +85,9 @@ export function disposeMockTasks() {
 }
 
 
-export async function createTask({ prompt, mode, modelId, product, creative, referenceAssetIds = [], params }: CreationInput): Promise<string> {
+export async function createTask({ prompt, mode, modelId, product, creative, referenceAssetIds = [], params, quoteId }: CreationInput): Promise<string> {
   if (apiConfig.mode === 'live') {
-    return createLiveTask(prompt, modelId, params, referenceAssetIds, mode, creative, product);
+    return createLiveTask(prompt, modelId, params, referenceAssetIds, mode, creative, product, quoteId);
   }
   return createMockTask(prompt, mode, { product, creative, referenceAssetIds });
 }

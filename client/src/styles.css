@@ -301,7 +301,9 @@ button,a,select{touch-action:manipulation}h1,h2,h3{text-wrap:balance}.search-box
 .auth-features span{display:grid;gap:2px}
 .auth-features b{color:#4a3519;font-size:12px;font-weight:700}
 .auth-features small{color:#8a7559;font-size:10px;font-weight:400}
-.auth-visual-foot{display:flex;align-items:center;gap:8px;position:relative;z-index:1;color:#8a7559;font-size:10px}
+.auth-visual-foot{display:flex;align-items:center;gap:8px;position:relative;z-index:1;color:#8a7559;font-size:12px}
+.auth-visual-foot.is-down{color:#b4453d}
+.auth-visual-foot.is-down .auth-status-dot{background:#c0493f;box-shadow:0 0 0 3px #c0493f20}
 .auth-status-dot{width:6px;height:6px;border-radius:50%;background:#3f9a68;box-shadow:0 0 0 3px #3f9a6820}
 .auth-panel{display:flex;align-items:center;justify-content:center;padding:34px;background:var(--surface)}
 .auth-card{width:min(392px,100%)}
@@ -717,3 +719,13 @@ html,body,#root{min-height:100dvh}
 
 /* 模型名称首字母图标 */
 .model-glyph { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; font-weight: 600; line-height: 1; flex: 0 0 auto; }
+
+/* Brand assets from the selected WEAVIA logo concept. */
+.brand .brand-mark,.auth-brand .brand-mark{display:block;flex:0 0 auto;width:34px;height:34px;object-fit:contain;background:none;border:0;border-radius:0;box-shadow:none}
+.brand-label{display:flex;min-width:0;flex-direction:column;justify-content:center}
+.brand-wordmark{display:block;width:108px;height:34px;object-fit:contain}
+.brand-label small{margin-top:-6px}
+.auth-brand .brand-mark{width:42px;height:42px}
+.auth-brand .brand-wordmark{width:138px;height:46px}
+.auth-brand .brand-label small{margin-top:-8px}
+[data-theme="dark"] .sidebar .brand-wordmark{filter:brightness(0) invert(1)}
