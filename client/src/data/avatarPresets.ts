@@ -9,7 +9,7 @@ export const avatarPresets: AvatarPreset[] = [
   { id: 'mascot-bird', name: '小鸟', src: '/avatars/mascot-bird.png' },
 ];
 
-export function avatarIdForUser(_userId: string): string {
+export function avatarIdForUser(): string {
   return avatarPresets[0].id;
 }
 

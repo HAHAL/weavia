@@ -17,7 +17,7 @@ export function AvatarPicker() {
   const localChoice = avatars[user.id];
   const selectedId = normalizeAvatarId(user.avatarUrl)
     || normalizeAvatarId(localChoice?.type === 'system' ? localChoice.value : undefined)
-    || avatarIdForUser(user.id);
+    || avatarIdForUser();
   const current = avatarPresets.find(preset => preset.id === selectedId) || avatarPresets[0];
 
   async function chooseAvatar(avatarId: string) {
@@ -51,7 +51,7 @@ export function AvatarPicker() {
       </div>
       <div className="header-actions">
         <Button variant="secondary" disabled={busy} onClick={() => setOpen(true)}>选择吉祥物</Button>
-        <Button variant="ghost" disabled={busy || selectedId === avatarIdForUser(user.id)} onClick={() => void chooseAvatar(avatarIdForUser(user.id))}><Shuffle size={14} /> 恢复默认</Button>
+        <Button variant="ghost" disabled={busy || selectedId === avatarIdForUser()} onClick={() => void chooseAvatar(avatarIdForUser())}><Shuffle size={14} /> 恢复默认</Button>
       </div>
     </div>
     {open && <Dialog title="选择账户头像" onClose={() => !busy && setOpen(false)} wide>

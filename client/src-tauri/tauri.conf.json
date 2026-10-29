@@ -27,6 +27,10 @@
     ],
     "macOS": {
       "infoPlist": "Info.plist"
+    },
+    "resources": {
+      "resources/codex": "codex",
+      "resources/CODEX-LICENSE.txt": "CODEX-LICENSE.txt"
     }
   }
 }
