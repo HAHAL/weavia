@@ -2,8 +2,10 @@
 # certificate. Trust its root CA only for this isolated test environment.
 yaoyaoai.asia {
 	tls internal
+	@adminRoot path /admin
+	redir @adminRoot /admin/ 308
 
-	@admin path /admin /admin/*
+	@admin path /admin/*
 	handle @admin {
 		uri strip_prefix /admin
 		reverse_proxy admin:80

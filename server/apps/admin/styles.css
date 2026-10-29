@@ -215,3 +215,12 @@ tbody tr:hover { background: #fdf9f1; }
 .alert-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,.08); }
 .alert-row:last-child { border-bottom: none; }
 .alert-row .badge { flex: 0 0 auto; }
+
+/* Shared WEAVIA icon and wordmark. */
+.brand .brand-mark,.login-brand .brand-mark{display:block;flex:0 0 auto;width:38px;height:38px;object-fit:contain;background:none;border:0;border-radius:0;box-shadow:none}
+.brand-label{display:flex;min-width:0;flex-direction:column;justify-content:center}
+.brand-wordmark{display:block;width:112px;height:38px;object-fit:contain}
+.brand-label small{margin-top:-7px}
+.login-brand{display:flex;align-items:center;gap:12px;margin-bottom:17px}
+.login-brand .brand-mark{width:46px;height:46px}
+.login-brand .brand-wordmark{width:150px;height:50px}

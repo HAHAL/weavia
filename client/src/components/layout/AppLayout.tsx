@@ -49,7 +49,7 @@ export function AppLayout() {
   return <div className={`app-shell ${collapsed ? 'is-collapsed' : ''}`}>
     <a className="skip-link" href="#main">跳转到内容</a>
     <aside className="sidebar" aria-label="主导航">
-      <div className="brand"><span className="brand-mark">W</span>{!collapsed && <span>WEAVIA<small>AI Commerce Studio</small></span>}<button className="icon-btn sidebar-toggle" title={collapsed ? '展开侧栏' : '收起侧栏'} aria-label={collapsed ? '展开侧栏' : '收起侧栏'} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
+      <div className="brand"><img className="brand-mark" src="/brand/weavia-icon.png" alt="WEAVIA" />{!collapsed && <span className="brand-label"><img className="brand-wordmark" src="/brand/weavia-wordmark.png" alt="" /><small>AI Commerce Studio</small></span>}<button className="icon-btn sidebar-toggle" title={collapsed ? '展开侧栏' : '收起侧栏'} aria-label={collapsed ? '展开侧栏' : '收起侧栏'} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
       <nav className="nav-list" aria-label="工作区">
         <button type="button" className="nav-item nav-search" onClick={openSearch} aria-label="搜索商品或作品" title={collapsed ? '搜索' : undefined}><Search size={18} aria-hidden="true" />{!collapsed && <span>搜索</span>}</button>
         {!collapsed && <div className="nav-section-label">工作区</div>}
