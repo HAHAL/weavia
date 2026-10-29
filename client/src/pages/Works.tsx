@@ -4,6 +4,8 @@ import { GalleryHorizontal, Pencil } from 'lucide-react';
 import { Badge, Button, Card, Dialog, StatePanel } from '../components/ui';
 import { useApp } from '../stores/app';
 import { useAssetPreview } from '../hooks/useAssetPreview';
+import { apiConfig } from '../services/api';
+import { createLiveEditTask } from '../services/live';
 import type { Work } from '../types';
 
 function WorkThumb({ work }: { work: Work }) {
@@ -17,13 +19,16 @@ function WorkThumb({ work }: { work: Work }) {
 }
 
 export function Works() {
-  const { works, tasks, updateWork, notify } = useApp();
+  const { works, tasks, assets, updateWork, notify } = useApp();
   const [tab, setTab] = useState<'works' | 'tasks'>('works');
   const navigate = useNavigate();
   const [selected, setSelected] = useState<Work | null>(null);
   const [version, setVersion] = useState(0);
   const [prompt, setPrompt] = useState('');
+  const [saving, setSaving] = useState(false);
   const selectedVersion = selected?.versions[version];
+  const sourceAsset = selectedVersion?.assetId ? assets.find(item => item.id === selectedVersion.assetId) : undefined;
+  const canRegenerate = apiConfig.mode === 'live' && selected?.mode === 'image' && sourceAsset?.mime.startsWith('image/');
   const { url: selectedUrl } = useAssetPreview(selectedVersion?.assetId, selectedVersion?.dataUrl);
 
   function open(work: Work) {
@@ -32,8 +37,18 @@ export function Works() {
     setPrompt(work.versions.at(-1)?.prompt || '');
   }
 
-  function save() {
+  async function save() {
     if (!selected || !prompt.trim()) return;
+    if (canRegenerate && sourceAsset) {
+      setSaving(true);
+      try {
+        const taskId = await createLiveEditTask(prompt.trim(), 'wanx2.1-imageedit', sourceAsset, selected.id);
+        setSelected(null);
+        navigate('/create', { state: { taskId } });
+      } catch (cause) { notify(cause instanceof Error ? cause.message : '重新生成失败'); }
+      finally { setSaving(false); }
+      return;
+    }
     const base = selected.versions[version];
     const next: Work = {
       ...selected,
@@ -42,7 +57,7 @@ export function Works() {
     updateWork(next);
     setSelected(next);
     setVersion(next.versions.length - 1);
-    notify('作品新版本已保存');
+    notify('仅保存提示词：没有可用的上一版图片，未触发重新生成');
   }
 
   function review(status: 'approved' | 'changes_needed') {
@@ -93,7 +108,7 @@ export function Works() {
             <label className="field"><span>继续编辑提示词</span><textarea value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
             <div className="dialog-actions">
               <Button variant="secondary" onClick={() => { setSelected(null); navigate('/image-editing', { state: { workId: selected.id } }); }}><Pencil size={15} /> 打开编辑台</Button>
-              <Button disabled={!prompt.trim()} onClick={save}>保存新版本</Button>
+              <Button disabled={!prompt.trim() || saving} onClick={() => void save()}>{saving ? '提交中…' : canRegenerate ? '重新生成新版本' : '仅保存提示词'}</Button>
             </div>
           </div>
         </Dialog>

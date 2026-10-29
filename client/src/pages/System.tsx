@@ -44,31 +44,141 @@ export function AccountPage() {
   const [accountState, setAccountState] = useState<{ userId: string; available: number; reserved: number } | null>(null);
   useEffect(() => { const user = auth.user; if (!user) return; let active = true; apiRequest<{ available: number; reserved: number }>('/api/credits').then(data => { if (active) setAccountState({ userId: user.id, ...data }); }).catch(() => { /* keep the last known balance */ }); return () => { active = false; }; }, [auth.user]);
   const account = auth.user && accountState?.userId === auth.user.id ? accountState : null;
-  const [features, setFeatures] = useState<{ accountNo?: string; ossSync?: boolean; supportEmail?: string; supportUrl?: string } | null>(null);
+  const [featuresState, setFeaturesState] = useState<{ userId: string; data: { accountNo?: string; ossSync?: boolean; supportEmail?: string; supportUrl?: string } } | null>(null);
+  const userId = auth.user?.id;
+  const features = featuresState && featuresState.userId === userId ? featuresState.data : null;
   const [syncOn, setSyncOn] = useState(() => localStorage.getItem('weavia.sync.oss') === '1');
   const { health, check: recheckHealth } = useServiceHealth();
   useEffect(() => {
-    const user = auth.user;
-    if (!user) { setFeatures(null); return; }
+    if (!userId) return;
     let active = true;
-    apiRequest<{ accountNo?: string; ossSync?: boolean; supportEmail?: string; supportUrl?: string }>('/api/features').then(data => { if (active) setFeatures(data); }).catch(() => { /* 后端未提供时按未开通处理 */ });
+    apiRequest<{ accountNo?: string; ossSync?: boolean; supportEmail?: string; supportUrl?: string }>('/api/features').then(data => { if (active) setFeaturesState({ userId, data }); }).catch(() => { /* 后端未提供时按未开通处理 */ });
     return () => { active = false; };
-  }, [auth.user?.id]);
+  }, [userId]);
   return <div className="page account-page">
     <div className="page-header"><div><h1>账户与设置</h1><p>管理账户信息和客户端偏好。</p></div><Badge>{!auth.user ? '未登录' : health === 'ok' ? '服务已连接' : health === 'checking' ? '检测中' : '服务不可用'}</Badge></div>
     <div className="account-layout"><nav className="account-section-nav" aria-label="账户与设置分区">{(['account', 'app'] as const).map(group => <div className="account-nav-group" key={group}><h2>{group === 'account' ? '账户' : '应用设置'}</h2>{accountSections.filter(item => item.group === group).map(item => <button type="button" key={item.id} className={section === item.id ? 'selected' : ''} aria-current={section === item.id ? 'page' : undefined} onClick={() => select(item.id)}><item.icon size={17} aria-hidden="true" />{item.label}</button>)}</div>)}</nav>
     <section className="section-content" aria-label={active.label}>
       {section === 'overview' && (auth.user ? <><AvatarPicker /><Card className="settings-card"><h2>{health === 'down' ? '云端不可用' : '已连接云端'}</h2><p>{auth.user.email}</p><p className="muted">Credits 余额：{account ? account.available : '读取中…'}{account ? ` · 冻结 ${account.reserved}` : ''}</p><div className="header-actions"><Button onClick={() => select('credits')}>查看明细</Button><Button variant="secondary" onClick={() => void recheckHealth()}>重新检查</Button><Button variant="secondary" onClick={() => void auth.logout()}>退出登录</Button></div></Card><Card className="settings-card"><h2>账户 ID</h2><p className="muted">{features?.accountNo || auth.user.id}</p></Card><Card className="settings-card"><h2>帮助与反馈</h2>{features?.supportEmail ? <p className="muted">遇到问题可以发邮件：<a href={`mailto:${features.supportEmail}`}>{features.supportEmail}</a>，附上账户 ID {features.accountNo || ''} 与任务 ID 会更快定位。</p> : <p className="muted">如需支持，请联系运营人员并提供账户 ID {features?.accountNo || ''}。</p>}{features?.supportUrl ? <p className="muted"><a href={features.supportUrl} target="_blank" rel="noreferrer">打开帮助中心</a></p> : null}</Card><Card className="settings-card"><h2>云端同步（OSS）</h2>{features?.ossSync ? <><p className="muted">运营已为当前账户开通。开启后作品与素材会同步到云端对象存储。</p><label className="switch-row">启用同步 <input type="checkbox" checked={syncOn} onChange={event => { const next = event.target.checked; setSyncOn(next); localStorage.setItem('weavia.sync.oss', next ? '1' : '0'); }} /></label></> : <p className="muted">未开通：该功能需要运营在后台为当前账户开启，客户端无法自行激活。</p>}</Card></> : <><Card className="settings-card"><h2>访客工作区</h2><p>当前为演示模式，尚未连接真实账户。登录后可读取真实余额和任务。</p><div className="header-actions"><Button onClick={() => navigate('/login')}>登录</Button></div></Card><EmptyService title="尚无真实账户数据" detail="登录后这里会显示真实余额、任务和订单。" /></>)}
-      {section === 'subscription' && <><h2>会员套餐</h2><EmptyService title="会员信息待接入" detail="订阅状态、套餐权益和续费信息需要从服务端读取。" /></>}
+      {section === 'subscription' && <><h2>会员套餐</h2>{auth.user ? <MembershipSection key={auth.user.id} /> : <StatePanel type="empty" title="登录后查看会员套餐" />}</>}
       {section === 'credits' && <><h2>Credits 明细</h2>{auth.user ? <Card className="settings-card"><h2>当前余额</h2><p><b>{account ? account.available : '读取中…'}</b> Credits · 冻结 {account?.reserved ?? 0}</p><p className="muted">每次生成先预占，成功后确认扣费，失败自动释放。</p></Card> : <Card className="settings-card"><h2>登录后查看</h2><p>真实余额与流水以服务端账本为准。</p><Button onClick={() => navigate('/login')}>登录</Button></Card>}</>}
-      {section === 'orders' && <><h2>订单记录</h2><EmptyService title="暂无真实订单" detail="支付尚未接入，演示模式不会生成真实订单。" /></>}
-      {section === 'security' && <><h2>登录与安全</h2><Card className="settings-card"><h2>认证与设备</h2><p>登录、设备管理和安全设置需要服务端支持。</p></Card><Card className="settings-card"><h2>注销申请</h2><p>身份验证和注销申请接口接入后可在这里提交申请。</p><Button disabled>申请注销 · 待接入</Button></Card></>}
+      {section === 'orders' && <><h2>订单记录</h2><Card className="settings-card"><p>在线支付尚未接入，充值请联系运营。</p></Card></>}
+      {section === 'security' && <><h2>登录与安全</h2>{auth.user ? <SecuritySection key={auth.user.id} /> : <StatePanel type="empty" title="登录后管理会话与设备" />}</>}
       {section === 'storage' && <StorageSettings />}
       {section === 'settings' && <GeneralSettings />}
       {section === 'ai' && <CodexSettingsSection />}
       {section === 'diagnostics' && <DiagnosticsSection />}
     </section></div>
   </div>;
+}
+
+type Membership = { id: string; status: string; currentPeriodStart: string; currentPeriodEnd?: string | null; cancelAtPeriodEnd: boolean; plan: { id: string; code: string; name: string } };
+type SessionView = { id: string; deviceId: string; deviceName: string; platform: string; createdAt: string; lastActiveAt: string | null; revokedAt: string | null; revokedReason: string | null; current: boolean };
+type DeviceView = { deviceId: string; deviceName: string; platform: string; osVersion: string; appVersion: string; userId: string; createdAt: string; lastSeenAt: string; revokedAt?: string | null };
+type DeletionRequest = { id: string; userId: string; status: string; reason: string | null; requestedAt: string; reviewedAt: string | null; reviewReason: string | null };
+type RemoteData<T> = { loading: boolean; data: T | null; error: string };
+
+function useAccountData<T>(path: string) {
+  const [state, setState] = useState<RemoteData<T>>({ loading: true, data: null, error: '' });
+  useEffect(() => {
+    let active = true;
+    apiRequest<T>(path).then(data => { if (active) setState({ loading: false, data, error: '' }); })
+      .catch(cause => { if (active) setState({ loading: false, data: null, error: cause instanceof Error ? cause.message : '读取失败' }); });
+    return () => { active = false; };
+  }, [path]);
+  return [state, setState] as const;
+}
+
+function dateLabel(value: string | null | undefined) {
+  if (!value) return '未提供';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '未提供' : date.toLocaleString('zh-CN');
+}
+
+function membershipStatusLabel(status: string) {
+  return ({ active: '有效', trialing: '试用中', expired: '已到期', cancelled: '已取消' } as Record<string, string>)[status] || status;
+}
+
+function MembershipSection() {
+  const [state] = useAccountData<Membership | null>('/api/membership');
+  return <Card className="settings-card"><h2>当前套餐</h2>{state.loading ? <StatePanel type="loading" title="正在读取会员信息" /> : state.error ? <StatePanel type="error" title="会员信息读取失败" detail={state.error} /> : !state.data ? <StatePanel type="empty" title="暂无套餐，充值请联系运营" /> : <><p><strong>{state.data.plan.name}</strong> · {membershipStatusLabel(state.data.status)}</p><p className="muted">到期时间：{dateLabel(state.data.currentPeriodEnd)}</p>{state.data.cancelAtPeriodEnd && <p className="muted">当前周期结束后不再续期</p>}</>}</Card>;
+}
+
+function SecuritySection() {
+  return <><SessionsCard /><DevicesCard /><DeletionCard /></>;
+}
+
+function SessionsCard() {
+  const [state, setState] = useAccountData<SessionView[]>('/api/auth/sessions');
+  const [busyId, setBusyId] = useState('');
+  const [actionError, setActionError] = useState('');
+  const notify = useApp(value => value.notify);
+  const logout = useAuth(value => value.logout);
+
+  async function revoke(session: SessionView) {
+    setBusyId(session.id); setActionError('');
+    try {
+      await apiRequest(`/api/auth/sessions/${encodeURIComponent(session.id)}`, { method: 'DELETE' });
+      if (session.current) { await logout(); return; }
+      setState(current => ({ ...current, data: current.data?.map(item => item.id === session.id ? { ...item, revokedAt: new Date().toISOString() } : item) || [] }));
+      notify('会话已撤销');
+    } catch (cause) { setActionError(cause instanceof Error ? cause.message : '撤销会话失败'); }
+    finally { setBusyId(''); }
+  }
+
+  async function revokeAll() {
+    if (!window.confirm('确定撤销全部会话吗？当前设备也将退出登录。')) return;
+    setBusyId('all'); setActionError('');
+    try {
+      await apiRequest('/api/auth/sessions/revoke-all', { method: 'POST' });
+      await logout();
+    } catch (cause) { setActionError(cause instanceof Error ? cause.message : '撤销全部会话失败'); }
+    finally { setBusyId(''); }
+  }
+
+  return <Card className="settings-card"><div className="storage-heading"><h2>登录会话</h2><Button variant="secondary" disabled={state.loading || Boolean(state.error) || Boolean(busyId) || !state.data?.some(item => !item.revokedAt)} onClick={() => void revokeAll()}>撤销全部会话</Button></div>{state.loading ? <StatePanel type="loading" title="正在读取登录会话" /> : state.error ? <StatePanel type="error" title="会话读取失败" detail={state.error} /> : !state.data?.length ? <StatePanel type="empty" title="暂无登录会话" /> : <div className="list-stack">{state.data.map(session => <div className="task-row" key={session.id}><div className="task-main"><div><strong>{session.deviceName || session.platform || '未知设备'}{session.current ? ' · 当前会话' : ''}</strong><p className="muted">创建：{dateLabel(session.createdAt)}</p><p className="muted">最近活动：{dateLabel(session.lastActiveAt)}</p></div><Button variant="secondary" disabled={Boolean(busyId) || Boolean(session.revokedAt)} onClick={() => void revoke(session)}>{session.revokedAt ? '已撤销' : busyId === session.id ? '撤销中…' : '撤销'}</Button></div></div>)}</div>}{actionError && <p className="form-error" role="alert">{actionError}</p>}</Card>;
+}
+
+function DevicesCard() {
+  const [state, setState] = useAccountData<DeviceView[]>('/api/auth/devices');
+  const [busyId, setBusyId] = useState('');
+  const [actionError, setActionError] = useState('');
+  const notify = useApp(value => value.notify);
+
+  async function revoke(device: DeviceView) {
+    setBusyId(device.deviceId); setActionError('');
+    try {
+      await apiRequest(`/api/auth/devices/${encodeURIComponent(device.deviceId)}`, { method: 'DELETE' });
+      setState(current => ({ ...current, data: current.data?.map(item => item.deviceId === device.deviceId ? { ...item, revokedAt: new Date().toISOString() } : item) || [] }));
+      notify('设备已撤销');
+    } catch (cause) { setActionError(cause instanceof Error ? cause.message : '撤销设备失败'); }
+    finally { setBusyId(''); }
+  }
+
+  return <Card className="settings-card"><h2>已登录设备</h2>{state.loading ? <StatePanel type="loading" title="正在读取设备" /> : state.error ? <StatePanel type="error" title="设备读取失败" detail={state.error} /> : !state.data?.length ? <StatePanel type="empty" title="暂无设备" /> : <div className="list-stack">{state.data.map(device => <div className="task-row" key={device.deviceId}><div className="task-main"><div><strong>{device.deviceName || device.platform || '未知设备'}</strong><p className="muted">{device.platform} · 创建：{dateLabel(device.createdAt)}</p><p className="muted">最近活动：{dateLabel(device.lastSeenAt)}</p></div><Button variant="secondary" disabled={Boolean(busyId) || Boolean(device.revokedAt)} onClick={() => void revoke(device)}>{device.revokedAt ? '已撤销' : busyId === device.deviceId ? '撤销中…' : '撤销'}</Button></div></div>)}</div>}{actionError && <p className="form-error" role="alert">{actionError}</p>}</Card>;
+}
+
+function DeletionCard() {
+  const [state, setState] = useAccountData<DeletionRequest | null>('/api/me/deletion-requests/current');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const notify = useApp(value => value.notify);
+
+  async function submit() {
+    const value = reason.trim();
+    if (!value || !window.confirm('确定提交账户注销申请吗？提交后需等待运营审核。')) return;
+    setBusy(true); setActionError('');
+    try {
+      const request = await apiRequest<DeletionRequest>('/api/me/deletion-requests', { method: 'POST', body: JSON.stringify({ reason: value }) });
+      setState({ loading: false, data: request, error: '' });
+      notify('注销申请已提交');
+    } catch (cause) { setActionError(cause instanceof Error ? cause.message : '提交申请失败'); }
+    finally { setBusy(false); }
+  }
+
+  const status = state.data?.status === 'deletion_requested' ? '待审核' : state.data?.status === 'approved' ? '已通过' : state.data?.status === 'rejected' ? '已拒绝' : state.data?.status;
+  return <Card className="settings-card"><h2>注销申请</h2>{state.loading ? <StatePanel type="loading" title="正在读取申请状态" /> : state.error ? <StatePanel type="error" title="申请状态读取失败" detail={state.error} /> : state.data ? <><p>状态：<strong>{status}</strong></p><p className="muted">提交时间：{dateLabel(state.data.requestedAt)}</p>{state.data.reviewReason && <p className="muted">审核说明：{state.data.reviewReason}</p>}</> : <><p className="muted">暂无注销申请。提交后将进入人工审核。</p><label className="field"><span>申请理由</span><textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} placeholder="请填写注销原因" /></label><div className="header-actions"><Button disabled={busy || !reason.trim()} onClick={() => void submit()}>{busy ? '提交中…' : '提交注销申请'}</Button></div></>}{actionError && <p className="form-error" role="alert">{actionError}</p>}</Card>;
 }
 
 function StorageSettings() {

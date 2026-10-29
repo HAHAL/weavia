@@ -92,6 +92,7 @@ export function HomePage() {
   const [paramsOpen, setParamsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [submittingPlan, setSubmittingPlan] = useState(false);
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [productId, setProductId] = useState(routeState?.productId || '');
   const [purpose, setPurpose] = useState<CreativeBrief['purpose']>(routeState?.mode === 'video' ? 'video' : 'hero');
@@ -292,29 +293,40 @@ export function HomePage() {
     if (!channel.trim() || !market.trim() || !language.trim()) { notify('请填写渠道、市场和输出语言。'); return; }
     const product: ProductBrief | undefined = selectedProduct ? { id: selectedProduct.id, name: selectedProduct.name, sku: selectedProduct.sku, description: selectedProduct.description, verifiedFacts: selectedProduct.verifiedFacts || '', forbiddenClaims: selectedProduct.forbiddenClaims || '', sourceAssetId: selectedProduct.sourceAssetId || '' } : undefined;
     let firstTaskId = '';
-    for (const [index, item] of items.entries()) {
-      try {
-        const quote = await createQuote({
-          model: planModel.id,
-          mode: selectedReferences.length ? 'image_to_image' : 'text_to_image',
-          prompt: item.prompt.trim(),
-          size: item.size,
-          numberOfImages: 1,
-          referenceAssetIds: selectedReferences,
-        });
-        const creativePurpose: CreativeBrief['purpose'] = item.purpose === 'scene' || item.purpose === 'usage' ? 'scene' : item.purpose === 'selling_point' ? 'ad' : 'hero';
-        const creative: CreativeBrief = { purpose: creativePurpose, channel: channel.trim(), market: market.trim(), language: language.trim(), audience: audience.trim(), product: product ? { localId: product.id, name: product.name, sku: product.sku, description: product.description, verifiedFacts: product.verifiedFacts, forbiddenClaims: product.forbiddenClaims } : undefined };
-        const taskId = await createTask({ prompt: item.prompt.trim(), mode: 'image', modelId: planModel.id, params: { ratio: item.ratio, resolution: '1K', count: 1, size: item.size, promptExtend: true }, quoteId: quote.id, product, creative, referenceAssetIds: selectedReferences });
-        if (!firstTaskId) firstTaskId = taskId;
-      } catch (cause) {
-        notify(`第 ${index + 1} 张提交失败：${cause instanceof Error ? cause.message : '未知错误'}${firstTaskId ? '；前面的任务已提交，请在任务中心查看' : ''}`);
-        if (firstTaskId) setPlanOpen(false);
-        return;
+    setSubmittingPlan(true);
+    try {
+      for (const [index, item] of items.entries()) {
+        try {
+          const quote = await createQuote({
+            model: planModel.id,
+            mode: selectedReferences.length ? 'image_to_image' : 'text_to_image',
+            prompt: item.prompt.trim(),
+            size: item.size,
+            numberOfImages: 1,
+            referenceAssetIds: selectedReferences,
+          });
+          const creativePurpose: CreativeBrief['purpose'] = item.purpose === 'scene' || item.purpose === 'usage' ? 'scene' : item.purpose === 'selling_point' ? 'ad' : 'hero';
+          const creative: CreativeBrief = { purpose: creativePurpose, channel: channel.trim(), market: market.trim(), language: language.trim(), audience: audience.trim(), product: product ? { localId: product.id, name: product.name, sku: product.sku, description: product.description, verifiedFacts: product.verifiedFacts, forbiddenClaims: product.forbiddenClaims } : undefined };
+          const taskId = await createTask({ prompt: item.prompt.trim(), mode: 'image', modelId: planModel.id, params: { ratio: item.ratio, resolution: '1K', count: 1, size: item.size, promptExtend: true }, quoteId: quote.id, product, creative, referenceAssetIds: selectedReferences });
+          if (!firstTaskId) firstTaskId = taskId;
+        } catch (cause) {
+          notify(`第 ${index + 1} 张提交失败：${cause instanceof Error ? cause.message : '未知错误'}${firstTaskId ? '；前面的任务已提交，请在任务中心查看' : ''}`);
+          if (firstTaskId) setPlanOpen(false);
+          return;
+        }
       }
+      setPlanOpen(false);
+      notify(`已提交 ${items.length} 个任务`);
+      navigate('/create', { state: { taskId: firstTaskId } });
+    } finally {
+      setSubmittingPlan(false);
     }
-    setPlanOpen(false);
-    notify(`已提交 ${items.length} 个任务`);
-    navigate('/create', { state: { taskId: firstTaskId } });
+  }
+
+  function renderPlanStep(step: 1 | 2 | 3, label: string) {
+    const currentStep = submittingPlan ? 3 : planOpen ? 2 : 1;
+    const phase = step === currentStep ? 'current' : step < currentStep ? 'complete' : 'pending';
+    return <li className={`home-task-step home-task-step-${phase}`} aria-current={phase === 'current' ? 'step' : undefined} style={phase === 'complete' ? { color: 'var(--muted)' } : undefined}><span className="home-task-step-number" style={phase === 'complete' ? { background: 'var(--subtle)', color: 'var(--success)' } : undefined}>{phase === 'complete' ? <Check size={14} aria-hidden="true" /> : step}</span>{label}</li>;
   }
 
   return <div className="page home-page">
@@ -322,9 +334,9 @@ export function HomePage() {
       <div className="home-hero-heading"><span className="home-eyebrow">WEAVIA AI Commerce Studio</span><h1>今天，为商品创作什么？</h1><p>描述你的想法，直接生成。结果会留在这次创作会话里。</p></div>
       <div className="home-task-start">
         <ol className="home-task-steps" aria-label="创作流程">
-          <li className="home-task-step home-task-step-current" aria-current="step"><span className="home-task-step-number">1</span>选任务与商品</li>
-          <li className="home-task-step home-task-step-pending" title="即将开放"><span className="home-task-step-number">2</span>产出计划</li>
-          <li className="home-task-step home-task-step-pending" title="即将开放"><span className="home-task-step-number">3</span>确认并生成</li>
+          {renderPlanStep(1, '选任务与商品')}
+          {renderPlanStep(2, '产出计划')}
+          {renderPlanStep(3, '确认并生成')}
         </ol>
         <div className="home-task-grid" aria-label="选择创作任务">
           <button type="button" className="home-task-card" onClick={() => setPlanOpen(true)}><span className="home-task-icon"><LayoutGrid size={20} aria-hidden="true" /></span><strong>商品套图</strong><span className="home-task-description">3/5/7 张成套，主图+场景+卖点</span></button>
