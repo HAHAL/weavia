@@ -3,6 +3,7 @@ import { ArrowUp, Boxes, Check, ChevronDown, Crown, Image as ImageIcon, LayoutGr
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Card, Dialog, Field } from '../components/ui';
 import { AssetPicker } from '../components/AssetPicker';
+import { OutputPlan } from '../components/OutputPlan';
 import { useApp } from '../stores/app';
 import { useAuth } from '../stores/auth';
 import { apiConfig } from '../services/api';
@@ -14,6 +15,7 @@ import { loadPlatformModels } from '../services/models';
 import { loadSkills, runSkill, type Skill } from '../services/recipes';
 import { trackLiveTask } from '../services/live';
 import { createQuote, quoteExpiryLabel, quoteValid, type Quote } from '../services/quote';
+import type { PlanItem } from '../services/plan';
 
 const scenes = [
   { title: '商品主图', detail: '突出商品外观，适合上架展示', prompt: '为这件商品制作清晰、准确的电商主图，保持商品外观和文字真实。', mode: 'image' as const, icon: ImageIcon },
@@ -62,7 +64,7 @@ export function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const routeState = location.state as { retryPrompt?: string; prompt?: string; productId?: string; mode?: Mode; channel?: string; market?: string; language?: string; audience?: string; videoRatio?: string; videoDuration?: number } | null;
-  const { tasks, works, products, assets } = useApp();
+  const { tasks, works, products, assets, notify } = useApp();
   const user = useAuth(state => state.user);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelRef = useRef<HTMLDetailsElement>(null);
@@ -89,6 +91,7 @@ export function HomePage() {
   const [referenceStrength, setReferenceStrength] = useState(0.65);
   const [paramsOpen, setParamsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [productId, setProductId] = useState(routeState?.productId || '');
   const [purpose, setPurpose] = useState<CreativeBrief['purpose']>(routeState?.mode === 'video' ? 'video' : 'hero');
@@ -112,6 +115,8 @@ export function HomePage() {
   const showcaseImages = showcase.filter(item => item.kind === 'image');
   const showcaseWorks = showcase.filter(item => item.kind === 'work');
   const selectedModel = models.find(item => item.id === modelId) || models.find(item => item.available !== false) || models[0];
+  const planModels = modelOptions.filter(item => item.modes.includes('image') && (!item.capabilities || item.capabilities.includes(selectedReferences.length ? 'image_to_image' : 'text_to_image')));
+  const planModel = planModels.find(item => item.id === modelId && item.available !== false) || planModels.find(item => item.available !== false);
   const resolutionMultiplier = resolution === '4K' ? 4 : resolution === '2K' ? 2 : 1;
   const estimatedCredits = mode === 'video'
     ? (selectedModel?.creditBase || 8)
@@ -281,6 +286,37 @@ export function HomePage() {
     }
   }
 
+  async function submitPlan(items: PlanItem[]) {
+    if (!planModel) { notify('当前没有可用图片模型'); return; }
+    if (selectedProduct && (!selectedProduct.sourceAssetId || !assets.some(item => item.id === selectedProduct.sourceAssetId))) { notify('商品图片创作需要依据图，请先到商品库补充。'); return; }
+    if (!channel.trim() || !market.trim() || !language.trim()) { notify('请填写渠道、市场和输出语言。'); return; }
+    const product: ProductBrief | undefined = selectedProduct ? { id: selectedProduct.id, name: selectedProduct.name, sku: selectedProduct.sku, description: selectedProduct.description, verifiedFacts: selectedProduct.verifiedFacts || '', forbiddenClaims: selectedProduct.forbiddenClaims || '', sourceAssetId: selectedProduct.sourceAssetId || '' } : undefined;
+    let firstTaskId = '';
+    for (const [index, item] of items.entries()) {
+      try {
+        const quote = await createQuote({
+          model: planModel.id,
+          mode: selectedReferences.length ? 'image_to_image' : 'text_to_image',
+          prompt: item.prompt.trim(),
+          size: item.size,
+          numberOfImages: 1,
+          referenceAssetIds: selectedReferences,
+        });
+        const creativePurpose: CreativeBrief['purpose'] = item.purpose === 'scene' || item.purpose === 'usage' ? 'scene' : item.purpose === 'selling_point' ? 'ad' : 'hero';
+        const creative: CreativeBrief = { purpose: creativePurpose, channel: channel.trim(), market: market.trim(), language: language.trim(), audience: audience.trim(), product: product ? { localId: product.id, name: product.name, sku: product.sku, description: product.description, verifiedFacts: product.verifiedFacts, forbiddenClaims: product.forbiddenClaims } : undefined };
+        const taskId = await createTask({ prompt: item.prompt.trim(), mode: 'image', modelId: planModel.id, params: { ratio: item.ratio, resolution: '1K', count: 1, size: item.size, promptExtend: true }, quoteId: quote.id, product, creative, referenceAssetIds: selectedReferences });
+        if (!firstTaskId) firstTaskId = taskId;
+      } catch (cause) {
+        notify(`第 ${index + 1} 张提交失败：${cause instanceof Error ? cause.message : '未知错误'}${firstTaskId ? '；前面的任务已提交，请在任务中心查看' : ''}`);
+        if (firstTaskId) setPlanOpen(false);
+        return;
+      }
+    }
+    setPlanOpen(false);
+    notify(`已提交 ${items.length} 个任务`);
+    navigate('/create', { state: { taskId: firstTaskId } });
+  }
+
   return <div className="page home-page">
     <section className="home-hero">
       <div className="home-hero-heading"><span className="home-eyebrow">WEAVIA AI Commerce Studio</span><h1>今天，为商品创作什么？</h1><p>描述你的想法，直接生成。结果会留在这次创作会话里。</p></div>
@@ -291,7 +327,7 @@ export function HomePage() {
           <li className="home-task-step home-task-step-pending" title="即将开放"><span className="home-task-step-number">3</span>确认并生成</li>
         </ol>
         <div className="home-task-grid" aria-label="选择创作任务">
-          <button type="button" className="home-task-card" onClick={() => { setPurpose('hero'); setCount(3); setPrompt('为这件商品制作一套电商套图：主图、场景图、卖点图，保持商品外观与文字真实。'); promptRef.current?.focus(); }}><span className="home-task-icon"><LayoutGrid size={20} aria-hidden="true" /></span><strong>商品套图</strong><span className="home-task-description">3/5/7 张成套，主图+场景+卖点</span></button>
+          <button type="button" className="home-task-card" onClick={() => setPlanOpen(true)}><span className="home-task-icon"><LayoutGrid size={20} aria-hidden="true" /></span><strong>商品套图</strong><span className="home-task-description">3/5/7 张成套，主图+场景+卖点</span></button>
           <button type="button" className="home-task-card" onClick={() => navigate('/image-editing')}><span className="home-task-icon"><WandSparkles size={20} aria-hidden="true" /></span><strong>商品精修</strong><span className="home-task-description">去瑕疵、换背景，保留商品原貌</span></button>
           <button type="button" className="home-task-card" onClick={() => { setPurpose('ad'); setPrompt('为这件商品制作投放用宣传图，突出卖点，画面文字需可核对。'); promptRef.current?.focus(); }}><span className="home-task-icon"><Megaphone size={20} aria-hidden="true" /></span><strong>广告宣传图</strong><span className="home-task-description">渠道尺寸变体，文案可改</span></button>
         </div>
@@ -310,6 +346,7 @@ export function HomePage() {
     {showcaseWorks.length > 0 && <section className="home-section"><div className="section-heading"><div><h2>示例作品</h2><p>后台发布的完整案例，点击查看提示词</p></div><span className="badge">示例</span></div><div className="showcase-grid">{showcaseWorks.map(item => <button type="button" key={item.id} className="showcase-card" aria-label={`使用示例：${item.title}`} onClick={() => applyShowcase(item)}><img src={item.imageUrl} alt={item.title} loading="lazy" /><span className="showcase-overlay"><strong>{item.title}</strong><small>{item.tag}</small></span></button>)}</div></section>}
     <section className="home-section"><div className="section-heading"><div><h2>继续你的工作</h2><p>查看最近的任务与作品</p></div></div><div className="home-recent-grid"><Card className="home-recent"><strong>最近任务</strong>{latestTask ? <><p>{latestTask.title}</p><small>{latestTask.status === 'Succeeded' ? '已完成' : latestTask.status === 'Running' ? '进行中' : latestTask.status === 'Queued' ? '排队中' : latestTask.status === 'Failed' ? '失败' : '已取消'} · {latestTask.source === 'mock' ? '演示任务' : '云端任务'}</small></> : <p>还没有任务</p>}<Button variant="secondary" onClick={() => navigate('/tasks')}>查看任务</Button></Card><Card className="home-recent"><strong>作品中心</strong><p>{works.length ? `已有 ${works.length} 件作品` : '还没有作品'}</p><small>查看版本与继续编辑</small><Button variant="secondary" onClick={() => navigate('/works')}>查看作品</Button></Card></div></section>
 
+    {planOpen && <OutputPlan modelId={planModel?.id || ''} referenceAssetIds={selectedReferences} onClose={() => setPlanOpen(false)} onConfirm={submitPlan} />}
     {agentOpen && <AgentDialog skills={skills} loading={skillsLoading} onClose={() => setAgentOpen(false)} onDone={taskId => { setAgentOpen(false); navigate('/create', { state: { taskId } }); }} />}
   </div>;
 }
