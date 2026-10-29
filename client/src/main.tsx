@@ -10,6 +10,7 @@ import { Assets } from './pages/Assets';
 import { Skills } from './pages/Skills';
 import { Tasks } from './pages/Tasks';
 import { Works } from './pages/Works';
+import { DeliveryPage } from './pages/Delivery';
 import { AccountPage } from './pages/System';
 import { Applications } from './pages/Applications';
 import { ImageEditingPage } from './pages/ImageEditing';
@@ -48,6 +49,7 @@ root.render(
               <Route path="skills" element={<Skills />} />
               <Route path="tasks" element={<Tasks />} />
               <Route path="works" element={<Works />} />
+              <Route path="delivery" element={<DeliveryPage />} />
               <Route path="workflow" element={<React.Suspense fallback={<div className="page" role="status">正在加载工作流画布…</div>}><WorkflowPage /></React.Suspense>} />
               <Route path="settings" element={<Navigate to="/account?section=settings" replace />} />
               <Route path="diagnostics" element={<Navigate to="/account?section=diagnostics" replace />} />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Home, Package, Images, GalleryHorizontal, ListTodo, WandSparkles, Clapperboard, Workflow, Boxes, LayoutGrid, PanelLeftClose, PanelLeftOpen, Search, ChevronDown } from 'lucide-react';
+import { Home, Package, Images, GalleryHorizontal, ListTodo, WandSparkles, Clapperboard, Workflow, Boxes, LayoutGrid, PanelLeftClose, PanelLeftOpen, Search, ChevronDown, FileArchive } from 'lucide-react';
 import { useApp } from '../../stores/app';
 import { Avatar } from '../Avatar';
 import { apiConfig, apiRequest } from '../../services/api';
@@ -12,6 +12,7 @@ import { Dialog } from '../ui';
 const primaryNav = [
   { to: '/', label: '首页', icon: Home },
   { to: '/products', label: '商品', icon: Package },
+  { to: '/delivery', label: '交付', icon: FileArchive },
   { to: '/works', label: '作品', icon: GalleryHorizontal },
   { to: '/tasks', label: '任务', icon: ListTodo },
 ];
