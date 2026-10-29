@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { apiRequest, setApiSession } from '../services/api';
 import { enterAccountScope, leaveAccountScope } from './account';
 
-export type AuthUser = { id: string; email: string; name?: string };
+export type AuthUser = { id: string; email: string; name?: string; avatarUrl?: string };
 type LoginResponse = { accessToken: string; refreshToken: string; expiresAt: string; user: AuthUser };
 type AuthStatus = 'anonymous' | 'loading' | 'authenticated';
 type SavedSession = { token: string; refreshToken?: string; user: AuthUser; rememberedUntil?: string };

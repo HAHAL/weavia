@@ -141,3 +141,15 @@ func (s *Server) reviewDeletion(w http.ResponseWriter, r *http.Request, decision
 	err := s.account().ReviewDeletion(r.Context(), currentUser(r).ID, chi.URLParam(r, "requestID"), decision, b.Reason, clientIP(r))
 	respond(w, map[string]bool{"reviewed": err == nil}, err)
 }
+
+func (s *Server) updateAvatar(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		AvatarID string `json:"avatarId"`
+	}
+	if err := decode(r, &input); err != nil {
+		writeError(w, err)
+		return
+	}
+	user, err := s.Auth.SetAvatar(r.Context(), currentUser(r).ID, input.AvatarID)
+	respond(w, user, err)
+}

@@ -70,6 +70,7 @@ type AuthService interface {
 	Refresh(context.Context, string) (auth.SessionResult, error)
 	Logout(context.Context, string) error
 	Me(context.Context, string) (auth.User, error)
+	SetAvatar(context.Context, string, string) (auth.User, error)
 	ListDevices(context.Context, string) ([]auth.Device, error)
 	RevokeDevice(context.Context, string, string) error
 	HasPermission(context.Context, string, string) (bool, error)
@@ -116,6 +117,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/auth/sessions/revoke-all", s.revokeAllSessions)
 			r.Post("/me/deletion-requests", s.requestDeletion)
 			r.Get("/me/deletion-requests/current", s.currentDeletion)
+			r.Put("/me/avatar", s.updateAvatar)
 			r.Get("/membership", s.membership)
 			r.Get("/credits", s.credits)
 			r.Get("/credits/transactions", s.creditTransactions)

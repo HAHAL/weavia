@@ -1,41 +1,74 @@
-import { useRef, useState } from 'react';
-import { ImagePlus, Shuffle } from 'lucide-react';
+import { useState } from 'react';
+import { Shuffle } from 'lucide-react';
 import { Button, Dialog } from './ui';
 import { useApp } from '../stores/app';
 import { useAuth } from '../stores/auth';
-import { avatarPresets, defaultAvatarIndex } from '../data/avatarPresets';
+import { apiRequest, isLiveMode } from '../services/api';
+import { avatarIdForUser, avatarPresets, normalizeAvatarId } from '../data/avatarPresets';
 
 export function AvatarPicker() {
   const { user } = useAuth();
+  const setUser = useAuth.setState;
   const { avatars, setAvatar, notify } = useApp();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   if (!user) return null;
-  const saved = avatars[user!.id];
-  const current = saved?.type === 'custom' ? null : avatarPresets[saved ? Number(saved.value) : defaultAvatarIndex(user!.id)];
-  async function upload(file: File | undefined) {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { notify('请选择图片文件'); return; }
-    if (file.size > 10 * 1024 * 1024) { notify('头像不能超过 10 MB'); return; }
+
+  const localChoice = avatars[user.id];
+  const selectedId = normalizeAvatarId(user.avatarUrl)
+    || normalizeAvatarId(localChoice?.type === 'system' ? localChoice.value : undefined)
+    || avatarIdForUser(user.id);
+  const current = avatarPresets.find(preset => preset.id === selectedId) || avatarPresets[0];
+
+  async function chooseAvatar(avatarId: string) {
+    if (!user || busy) return;
     setBusy(true);
     try {
-      const image = await createImageBitmap(file);
-      const size = Math.min(image.width, image.height);
-      const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('无法处理图片');
-      context.drawImage(image, (image.width - size) / 2, (image.height - size) / 2, size, size, 0, 0, 256, 256);
-      setAvatar(user!.id, { type: 'custom', value: canvas.toDataURL('image/webp', 0.86) });
-      notify('头像已更新'); setOpen(false);
-    } catch (error) { notify(error instanceof Error ? error.message : '头像处理失败'); }
-    finally { setBusy(false); }
+      if (isLiveMode()) {
+        await apiRequest<{ avatarUrl: string }>('/api/me/avatar', {
+          method: 'PUT',
+          body: JSON.stringify({ avatarId }),
+        });
+      }
+      setUser(state => state.user?.id === user.id
+        ? { user: { ...state.user, avatarUrl: avatarId } }
+        : {});
+      setAvatar(user.id, { type: 'system', value: avatarId });
+      notify('头像已更新，并同步到你的账户');
+      setOpen(false);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '头像保存失败，请重试');
+    } finally {
+      setBusy(false);
+    }
   }
+
   return <>
     <div className="avatar-picker-card">
-      <div className="avatar-current"><span className="user-avatar avatar-large">{current ? <img src={current.src} alt="" /> : saved ? <img src={saved.value} alt="" /> : null}</span><div><h2>头像</h2><p className="muted">系统默认使用卡通动漫头像，也可以上传自己的图片。</p></div></div>
-      <div className="header-actions"><Button variant="secondary" onClick={() => setOpen(true)}>更换头像</Button><Button variant="ghost" onClick={() => { setAvatar(user!.id, { type: 'system', value: String(defaultAvatarIndex(user!.id)) }); notify('已恢复系统默认头像'); }}><Shuffle size={14} /> 默认头像</Button></div>
+      <div className="avatar-current">
+        <span className="user-avatar avatar-large"><img src={current.src} alt="" /></span>
+        <div><h2>账户头像</h2><p className="muted">选择后会同步到后台账户资料。</p></div>
+      </div>
+      <div className="header-actions">
+        <Button variant="secondary" disabled={busy} onClick={() => setOpen(true)}>选择吉祥物</Button>
+        <Button variant="ghost" disabled={busy || selectedId === avatarIdForUser(user.id)} onClick={() => void chooseAvatar(avatarIdForUser(user.id))}><Shuffle size={14} /> 恢复默认</Button>
+      </div>
     </div>
-    {open && <Dialog title="选择头像" onClose={() => setOpen(false)} wide><div className="dialog-content"><p className="muted">选择系统卡通动漫头像，或上传自己的图片。</p><div className="avatar-preset-grid">{avatarPresets.map((preset, index) => <button type="button" key={preset.id} className={`avatar-preset ${saved?.type === 'system' && Number(saved.value) === index ? 'selected' : ''}`} onClick={() => { setAvatar(user!.id, { type: 'system', value: String(index) }); notify('头像已更新'); setOpen(false); }}><img src={preset.src} alt={preset.name} /><span>{preset.name}</span></button>)}</div><div className="dialog-actions"><input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={event => void upload(event.target.files?.[0])} /><Button variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}><ImagePlus size={15} /> {busy ? '处理中…' : '上传图片'}</Button><Button variant="ghost" onClick={() => setOpen(false)}>取消</Button></div></div></Dialog>}
+    {open && <Dialog title="选择账户头像" onClose={() => !busy && setOpen(false)} wide>
+      <div className="dialog-content">
+        <p className="muted">头像会保存到账户；后台用户中心也会显示相同形象。</p>
+        <div className="avatar-preset-grid">
+          {avatarPresets.map(preset => <button type="button" key={preset.id}
+            className={`avatar-preset ${selectedId === preset.id ? 'selected' : ''}`}
+            aria-pressed={selectedId === preset.id}
+            disabled={busy}
+            onClick={() => void chooseAvatar(preset.id)}>
+            <img src={preset.src} alt="" /><span>{preset.name}</span>
+          </button>)}
+        </div>
+        {busy && <p className="muted" role="status">正在保存账户头像…</p>}
+        <div className="dialog-actions"><Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>取消</Button></div>
+      </div>
+    </Dialog>}
   </>;
 }

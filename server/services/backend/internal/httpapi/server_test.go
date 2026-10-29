@@ -48,6 +48,9 @@ func (a *testAuth) Me(_ context.Context, value string) (auth.User, error) {
 	}
 	return auth.User{ID: auth.DemoUserID, Email: "demo@weavia.local", Status: "active"}, nil
 }
+func (a *testAuth) SetAvatar(_ context.Context, _ string, avatarID string) (auth.User, error) {
+	return auth.User{ID: auth.DemoUserID, Email: "demo@weavia.local", Status: "active", AvatarURL: avatarID}, nil
+}
 func (a *testAuth) ListDevices(context.Context, string) ([]auth.Device, error) {
 	return []auth.Device{}, nil
 }
