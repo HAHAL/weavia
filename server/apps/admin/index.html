@@ -4,13 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WEAVIA 运营后台</title>
-  <link rel="icon" type="image/png" href="./brand/weavia-icon.png" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <section id="loginView" class="login-shell">
     <form id="loginForm" class="login-card">
-      <div class="login-brand"><img class="brand-mark" src="./brand/weavia-icon.png" alt="WEAVIA" /><img class="brand-wordmark" src="./brand/weavia-wordmark.png" alt="" /></div>
       <span class="eyebrow">WEAVIA ADMIN</span>
       <h1>运营管理后台</h1>
       <p>用户、商业、AI、任务与客户端内容，在一个地方管理。</p>
@@ -24,7 +22,7 @@
 
   <div id="adminView" class="admin-shell" hidden>
     <aside class="sidebar">
-      <div class="brand"><img class="brand-mark" src="./brand/weavia-icon.png" alt="WEAVIA" /><span class="brand-label"><img class="brand-wordmark" src="./brand/weavia-wordmark.png" alt="" /><small>ADMIN CONSOLE</small></span></div>
+      <div class="brand"><span class="brand-mark">W</span><span>WEAVIA<small>ADMIN CONSOLE</small></span></div>
       <nav id="nav" class="nav" aria-label="后台导航"></nav>
       <div class="sidebar-foot">
         <span class="avatar" id="avatar">A</span>
@@ -35,7 +33,7 @@
     <div class="workspace">
       <header class="topbar">
         <div><span class="eyebrow" id="pageKicker">OVERVIEW</span><span class="topbar-note">WEAVIA 运营工作区</span></div>
-        <div class="topbar-actions"><span class="status-dot"></span><span id="serviceStatus">服务检查中</span><button id="refresh" class="ghost" type="button">刷新</button></div>
+        <div class="topbar-actions"><span class="status-dot" id="serviceDot"></span><button id="serviceStatus" class="status-link" type="button" title="查看运行与排障">服务检查中</button><button id="refresh" class="ghost" type="button">刷新</button></div>
       </header>
       <main id="content" class="content" aria-live="polite"></main>
     </div>
@@ -43,6 +41,6 @@
 
   <dialog id="modal" class="modal"></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

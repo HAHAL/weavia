@@ -1,0 +1,62 @@
+name: Build WEAVIA Windows client
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/client-experience
+    paths:
+      - '.github/workflows/build-windows-client.yml'
+      - 'client/src/**'
+      - 'client/public/brand/**'
+      - 'client/src-tauri/**'
+      - 'client/package.json'
+      - 'client/pnpm-lock.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: client/pnpm-lock.yaml
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      - name: Install client dependencies
+        working-directory: client
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows installer
+        working-directory: client
+        env:
+          VITE_API_MODE: live
+          VITE_API_BASE_URL: http://8.160.190.182:8080
+          VITE_BUILD_TAG: windows-x64-2026-10-27-a
+        run: pnpm tauri build --bundles nsis --target x86_64-pc-windows-msvc
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: WEAVIA-Desktop-Windows-x64
+          path: client/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14

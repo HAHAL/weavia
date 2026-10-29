@@ -1,4 +1,4 @@
-const BUILD_TAG = '2026-10-24-a';
+const BUILD_TAG = '2026-10-25-ops-a';
 const $ = (id) => document.getElementById(id);
 const content = $('content');
 const modal = $('modal');
@@ -12,6 +12,7 @@ const pages = [
   { id: 'invites', label: '邀请码', kicker: 'GROWTH' },
   { id: 'storage', label: '存储', kicker: 'STORAGE' },
   { id: 'tasks', label: '创作任务', kicker: 'TASKS' },
+  { id: 'ops', label: '运行与排障', kicker: 'OPERATIONS' },
   { id: 'showcase', label: '内容管理', kicker: 'SHOWCASE' },
   { id: 'analytics', label: '数据分析', kicker: 'ANALYTICS' },
   { id: 'settings', label: '设置', kicker: 'SETTINGS' },
@@ -20,18 +21,27 @@ const defaultApiBase = location.port && location.port !== '80' && location.port 
 let apiBase = localStorage.getItem('weavia.admin.api') || defaultApiBase;
 let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
-const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
+const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', opsPeriod: '24h', health: 'checking', opsStatus: null, users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
 
 
-let tablePagers = [];
+const tablePagers = new Map();
+let nextTableId = 0;
 
-function enhanceTables() {
-  tablePagers = [];
-  document.querySelectorAll('#content table').forEach((table) => {
+function renderInto(target, html) {
+  target.innerHTML = html;
+  enhanceTables(target);
+}
+
+function enhanceTables(root = content) {
+  for (const table of tablePagers.keys()) {
+    if (!table.isConnected) tablePagers.delete(table);
+  }
+  root.querySelectorAll('table').forEach((table) => {
     if (table.dataset.enhanced) return;
     const tbody = table.tBodies[0];
     if (!tbody || !table.tHead || tbody.rows.length < 15) return;
     table.dataset.enhanced = '1';
+    table.dataset.tableId ||= `table-${++nextTableId}`;
     const rows = [...tbody.rows];
     const state = { page: 0, size: 20 };
 
@@ -85,13 +95,16 @@ function enhanceTables() {
       });
     });
 
-    tablePagers.push(refresh);
+    tablePagers.set(table, refresh);
     refresh();
   });
 }
 
 function refreshTables() {
-  tablePagers.forEach((fn) => fn());
+  for (const [table, refresh] of tablePagers) {
+    if (table.isConnected) refresh();
+    else tablePagers.delete(table);
+  }
 }
 
 function esc(value) {
@@ -191,19 +204,35 @@ async function login(event) {
     email = data.user.email;
     sessionStorage.setItem('weavia.admin.token', token);
     sessionStorage.setItem('weavia.admin.email', email);
-    showAdmin(); renderNav(); await navigate('dashboard');
+    showAdmin(); renderNav(); await navigate('dashboard'); await checkService();
   } catch (error) {
     $('loginError').textContent = error.message;
   } finally {
     setBusy(button, false);
   }
 }
+function renderHealth() {
+  const labels = { checking: '检查中…', ok: '创作服务正常', degraded: '部分服务受影响', down: '创作服务不可用', unreachable: '服务不可达', limited: 'API 可用 · 无状态权限', unknown: '状态未知' };
+  const label = labels[state.health] || labels.checking;
+  $('serviceStatus').textContent = label;
+  $('serviceDot').dataset.health = state.health;
+  if ($('settingsHealth')) $('settingsHealth').textContent = label;
+}
 async function checkService() {
-  $('serviceStatus').textContent = '检查中…';
+  if (!token) return;
+  state.health = 'checking';
+  renderHealth();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(apiBase.replace(/\/$/, '') + '/api/health');
-    $('serviceStatus').textContent = response.ok ? '服务正常' : '服务异常';
-  } catch { $('serviceStatus').textContent = '服务不可达'; }
+    const response = await fetch(apiBase.replace(/\/$/, '') + '/api/admin/ops/status', { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
+    if (response.status === 401) { logout(); return; }
+    if (response.status === 403) { state.health = 'limited'; return; }
+    if (!response.ok) { state.health = 'down'; return; }
+    state.opsStatus = await response.json();
+    state.health = state.opsStatus.status || 'unknown';
+  } catch { state.health = 'unreachable'; }
+  finally { clearTimeout(timeout); renderHealth(); }
 }
 async function navigate(pageId) {
   state.page = pageId;
@@ -213,7 +242,7 @@ async function navigate(pageId) {
   content.innerHTML = loading();
   try { await loaders[pageId](); enhanceTables(); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
 }
-const loaders = { dashboard: loadDashboard, users: loadUsers, roles: loadRoles, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
+const loaders = { dashboard: loadDashboard, users: loadUsers, roles: loadRoles, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, ops: loadOps, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
 async function loadDashboard() {
   const [overview, orders, tasks, showcase] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase')]);
@@ -231,23 +260,27 @@ async function loadDashboard() {
     </div>
     <div class="panel-grid">
       <section class="panel"><div class="panel-head"><div><h2>最近订单</h2><p>最新 6 笔商业订单</p></div><button class="text-button" data-action="go-commerce">全部订单</button></div>${ordersTable((orders || []).slice(0, 6))}</section>
-      <section class="panel"><div class="panel-head"><div><h2>最近任务</h2><p>最新 6 个创作任务</p></div><button class="text-button" data-action="go-tasks">全部任务</button></div>${tasksTable((tasks || []).slice(0, 6))}</section>
+      <section class="panel"><div class="panel-head"><div><h2>最近任务</h2><p>最新 6 个创作任务</p></div><button class="text-button" data-action="go-tasks">全部任务</button></div>${tasksTable((tasks || []).slice(0, 6), true)}</section>
     </div>`;
 }
 function ordersTable(rows) {
   if (!rows.length) return empty('还没有订单');
   return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>类型</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.email || row.userId)}</span></td><td>${esc(row.kind)}</td><td>${fmtMoney(row.amountMinor)} ${esc(row.currency)}</td><td>${status(row.status)}</td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
-function tasksTable(rows) {
+function tasksTable(rows, compact = false) {
   if (!rows.length) return empty('还没有任务');
-  return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>模型</th><th>状态</th><th>Credits</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.type)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.model || row.provider || '—')}</td><td>${status(row.status)}</td><td>${fmtNumber(row.cost)}</td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
+  if (compact) return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>模型</th><th>状态</th><th>实扣 / 返还</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.type)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.model || row.provider || '—')}</td><td>${status(row.status)}</td><td><span class="cell-main">${fmtNumber(row.consumedCredits)}</span><span class="cell-sub">返还 ${fmtNumber(row.releasedCredits)}</span></td><td>${fmtDate(row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>任务 / 用户</th><th>模型 / 结算口径</th><th>状态</th><th>预留</th><th>实扣</th><th>返还</th><th>时间</th><th>操作</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.type)} · ${esc(row.id.slice(0, 8))}</span><span class="cell-sub">${esc(row.email || row.accountNo || row.userId)}</span></td><td><span class="cell-main">${esc(row.model || row.provider || '—')}</span><span class="cell-sub">${esc(billingBasisLabel(row.billingBasis))}</span></td><td>${status(row.status)}${row.errorCode ? `<span class="cell-sub">${esc(row.errorCode)}</span>` : ''}</td><td>${fmtNumber(row.reservedCredits)}</td><td class="${row.status === 'failed' && !row.consumedCredits ? 'negative' : ''}">${fmtNumber(row.consumedCredits)}</td><td>${fmtNumber(row.releasedCredits)}</td><td>${fmtDate(row.createdAt)}</td><td><button class="mini" data-action="task-detail" data-id="${esc(row.id)}">详情</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function billingBasisLabel(basis) {
+  return basis === 'submitted' ? '按提交结算' : basis === 'delivered' ? '按交付结算' : '结算口径未留快照';
 }
 async function loadUsers() {
   const [users, inviteData] = await Promise.all([get('/api/admin/users'), get('/api/admin/invites')]);
   state.users = users || [];
   state.invites = inviteData?.items || [];
   content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态。') + `<div class="panel"><div class="toolbar"><input id="userSearch" placeholder="搜索邮箱、姓名或套餐" /><span class="spacer"></span><span class="badge gold">${state.users.length} 位用户</span></div><div id="userTable"></div></div>`
-  const draw = (rows) => { $('userTable').innerHTML = usersTable(rows); };
+  const draw = (rows) => { renderInto($('userTable'), usersTable(rows)); };
   draw(state.users);
   $('userSearch').addEventListener('input', (event) => {
     const query = event.target.value.trim().toLowerCase();
@@ -298,8 +331,11 @@ function inviteNewModal() {
 
 function usersTable(rows) {
   if (!rows.length) return empty('没有匹配的用户');
-  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-roles" data-id="${esc(user.id)}" data-email="${esc(user.email)}">角色</button><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><div class="user-cell"><img class="user-avatar" src="/avatars/${esc(user.avatarUrl || defaultAvatarId(user.id))}.png" alt="账户头像" loading="lazy" /><div><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></div></div></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-roles" data-id="${esc(user.id)}" data-email="${esc(user.email)}">角色</button><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
+
+const avatarIds = ['mascot-fox','mascot-bear','mascot-rabbit','mascot-cat','mascot-owl','mascot-bird'];
+function defaultAvatarId(_userId = '') { return avatarIds[0]; }
 
 
 
@@ -370,9 +406,9 @@ function renderCommerceTabs() {
 }
 function renderCommerceBody() {
   const body = $('commerceBody');
-  if (state.commerceTab === 'plans') body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>套餐</h2><p>价格与启用状态可调整</p></div></div>${plansTable(state.plans)}</div>`;
-  else if (state.commerceTab === 'orders') body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>订单</h2><p>最近 200 笔</p></div></div>${ordersTable(state.orders)}</div>`;
-  else body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>支付记录</h2><p>Provider 与到账状态</p></div></div>${paymentsTable(state.payments)}</div>`;
+  if (state.commerceTab === 'plans') renderInto(body, `<div class="panel"><div class="panel-head"><div><h2>套餐</h2><p>价格与启用状态可调整</p></div></div>${plansTable(state.plans)}</div>`);
+  else if (state.commerceTab === 'orders') renderInto(body, `<div class="panel"><div class="panel-head"><div><h2>订单</h2><p>最近 200 笔</p></div></div>${ordersTable(state.orders)}</div>`);
+  else renderInto(body, `<div class="panel"><div class="panel-head"><div><h2>支付记录</h2><p>Provider 与到账状态</p></div></div>${paymentsTable(state.payments)}</div>`);
 }
 function plansTable(rows) {
   if (!rows.length) return empty('还没有套餐');
@@ -395,7 +431,7 @@ function renderAITabs() {
 function renderAIBody() {
   const body = $('aiBody');
   if (state.aiTab === 'overview') {
-    body.innerHTML = renderAIOverview();
+    renderInto(body, renderAIOverview());
     return;
   }
   if (state.aiTab === 'providers') {
@@ -430,6 +466,7 @@ function renderAIBody() {
       refreshTables();
     });
   });
+  enhanceTables(body);
 }
 
 
@@ -622,7 +659,7 @@ async function loadPricing() {
   });
   const groupSelect = $('pricingGroup');
   if (groupSelect) {
-    groupSelect.addEventListener('change', () => { $('pricingBody').innerHTML = pricingTable(state.pricing, Number(groupSelect.value)); enhanceTables(); });
+    groupSelect.addEventListener('change', () => renderInto($('pricingBody'), pricingTable(state.pricing, Number(groupSelect.value))));
   }
 }
 function pricingPriceModal(row) {
@@ -702,13 +739,92 @@ async function loadTasks() {
   renderTaskBody();
 }
 function renderTaskBody() {
-  $('taskBody').innerHTML = state.taskTab === 'tasks'
+  renderInto($('taskBody'), state.taskTab === 'tasks'
     ? `<div class="panel"><div class="panel-head"><div><h2>任务</h2><p>最近 500 个</p></div></div>${tasksTable(state.tasks)}</div>`
-    : `<div class="panel"><div class="panel-head"><div><h2>执行记录</h2><p>River 任务尝试与结果</p></div></div>${runsTable(state.runs)}</div>`;
+    : `<div class="panel"><div class="panel-head"><div><h2>执行记录</h2><p>River 任务尝试与结果</p></div></div>${runsTable(state.runs)}</div>`);
 }
 function runsTable(rows) {
   if (!rows.length) return empty('还没有执行记录');
   return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>尝试</th><th>状态</th><th>开始</th><th>结束</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.taskId.slice(0, 8))}</span></td><td>${row.attempt}</td><td>${status(row.status)}</td><td>${fmtDate(row.startedAt)}</td><td>${fmtDate(row.finishedAt)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function opsBadge(value) {
+  const labels = { ok: '正常', success: '成功', started: '进行中', degraded: '部分受影响', down: '不可用', failed: '失败', running: '运行中', healthy: '健康', unknown: '未知', exited: '已停止' };
+  const tone = ['ok', 'success', 'healthy', 'running'].includes(value) ? 'success' : ['degraded', 'unknown', 'started'].includes(value) ? 'warning' : 'danger';
+  return `<span class="badge ${tone}">${esc(labels[value] || value || '未知')}</span>`;
+}
+function opsPercent(used, total) { return total > 0 ? `${Math.round(100 * used / total)}%` : '—'; }
+function opsBytes(value) { return value == null ? '—' : `${(Number(value) / 1024 / 1024 / 1024).toFixed(1)} GiB`; }
+function opsMegabytes(value) { return value == null ? '—' : `${Math.round(Number(value) / 1024 / 1024)} MiB`; }
+function opsTrend(rows, key, totalKey) {
+  const all = (rows || []).map((row) => totalKey ? 100 * row[key] / Math.max(1, row[totalKey]) : row[key]);
+  const stride = Math.max(1, Math.ceil(all.length / 48));
+  const values = all.filter((_, index) => index % stride === 0 || index === all.length - 1);
+  if (values.length < 2) return '<span class="muted">暂无趋势数据</span>';
+  const points = values.map((value, index) => `${(index * 100 / (values.length - 1)).toFixed(1)},${(30 - Math.max(0, Math.min(100, value)) * .28).toFixed(1)}`).join(' ');
+  return `<svg class="ops-trend" viewBox="0 0 100 32" role="img" aria-label="所选时间范围内的变化趋势"><polyline points="${points}" /></svg>`;
+}
+async function loadOps() {
+  let data;
+  try { data = await get('/api/admin/ops/status'); }
+  catch (error) { content.innerHTML = pageHead('运行与排障', '仅有运行状态权限的管理员可以查看。') + empty(error.message); return; }
+  const historyData = await get(`/api/admin/ops/history?period=${state.opsPeriod}`).catch(() => ({ items: [] }));
+  const history = { items: state.opsPeriod === '24h' ? (historyData.items || []).filter((row) => Date.now() - new Date(row.capturedAt).getTime() < 86400000) : historyData.items || [] };
+  state.opsStatus = data;
+  state.health = data.status || 'unknown';
+  renderHealth();
+  const q = data.queue || {};
+  const host = data.hostStatus === 'ok' ? data.host : null;
+  const containers = (host?.containers || []).map((row) => `<tr><td><span class="cell-main">${esc(row.name)}</span></td><td>${opsBadge(row.state)}</td><td>${opsBadge(row.health)}</td><td>${fmtNumber(row.restarts)}</td><td>${Number(row.cpuPercent || 0).toFixed(1)}%</td><td>${opsMegabytes(row.memoryBytes)}</td></tr>`).join('') || emptyRow(6);
+  const checkNames = { api: 'API', database: '数据库', queue: '队列表', storage: '素材存储', worker: '任务 Worker', host: '宿主机', containers: 'Docker 容器' };
+  const checks = Object.entries(checkNames).map(([key, label]) => `<tr><td>${label}</td><td>${opsBadge(data.checks?.[key] || 'unknown')}</td><td>${key === 'worker' ? `最后心跳 ${fmtDate(q.workerLastSeen)}` : key === 'queue' ? '检查队列表可查询；消费能力见 Worker 心跳' : '按需检测'}</td></tr>`).join('');
+  const channels = (data.channels || []).map((row) => `<tr><td>${esc(row.name)}</td><td>${fmtNumber(row.calls)}</td><td>${fmtNumber(row.failures)}</td><td>${row.calls ? `${Math.round(100 * (row.calls - row.failures) / row.calls)}%` : '无近期调用'}</td></tr>`).join('') || emptyRow(4);
+  const hostNote = host ? `采集于 ${fmtDate(host.capturedAt)}` : '主机采集尚未启用或数据已过期';
+  content.innerHTML = pageHead('运行与排障', '先看业务影响，再定位 Worker、容器和渠道。', '<button class="secondary" data-action="ops-refresh">重新检查</button>') +
+    `<div class="ops-head"><div><span class="eyebrow">SERVICE STATUS</span><h2>${opsBadge(data.status)} 创作链路</h2><p>最近检查 ${fmtDate(data.checkedAt)} · ${hostNote}</p></div><p>检查只读取运行信息，不发起付费生成。</p></div>
+    <div class="metrics">${metric('待处理任务', fmtNumber(q.waiting), `最老等待 ${fmtNumber(q.oldestWaitSeconds)} 秒`)}${metric('执行中', fmtNumber(q.running), `Worker 心跳 ${fmtDate(q.workerLastSeen)}`)}${metric('24 小时失败', fmtNumber(q.failed24h), '按任务更新时间统计')}${metric('主机状态', data.hostStatus === 'ok' ? '已连接' : '未知', hostNote)}</div>
+    <div class="panel-grid"><section class="panel"><div class="panel-head"><div><h2>核心依赖</h2><p>可查询状态与任务处理能力分开判断</p></div></div><div class="table-wrap"><table><thead><tr><th>检查项</th><th>状态</th><th>说明</th></tr></thead><tbody>${checks}</tbody></table></div></section>
+    <section class="panel"><div class="panel-head"><div><h2>服务器资源</h2><p>${hostNote}</p></div><div class="row-actions">${[['24h', '24 小时'], ['7d', '7 天'], ['30d', '30 天']].map(([id, label]) => `<button data-action="ops-period" data-period="${id}" aria-pressed="${state.opsPeriod === id}">${label}</button>`).join('')}</div></div>${host ? `<div class="ops-resource"><div>CPU <strong>${Number(host.cpuPercent).toFixed(1)}%</strong>${opsTrend(history.items, 'cpuPercent')}</div><div>内存 <strong>${opsPercent(host.memoryUsed, host.memoryTotal)}</strong><small>${opsBytes(host.memoryUsed)} / ${opsBytes(host.memoryTotal)}</small>${opsTrend(history.items, 'memoryUsed', 'memoryTotal')}</div><div>磁盘 <strong>${opsPercent(host.diskUsed, host.diskTotal)}</strong><small>${opsBytes(host.diskUsed)} / ${opsBytes(host.diskTotal)}</small>${opsTrend(history.items, 'diskUsed', 'diskTotal')}</div></div>` : empty('等待宿主机采集器数据；业务检查仍可查看。')}</section></div>
+    <section class="panel"><div class="panel-head"><div><h2>Docker 服务</h2><p>仅展示 WEAVIA 的四个容器</p></div></div><div class="table-wrap"><table><thead><tr><th>容器</th><th>运行</th><th>健康</th><th>重启</th><th>CPU</th><th>内存</th></tr></thead><tbody>${containers}</tbody></table></div></section>
+    <section class="panel"><div class="panel-head"><div><h2>AI 渠道 · 近 24 小时</h2><p>${data.channelsAvailable ? '来自真实调用记录' : '渠道记录暂时不可用'}</p></div></div><div class="table-wrap"><table><thead><tr><th>渠道</th><th>调用</th><th>失败</th><th>成功率</th></tr></thead><tbody>${channels}</tbody></table></div></section>
+    <section class="panel"><div class="panel-head"><div><h2>安全日志摘要</h2><p>只展示固定格式的安全事件；原始容器日志需通过 SSH 查看</p></div><div class="row-actions"><button data-action="ops-logs" data-service="backend">API</button><button data-action="ops-logs" data-service="worker">Worker</button><button data-action="ops-logs" data-service="admin">后台 Web</button><button data-action="ops-logs" data-service="postgres">PostgreSQL</button></div></div><div id="opsLogBody" role="status">选择一个服务查看最近 200 条安全摘要。</div></section>`;
+}
+async function loadOpsLogs(service) {
+  const target = $('opsLogBody');
+  if (!target) return;
+  target.textContent = '正在读取安全日志摘要…';
+  try {
+    const data = await get(`/api/admin/ops/logs/${encodeURIComponent(service)}`);
+    if (!target.isConnected) return;
+    if (data.stale) { target.textContent = '主机采集结果已过期，暂无可靠日志摘要。'; return; }
+    const rows = (data.items || []).map((row) => `<tr><td>${esc(row.time || '—')}</td><td>${esc(row.level || '—')}</td><td>${esc(row.message || '—')}</td></tr>`).join('') || emptyRow(3);
+    renderInto(target, `<div class="table-wrap"><table><thead><tr><th>时间</th><th>级别</th><th>事件</th></tr></thead><tbody>${rows}</tbody></table></div>`);
+  } catch (error) { target.textContent = error.message; }
+}
+async function taskDetailModal(taskID) {
+  const closeButtons = () => modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
+  modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">TASK DETAIL</span><h2>任务详情</h2></div><button type="button" class="modal-close" data-close-modal aria-label="关闭">×</button></div><div class="activity-loading">正在读取任务、费用与渠道记录…</div></div>`;
+  modal.showModal();
+  closeButtons();
+  try {
+    const [detail, eventData] = await Promise.all([get(`/api/admin/tasks/${encodeURIComponent(taskID)}`), get(`/api/admin/ops/tasks/${encodeURIComponent(taskID)}/events`).catch(() => ({ items: [] }))]);
+    if (!modal.open) return;
+    const task = detail.task;
+    const routes = (detail.routes || []).map((route) => `<tr><td>${fmtDate(route.createdAt)}</td><td>${esc(route.channelName || route.provider || '—')}</td><td>${esc(route.providerModelId || '—')}</td><td>${route.keyLast4 ? `•••• ${esc(route.keyLast4)}` : '—'}</td><td>${status(route.status)}${route.errorCode ? `<span class="cell-sub">${esc(route.errorCode)}</span>` : ''}</td><td>${fmtNumber(route.latencyMs)} ms</td></tr>`).join('') || emptyRow(6);
+    const types = { reserve: '预留', consume: '实扣', release: '返还' };
+    const transactions = (detail.transactions || []).map((entry) => `<tr><td>${fmtDate(entry.createdAt)}</td><td>${esc(types[entry.type] || entry.type)}</td><td>${fmtNumber(entry.availableDelta)}</td><td>${fmtNumber(entry.reservedDelta)}</td></tr>`).join('') || emptyRow(4);
+    const stages = { reserved: '预留 Credits', queued: '进入队列', worker_started: 'Worker 开始', provider_request: '调用渠道', provider_submitted: '上游已提交', provider_response: '渠道响应', asset_saved: '素材已保存', settled: '已结算', failed: '任务失败', refund: '返还失败' };
+    const events = (eventData.items || []).map((entry) => `<tr><td>${fmtDate(entry.createdAt)}</td><td>${esc(stages[entry.stage] || entry.stage)}</td><td>${opsBadge(entry.state)}</td><td>${esc(entry.code || '—')}</td><td>${entry.durationMs ? `${fmtNumber(entry.durationMs)} ms` : '—'}</td></tr>`).join('') || emptyRow(5);
+    modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">TASK DETAIL</span><h2>${esc(task.type)} · ${esc(task.id.slice(0, 8))}</h2><p>${esc(task.email || task.userId)} · ${esc(task.accountNo || '未分配账户号')} · ${fmtDate(task.createdAt)}</p></div><button type="button" class="modal-close" data-close-modal aria-label="关闭">×</button></div>
+      <div class="activity-summary"><div><small>任务状态</small><strong>${status(task.status)}</strong><span>${esc(task.errorCode || '无失败码')}</span></div><div><small>预留 Credits</small><strong>${fmtNumber(task.reservedCredits)}</strong><span>任务提交时预留</span></div><div><small>实扣 Credits</small><strong>${fmtNumber(task.consumedCredits)}</strong><span>${esc(billingBasisLabel(task.billingBasis))}</span></div><div><small>返还 Credits</small><strong>${fmtNumber(task.releasedCredits)}</strong><span>来自返还流水</span></div></div>
+      <div class="activity-body"><section class="activity-section"><h3>任务与失败原因</h3><p>${esc(task.model || task.provider || '未指定模型')}${task.duration ? ` · ${esc(task.duration)} 秒` : ''}</p><p>${task.errorMessage ? `${esc(task.errorCode)}：${esc(task.errorMessage)}` : '无失败原因记录'}</p><p class="muted">${task.billingBasis ? '结算口径已按任务保存' : '历史任务未保存结算口径，请结合实际流水核对'}</p></section>
+      <section class="activity-section"><h3>执行时间线</h3><p class="muted">仅新版本产生的任务有阶段记录；历史任务请结合渠道与 Credits 流水查看。</p><div class="table-wrap"><table><thead><tr><th>时间</th><th>阶段</th><th>结果</th><th>错误码</th><th>耗时</th></tr></thead><tbody>${events}</tbody></table></div></section>
+      <section class="activity-section"><h3>渠道调用（最近 5 条）</h3><div class="table-wrap"><table><thead><tr><th>时间</th><th>渠道</th><th>渠道模型</th><th>Key 末四位</th><th>结果</th><th>延迟</th></tr></thead><tbody>${routes}</tbody></table></div></section>
+      <section class="activity-section"><h3>Credits 流水</h3><div class="table-wrap"><table><thead><tr><th>时间</th><th>动作</th><th>可用变动</th><th>冻结变动</th></tr></thead><tbody>${transactions}</tbody></table></div></section></div>
+      <div class="activity-actions"><span class="muted">本页只读；金额以 Credits 流水为准</span><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
+    closeButtons();
+  } catch (error) {
+    if (modal.open) modal.querySelector('.activity-loading').textContent = error.message || '任务详情读取失败';
+  }
 }
 async function loadShowcase() {
   const data = await get('/api/admin/showcase');
@@ -719,7 +835,7 @@ async function loadShowcase() {
 }
 function renderShowcaseBody() {
   const rows = state.showcaseFilter === 'all' ? state.showcase : state.showcase.filter((item) => item.kind === state.showcaseFilter);
-  $('showcaseBody').innerHTML = rows.length ? `<div class="showcase-grid">${rows.map((item) => `<article class="showcase-card"><img src="${apiBase.replace(/\/$/, '')}${esc(item.imageUrl)}" alt="${esc(item.title)}" loading="eager" /><div class="showcase-body"><div class="showcase-top"><span class="badge ${item.kind === 'work' ? 'gold' : ''}">${item.kind === 'work' ? '示例作品' : '示例图'}</span>${status(item.status)}</div><h3>${esc(item.title)}</h3><p>${esc(item.tag || '未设置标签')} · 排序 ${item.sortOrder}</p><div class="row-actions"><button data-action="showcase-toggle" data-id="${esc(item.id)}" data-status="${item.status === 'published' ? 'draft' : 'published'}">${item.status === 'published' ? '下架' : '发布'}</button><button data-action="showcase-edit" data-id="${esc(item.id)}">编辑</button><button class="danger" data-action="showcase-delete" data-id="${esc(item.id)}">删除</button></div></div></article>`).join('')}</div>` : empty('这个分类还没有内容');
+  renderInto($('showcaseBody'), rows.length ? `<div class="showcase-grid">${rows.map((item) => `<article class="showcase-card"><img src="${apiBase.replace(/\/$/, '')}${esc(item.imageUrl)}" alt="${esc(item.title)}" loading="eager" /><div class="showcase-body"><div class="showcase-top"><span class="badge ${item.kind === 'work' ? 'gold' : ''}">${item.kind === 'work' ? '示例作品' : '示例图'}</span>${status(item.status)}</div><h3>${esc(item.title)}</h3><p>${esc(item.tag || '未设置标签')} · 排序 ${item.sortOrder}</p><div class="row-actions"><button data-action="showcase-toggle" data-id="${esc(item.id)}" data-status="${item.status === 'published' ? 'draft' : 'published'}">${item.status === 'published' ? '下架' : '发布'}</button><button data-action="showcase-edit" data-id="${esc(item.id)}">编辑</button><button class="danger" data-action="showcase-delete" data-id="${esc(item.id)}">删除</button></div></div></article>`).join('')}</div>` : empty('这个分类还没有内容'));
 }
 async function loadAnalytics() {
   const [overview, usage, tasks] = await Promise.all([get('/api/admin/overview'), get('/api/admin/ai/usage'), get('/api/admin/tasks')]);
@@ -733,9 +849,10 @@ async function loadSettings() {
   const rows = (logs.items || []).map((item) => `<tr><td>${fmtDate(item.createdAt)}</td><td>${esc(item.actor)}</td><td><span class="cell-main">${esc(item.action)}</span><span class="cell-sub">${esc(item.resourceType)} ${esc(String(item.resourceId || '').slice(0, 8))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.before || {}))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.after || {}))}</span></td><td>${esc(item.ip || '—')}</td></tr>`).join('') || emptyRow(6);
   content.innerHTML = pageHead('设置', '后台连接与当前工作区信息。') +
     `<div class="panel"><div class="panel-head"><div><h2>连接</h2><p>管理后台通过此地址访问 Go API</p></div></div><div class="form-grid"><label>API 地址<input id="settingsApi" value="${esc(apiBase)}" /></label><label>当前管理员<input value="${esc(email)}" disabled /></label><label>后台版本<input value="${BUILD_TAG}" disabled /></label><div><button class="primary" data-action="save-api">保存 API 地址</button></div></div></div>
-    <div class="panel"><div class="panel-head"><div><h2>服务状态</h2><p>健康检查结果</p></div><button class="secondary" data-action="check-service">重新检查</button></div><p>${esc($('serviceStatus').textContent)}</p></div>
+    <div class="panel"><div class="panel-head"><div><h2>服务状态</h2><p>健康检查结果</p></div><button class="secondary" data-action="check-service">重新检查</button></div><p id="settingsHealth" role="status"></p></div>
     <div class="panel"><div class="panel-head"><div><h2>最近管理操作</h2><p>路由、模型接入等写操作留痕，最多 100 条</p></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>变更前</th><th>变更后</th><th>来源 IP</th></tr></thead><tbody>${rows}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><div><h2>关于</h2><p>WEAVIA Admin Console</p></div></div><p>用户、商业、AI、任务、内容管理与数据分析，统一在新 Go API 之上。</p></div>`;
+  renderHealth();
 }
 function openModal(title, body, submitLabel, onSubmit) {
   modal.innerHTML = `<form method="dialog" class="modal-inner"><div class="modal-head"><div><span class="eyebrow">WEAVIA ADMIN</span><h2>${esc(title)}</h2></div><button type="button" class="modal-close" aria-label="关闭" data-close-modal>×</button></div><div class="form-grid">${body}</div><p class="form-error" id="modalError" role="alert"></p><div class="modal-actions"><button type="button" class="secondary" data-close-modal>取消</button><button type="submit" class="primary">${esc(submitLabel)}</button></div></form>`;
@@ -937,6 +1054,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'commerce-tab') { state.commerceTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderCommerceTabs(); return renderCommerceBody(); }
     if (action === 'ai-tab') { state.aiTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderAITabs(); return renderAIBody(); }
     if (action === 'task-tab') { state.taskTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = `<div class="tabs">${[['tasks', '任务'], ['runs', '执行记录']].map(([id, label]) => `<button type="button" class="${state.taskTab === id ? 'active' : ''}" data-action="task-tab" data-tab="${id}">${label}</button>`).join('')}</div>`; return renderTaskBody(); }
+    if (action === 'task-detail') return taskDetailModal(target.dataset.id);
     if (action === 'showcase-filter') { state.showcaseFilter = target.dataset.tab; await loadShowcase(); return; }
     if (action === 'storage-migrate') { setBusy(target, true); try { await storageMigrate(target.dataset.direction); } catch (error) { toast(error.message); } finally { setBusy(target, false); } return; }
     if (action === 'storage-test') { setBusy(target, true); try { await post('/api/admin/storage/test', {}); toast('连接正常，已写入并删除探针对象'); await navigate('storage'); } catch (error) { toast(error.message); setBusy(target, false); } return; }
@@ -984,10 +1102,20 @@ content.addEventListener('click', async (event) => {
     if (action === 'showcase-delete') { if (!confirm('确定删除这条内容？客户端将不再显示。')) return; setBusy(target, true); await remove(`/api/admin/showcase/${target.dataset.id}`); await navigate('showcase'); return; }
     if (action === 'save-api') { apiBase = $('settingsApi').value.trim().replace(/\/$/, ''); localStorage.setItem('weavia.admin.api', apiBase); toast('API 地址已保存'); await checkService(); return; }
     if (action === 'check-service') { await checkService(); toast('服务状态已更新'); return; }
+    if (action === 'ops-refresh') { await navigate('ops'); return; }
+    if (action === 'ops-period') { state.opsPeriod = target.dataset.period; await navigate('ops'); return; }
+    if (action === 'ops-logs') { await loadOpsLogs(target.dataset.service); return; }
   } catch (error) { toast(error.message); setBusy(target, false); }
 });
 $('loginForm').addEventListener('submit', login);
 $('logout').addEventListener('click', logout);
 $('refresh').addEventListener('click', () => navigate(state.page));
+$('serviceStatus').addEventListener('click', () => navigate('ops'));
+setInterval(() => {
+  if (token && !document.hidden) checkService();
+}, 60000);
+document.addEventListener('visibilitychange', () => {
+  if (token && !document.hidden) checkService();
+});
 $('apiBase').value = apiBase;
 if (token) { showAdmin(); renderNav(); checkService(); navigate('dashboard'); } else { showLogin(); }
