@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/weavia/weavia/services/backend/internal/clientapp"
+	"github.com/weavia/weavia/services/backend/internal/delivery"
+	"github.com/weavia/weavia/services/backend/internal/library"
+	"github.com/weavia/weavia/services/backend/internal/vision"
 	"io"
 	"log/slog"
 	"net"
@@ -44,6 +47,9 @@ type Server struct {
 	Quotes               *quote.Service
 	Showcase             *showcase.Service
 	ClientApp            *clientapp.Service
+	Delivery             *delivery.Service
+	Library              *library.Service
+	Vision               *vision.Service
 	Credentials          *providerconfig.Service
 	Models               *modelcatalog.Service
 	Ops                  *ops.Service
@@ -93,6 +99,10 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/showcase", s.listShowcase)
 	r.Get("/api/client/config", s.clientConfig)
 	r.Get("/api/announcements", s.listAnnouncements)
+	r.Get("/review/{token}", s.reviewPageHandler)
+	r.Get("/api/review/{token}", s.publicReview)
+	r.Get("/api/review/{token}/file", s.publicReviewFile)
+	r.Post("/api/review/{token}/decisions", s.publicReviewDecision)
 	r.Get("/api/showcase/images/{showcaseID}", s.showcaseImage)
 	r.Get("/api/reference/{token}", s.referenceImage)
 	r.Get("/api/reference/{token}/image.png", s.referenceImage)
@@ -145,10 +155,17 @@ func (s *Server) Router() http.Handler {
 			r.Post("/ai/estimate", s.estimate)
 			r.Post("/ai/quotes", s.createQuote)
 			r.Post("/showcase/{showcaseID}/use", s.useShowcase)
+			r.Post("/review-links", s.createReviewLink)
+			r.Get("/review-links", s.listReviewLinks)
+			r.Delete("/review-links/{linkID}", s.revokeReviewLink)
+			r.Get("/me/products", s.listMyProducts)
+			r.Post("/video-remakes/analyze", s.analyzeVideo)
+			r.Put("/me/products/{localID}", s.putMyProduct)
 			r.Get("/ai/templates", s.templates)
 			r.Post("/ai/tasks", s.createTask)
 			r.Get("/ai/tasks", s.listTasks)
 			r.Get("/ai/tasks/{taskID}", s.getTask)
+			r.Post("/ai/tasks/{taskID}/cancel", s.cancelTask)
 			r.Get("/ai/tasks/{taskID}/outputs/{index}", s.getTaskOutput)
 			r.Post("/assets/presign", s.presign)
 			r.Post("/conversations", s.createConversation)
@@ -248,11 +265,13 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("showcase.write")).Patch("/showcase/{showcaseID}", s.adminPatchShowcase)
 		r.With(s.requirePermission("showcase.write")).Delete("/showcase/{showcaseID}", s.adminDeleteShowcase)
 		r.With(s.requirePermission("showcase.write")).Post("/announcements", s.adminCreateAnnouncement)
+		r.With(s.requirePermission("showcase.write")).Post("/showcase/from-task/{taskID}", s.adminShowcaseFromTask)
 		r.With(s.requirePermission("showcase.write")).Put("/announcements/{announcementID}", s.adminUpdateAnnouncement)
 		r.With(s.requirePermission("showcase.write")).Delete("/announcements/{announcementID}", s.adminDeleteAnnouncement)
 		r.With(s.requirePermission("provider.write")).Put("/client-config", s.adminSaveClientConfig)
 		r.With(s.requirePermission("credits.write")).Post("/credits/adjust", s.adminAdjustCredits)
 		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/status", s.adminSetUserStatus)
+		r.With(s.requirePermission("users.write")).Post("/users/{userID}/password", s.adminResetPassword)
 		r.With(s.requirePermission("users.write")).Put("/users/{userID}/roles", s.adminSetUserRoles)
 		r.With(s.requirePermission("users.write")).Post("/invites", s.adminCreateInvite)
 		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/oss-sync", s.adminSetOSSSync)

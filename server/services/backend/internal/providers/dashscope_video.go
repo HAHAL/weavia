@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,19 @@ func (p *DashScopeVideo) Generate(ctx context.Context, input ImageRequest) (Imag
 	if size == "" {
 		size = "1280*720"
 	}
-	body := map[string]any{"model": model, "input": map[string]any{"prompt": input.Prompt}, "parameters": map[string]any{"size": size, "duration": duration, "prompt_extend": input.PromptExtend}}
+	payload := map[string]any{"prompt": input.Prompt}
+	parameters := map[string]any{"size": size, "duration": duration, "prompt_extend": input.PromptExtend}
+	// Image-to-video models take the first frame as img_url and a resolution
+	// tier instead of an exact size.
+	if reference := firstNonEmpty(input.ReferenceURL, input.ReferenceImage); reference != "" && input.Mode == "image_to_video" {
+		payload["img_url"] = reference
+		delete(parameters, "size")
+		parameters["resolution"] = "720P"
+		if strings.Contains(size, "1080") || strings.Contains(size, "1920") {
+			parameters["resolution"] = "1080P"
+		}
+	}
+	body := map[string]any{"model": model, "input": payload, "parameters": parameters}
 	encoded, _ := json.Marshal(body)
 	endpoint, err := url.JoinPath(p.BaseURL, "services/aigc/video-generation/video-synthesis")
 	if err != nil {
@@ -181,3 +194,12 @@ func (p *DashScopeVideo) Resume(ctx context.Context, taskID string) (ImageResult
 }
 
 func (p *DashScopeVideo) String() string { return fmt.Sprintf("dashscope-video(%s)", p.BaseURL) }
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}

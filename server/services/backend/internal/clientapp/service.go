@@ -23,6 +23,8 @@ type Config struct {
 	DownloadMac     string    `json:"downloadMac"`
 	DownloadWindows string    `json:"downloadWindows"`
 	ReleaseNotes    string    `json:"releaseNotes"`
+	VisionProvider  string    `json:"visionProvider"`
+	VisionModel     string    `json:"visionModel"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
@@ -61,8 +63,8 @@ var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 func (s *Service) Config(ctx context.Context) (Config, error) {
 	var c Config
-	err := s.pool.QueryRow(ctx, `SELECT api_base_url,min_version,latest_version,download_mac,download_windows,release_notes,updated_at FROM client_config WHERE id=true`).
-		Scan(&c.APIBaseURL, &c.MinVersion, &c.LatestVersion, &c.DownloadMac, &c.DownloadWindows, &c.ReleaseNotes, &c.UpdatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT api_base_url,min_version,latest_version,download_mac,download_windows,release_notes,vision_provider,vision_model,updated_at FROM client_config WHERE id=true`).
+		Scan(&c.APIBaseURL, &c.MinVersion, &c.LatestVersion, &c.DownloadMac, &c.DownloadWindows, &c.ReleaseNotes, &c.VisionProvider, &c.VisionModel, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Config{}, nil
 	}
@@ -93,14 +95,22 @@ func (s *Service) SaveConfig(ctx context.Context, c Config) (Config, error) {
 			return Config{}, invalid("下载地址必须是 http(s) 链接")
 		}
 	}
+	c.VisionProvider, c.VisionModel = strings.TrimSpace(c.VisionProvider), strings.TrimSpace(c.VisionModel)
+	if c.VisionProvider == "" {
+		c.VisionProvider = "volcengine"
+	}
+	if len(c.VisionProvider) > 40 || len(c.VisionModel) > 120 {
+		return Config{}, invalid("视频拆解渠道或模型名过长")
+	}
 	if len([]rune(c.ReleaseNotes)) > 4000 {
 		return Config{}, invalid("更新说明不能超过 4000 字")
 	}
-	err := s.pool.QueryRow(ctx, `INSERT INTO client_config(id,api_base_url,min_version,latest_version,download_mac,download_windows,release_notes,updated_at)
-		VALUES(true,$1,$2,$3,$4,$5,$6,now())
+	err := s.pool.QueryRow(ctx, `INSERT INTO client_config(id,api_base_url,min_version,latest_version,download_mac,download_windows,release_notes,vision_provider,vision_model,updated_at)
+		VALUES(true,$1,$2,$3,$4,$5,$6,$7,$8,now())
 		ON CONFLICT (id) DO UPDATE SET api_base_url=EXCLUDED.api_base_url,min_version=EXCLUDED.min_version,latest_version=EXCLUDED.latest_version,
-		  download_mac=EXCLUDED.download_mac,download_windows=EXCLUDED.download_windows,release_notes=EXCLUDED.release_notes,updated_at=now()
-		RETURNING updated_at`, c.APIBaseURL, strings.TrimSpace(c.MinVersion), strings.TrimSpace(c.LatestVersion), strings.TrimSpace(c.DownloadMac), strings.TrimSpace(c.DownloadWindows), c.ReleaseNotes).Scan(&c.UpdatedAt)
+		  download_mac=EXCLUDED.download_mac,download_windows=EXCLUDED.download_windows,release_notes=EXCLUDED.release_notes,
+		  vision_provider=EXCLUDED.vision_provider,vision_model=EXCLUDED.vision_model,updated_at=now()
+		RETURNING updated_at`, c.APIBaseURL, strings.TrimSpace(c.MinVersion), strings.TrimSpace(c.LatestVersion), strings.TrimSpace(c.DownloadMac), strings.TrimSpace(c.DownloadWindows), c.ReleaseNotes, c.VisionProvider, c.VisionModel).Scan(&c.UpdatedAt)
 	return c, err
 }
 

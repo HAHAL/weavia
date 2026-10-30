@@ -104,3 +104,22 @@ func (s *Server) adminDeleteAnnouncement(w http.ResponseWriter, r *http.Request)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (s *Server) analyzeVideo(w http.ResponseWriter, r *http.Request) {
+	if s.Vision == nil {
+		writeError(w, &generation.APIError{Code: "UNAVAILABLE", Message: "视频拆解服务未初始化", Status: 503})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
+	var body struct {
+		Frames   []string  `json:"frames"`
+		Times    []float64 `json:"times"`
+		Duration float64   `json:"duration"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	structure, err := s.Vision.Analyze(r.Context(), currentUser(r).ID, body.Frames, body.Times, body.Duration)
+	respond(w, structure, err)
+}

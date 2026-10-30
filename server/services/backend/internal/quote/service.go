@@ -184,6 +184,9 @@ type quoteRow struct {
 	IdempotencyKey string
 }
 
+// ValidateForTask checks the task matches what was priced. Reference images are
+// compared by count only: the client quotes with local asset ids and uploads
+// them (getting new server ids) only at submit, and price never depends on which image.
 func (s *Service) ValidateForTask(ctx context.Context, userID, quoteID string, req Request) (Quote, error) {
 	q, err := s.store.Get(ctx, userID, quoteID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -195,7 +198,7 @@ func (s *Service) ValidateForTask(ctx context.Context, userID, quoteID string, r
 	if q.Status != "active" || !q.ExpiresAt.After(s.now()) {
 		return Quote{}, &generation.APIError{Code: "QUOTE_EXPIRED", Message: "报价已失效，请重新报价", Status: 409}
 	}
-	if q.RequestModel != req.Model || q.RequestMode != req.Mode || q.RequestPrompt != req.Prompt || q.RequestEditMode != req.EditMode || q.RequestSize != req.Size || q.RequestCount != req.NumberOfImages || q.RequestMaskAssetID != req.MaskAssetID || !sameStrings(q.RequestReferenceIDs, req.ReferenceAssetIDs) {
+	if q.RequestModel != req.Model || q.RequestMode != req.Mode || q.RequestPrompt != req.Prompt || q.RequestEditMode != req.EditMode || q.RequestSize != req.Size || q.RequestCount != req.NumberOfImages || q.RequestMaskAssetID != req.MaskAssetID || len(q.RequestReferenceIDs) != len(req.ReferenceAssetIDs) {
 		return Quote{}, &generation.APIError{Code: "QUOTE_MISMATCH", Message: "报价参数已变化，请重新报价", Status: 409}
 	}
 	return q, nil

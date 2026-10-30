@@ -367,6 +367,17 @@ func (s *Service) Adjust(ctx context.Context, actorID, userID string, amount int
 	if err != nil {
 		return a, err
 	}
+	// Offline top-ups use "voucher:<凭证号>" as the key; a voucher may be booked
+	// to one account only, so the same payment can never be credited twice.
+	if strings.HasPrefix(idempotencyKey, "voucher:") {
+		var other int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM credit_transactions_v1 WHERE idempotency_key=$1 AND account_id<>$2`, idempotencyKey, a.ID).Scan(&other); err != nil {
+			return a, err
+		}
+		if other > 0 {
+			return a, &generation.APIError{Code: "VOUCHER_USED", Message: "该凭证号已入账到其他账户", Status: 409}
+		}
+	}
 	var existingAmount int64
 	err = tx.QueryRow(ctx, `SELECT available_delta FROM credit_transactions_v1 WHERE idempotency_key=$1 AND account_id=$2`, idempotencyKey, a.ID).Scan(&existingAmount)
 	if err == nil {

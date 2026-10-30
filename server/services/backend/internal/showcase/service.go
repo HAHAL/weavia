@@ -51,10 +51,10 @@ type CreateInput struct {
 }
 
 type Patch struct {
-	Kind      *string
-	Title     *string
-	Tag       *string
-	Prompt    *string
+	Kind       *string
+	Title      *string
+	Tag        *string
+	Prompt     *string
 	Status     *string
 	SortOrder  *int
 	Media      *string

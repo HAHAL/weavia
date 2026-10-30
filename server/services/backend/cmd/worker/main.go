@@ -50,6 +50,7 @@ func main() {
 	realEnabled := cfg.RealAIEnabled || mock
 	opsService := ops.New(pool, "")
 	service := generation.NewService(realEnabled, provider, nil, func(key string) (string, bool) { return storage.DataURL(key, mimeFor(key)) }, store.NewTaskRepository(pool)).WithCredits(commercial.New(pool)).WithRegistry(generation.PostgresRegistry{Pool: pool}).WithStorage(storage).WithMock(mock).WithRouting(routingadapter.New(routingService))
+	service.WithEvents(opsService.Record)
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Queues: map[string]river.QueueConfig{jobs.Queue: {MaxWorkers: 4}}, Workers: jobs.Workers(service)})
 	if err != nil {
 		fatal(err)

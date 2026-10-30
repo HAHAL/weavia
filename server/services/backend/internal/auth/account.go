@@ -353,3 +353,31 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, email, code, linkTok
 func SMTPFromEnv() SMTPMailer {
 	return SMTPMailer{Host: os.Getenv("SMTP_HOST"), Port: os.Getenv("SMTP_PORT"), User: os.Getenv("SMTP_USER"), Password: os.Getenv("SMTP_PASSWORD"), From: os.Getenv("SMTP_FROM")}
 }
+
+// AdminResetPassword lets an operator set a temporary password when the user
+// cannot receive email; every existing session is signed out.
+func (s *Service) AdminResetPassword(ctx context.Context, userID, password string) error {
+	if len(password) < 8 || len(password) > 256 {
+		return &Error{Code: "INVALID_REQUEST", Message: "密码至少 8 位", Status: 400}
+	}
+	hash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE accounts SET password_hash=$2,updated_at=now() WHERE user_id=$1 AND provider='password'`, userID, hash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &Error{Code: "NOT_FOUND", Message: "该用户没有密码登录方式", Status: 404}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE sessions SET revoked_at=coalesce(revoked_at,now()),revoked_reason='admin_password_reset',updated_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

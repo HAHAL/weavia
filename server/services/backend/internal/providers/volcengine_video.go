@@ -39,10 +39,10 @@ func (p *VolcengineVideo) Generate(ctx context.Context, input ImageRequest) (Ima
 		return ImageResult{}, &Error{"INVALID_REQUEST", "Video model is required", false, 400}
 	}
 	content := []any{map[string]any{"type": "text", "text": input.Prompt}}
-	if input.ReferenceImage != "" {
+	if reference := firstNonEmpty(input.ReferenceURL, input.ReferenceImage); reference != "" {
 		content = append(content, map[string]any{
 			"type":      "image_url",
-			"image_url": map[string]any{"url": input.ReferenceImage},
+			"image_url": map[string]any{"url": reference},
 			"role":      "first_frame",
 		})
 	}

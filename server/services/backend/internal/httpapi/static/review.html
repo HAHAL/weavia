@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>WEAVIA 作品审阅</title>
+<style>
+:root{--bg:#F8F7F3;--surface:#fff;--text:#24211B;--muted:#625E55;--line:#E8E2D6;--brand:#A66A00;--ok:#137A55;--bad:#BD3447}
+@media (prefers-color-scheme:dark){:root{--bg:#151411;--surface:#211F1A;--text:#F6F1E7;--muted:#C6BCAB;--line:#403A30;--brand:#E6B554;--ok:#54C995;--bad:#FF7B87}}
+[hidden]{display:none!important}*{box-sizing:border-box}body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text)}
+header{padding:20px 16px 8px;max-width:1100px;margin:0 auto}header small{color:var(--brand);font-weight:700;letter-spacing:.08em}h1{margin:6px 0 4px;font-size:22px}header p{margin:0;color:var(--muted);font-size:13px}
+.who{max-width:1100px;margin:12px auto 0;padding:0 16px;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)}.who input{flex:0 1 220px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text)}
+main{max-width:1100px;margin:0 auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.media{background:#0001;aspect-ratio:1/1;display:grid;place-items:center}.media img,.media video{width:100%;height:100%;object-fit:contain}
+.body{padding:12px;display:flex;flex-direction:column;gap:8px}.body strong{font-size:14px}
+.state{font-size:12px;font-weight:700}.state.approved{color:var(--ok)}.state.changes{color:var(--bad)}.state.pending{color:var(--muted)}
+textarea{width:100%;min-height:60px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-size:13px}
+.actions{display:flex;gap:8px}button{flex:1;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-weight:600;cursor:pointer}
+button.ok{background:var(--ok);border-color:var(--ok);color:#fff}button:disabled{opacity:.5}
+.empty{max-width:1100px;margin:60px auto;padding:0 16px;text-align:center;color:var(--muted)}
+footer{max-width:1100px;margin:0 auto;padding:8px 16px 32px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<header><small>WEAVIA 作品审阅</small><h1 id="title">加载中…</h1><p id="meta"></p></header>
+<div class="who" id="who" hidden><label for="reviewer">你的称呼</label><input id="reviewer" maxlength="40" placeholder="例如：品牌方 · 张经理" /></div>
+<main id="list"></main>
+<div class="empty" id="empty" hidden></div>
+<footer>通过或写下修改意见后会立即同步给制作方；同一张可以多次修改决定。</footer>
+<script>
+const token = location.pathname.split('/').filter(Boolean).pop();
+const api = (path) => `/api/review/${encodeURIComponent(token)}${path}`;
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const labels = { approved: '已通过', changes: '需修改', pending: '待审阅' };
+try { $('reviewer').value = localStorage.getItem('weavia.reviewer') || ''; } catch {}
+$('reviewer').addEventListener('change', () => { try { localStorage.setItem('weavia.reviewer', $('reviewer').value.trim()); } catch {} });
+async function load() {
+  const res = await fetch(api(''));
+  if (!res.ok) { $('title').textContent = '链接已失效'; $('empty').hidden = false; $('empty').textContent = '这个审阅链接不存在、已过期或已被撤销，请联系制作方重新发送。'; return; }
+  const { data } = await res.json();
+  $('title').textContent = data.title;
+  $('meta').textContent = `共 ${data.items.length} 个结果 · 有效期至 ${new Date(data.expiresAt).toLocaleString('zh-CN')}`;
+  $('who').hidden = false;
+  const decided = Object.fromEntries((data.decisions || []).map((d) => [d.itemKey, d]));
+  $('list').innerHTML = data.items.map((item) => {
+    const d = decided[item.key]; const state = d ? d.decision : 'pending';
+    const src = api(`/file?key=${encodeURIComponent(item.key)}`);
+    const media = (item.mimeType || '').startsWith('video/') ? `<video src="${src}" controls preload="metadata"></video>` : `<img src="${src}" alt="${esc(item.title)}" loading="lazy" />`;
+    return `<article class="card" data-key="${esc(item.key)}"><div class="media">${media}</div><div class="body"><strong>${esc(item.title)}</strong><span class="state ${state}">${labels[state]}${d && d.reviewer ? ` · ${esc(d.reviewer)}` : ''}</span><textarea placeholder="需要修改时写明意见">${esc(d ? d.note : '')}</textarea><div class="actions"><button type="button" data-decision="changes">需修改</button><button type="button" class="ok" data-decision="approved">通过</button></div></div></article>`;
+  }).join('');
+}
+$('list').addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-decision]'); if (!button) return;
+  const card = button.closest('.card');
+  const note = card.querySelector('textarea').value.trim();
+  if (button.dataset.decision === 'changes' && !note) { card.querySelector('textarea').focus(); alert('请先写明修改意见'); return; }
+  card.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  const res = await fetch(api('/decisions'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemKey: card.dataset.key, decision: button.dataset.decision, note, reviewer: $('reviewer').value.trim() }) });
+  if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.message || '提交失败，请稍后再试'); card.querySelectorAll('button').forEach((b) => { b.disabled = false; }); return; }
+  await load();
+});
+load();
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@ package assets
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -62,3 +63,11 @@ func (s *Storage) fetch(ctx context.Context, key string) ([]byte, error) {
 func (s *Storage) ReadBlob() BlobStore { return s.readBlob }
 
 func (s *Storage) BlobEnabled() bool { return s.blob != nil }
+
+// ReadGenerated returns a generated asset's bytes from object storage or disk.
+func (s *Storage) ReadGenerated(ctx context.Context, key string) ([]byte, error) {
+	if !validGeneratedKey(key) {
+		return nil, fmt.Errorf("invalid generated object key")
+	}
+	return s.fetch(ctx, key)
+}

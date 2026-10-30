@@ -266,3 +266,21 @@ func TestRejectedBeforeAccept(t *testing.T) {
 		t.Fatal("ambiguous failures must not fail over")
 	}
 }
+
+func TestCancelOnlyBeforeProvider(t *testing.T) {
+	repo := NewMemoryRepository()
+	service := NewService(false, nil, nil, nil, repo)
+	ctx := context.Background()
+	queued, _ := repo.Create(ctx, Task{ID: "t-queued", UserID: "u1", IdempotencyKey: "k1", Status: "reserved"})
+	running, _ := repo.Create(ctx, Task{ID: "t-running", UserID: "u1", IdempotencyKey: "k2", Status: "running"})
+	got, err := service.Cancel(ctx, "u1", queued.ID)
+	if err != nil || got.Status != "cancelled" {
+		t.Fatalf("queued task should cancel: %+v %v", got, err)
+	}
+	if _, err := service.Cancel(ctx, "u1", running.ID); err == nil {
+		t.Fatal("running task must not cancel")
+	}
+	if _, err := service.Cancel(ctx, "u2", queued.ID); err == nil {
+		t.Fatal("other users must not cancel")
+	}
+}

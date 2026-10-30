@@ -164,7 +164,11 @@ type Service struct {
 	registry    Registry
 	storage     GeneratedStorage
 	router      LogicalRouter
+	events      EventRecorder
 }
+
+// EventRecorder writes one row of the task timeline shown in the admin console.
+type EventRecorder func(ctx context.Context, taskID, stage, state, code string, duration time.Duration) error
 
 func NewService(realEnabled bool, provider Generator, enqueue Enqueuer, refs func(string) (string, bool), repository Repository) *Service {
 	if repository == nil {
@@ -177,6 +181,46 @@ func (s *Service) WithRegistry(registry Registry) *Service       { s.registry = 
 func (s *Service) WithStorage(storage GeneratedStorage) *Service { s.storage = storage; return s }
 func (s *Service) WithMock(mock bool) *Service                   { s.mock = mock; return s }
 func (s *Service) WithRouting(router LogicalRouter) *Service     { s.router = router; return s }
+func (s *Service) WithEvents(events EventRecorder) *Service      { s.events = events; return s }
+
+// event never fails the task: the timeline is diagnostic only.
+func (s *Service) event(ctx context.Context, taskID, stage, state, code string, duration time.Duration) {
+	if s.events != nil && taskID != "" {
+		_ = s.events(ctx, taskID, stage, state, code, duration)
+	}
+}
+
+// Cancel stops a task that has not reached a provider yet and returns its
+// reserved credits. Work already sent to a provider cannot be recalled.
+func (s *Service) Cancel(ctx context.Context, userID, taskID string) (Task, error) {
+	task, ok, err := s.repository.Get(ctx, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if !ok || task.UserID != userID {
+		return Task{}, &APIError{"NOT_FOUND", "任务不存在", 404}
+	}
+	switch task.Status {
+	case "cancelled":
+		return task, nil
+	case "reserved":
+	default:
+		return Task{}, &APIError{"TASK_NOT_CANCELLABLE", "任务已在生成或已结束，无法取消", 409}
+	}
+	task.Status = "cancelled"
+	task.Error = &TaskError{"CANCELLED", "用户已取消"}
+	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := s.repository.Update(ctx, task); err != nil {
+		return Task{}, err
+	}
+	if s.credits != nil && task.CreditReservationID != "" {
+		if err := s.credits.Release(ctx, task.CreditReservationID); err != nil {
+			return Task{}, err
+		}
+	}
+	s.event(ctx, task.ID, "cancelled", "ok", "", 0)
+	return task, nil
+}
 
 func (s *Service) Estimate(ctx context.Context, user auth.User, modelName string, count int, advanced bool) (map[string]any, error) {
 	if count != 1 {
@@ -341,6 +385,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	if task.Status != "reserved" {
 		return task, nil
 	}
+	s.event(ctx, task.ID, "queued", "ok", "", 0)
 	if s.enqueue != nil {
 		if err := s.enqueue.Enqueue(ctx, task.ID); err != nil {
 			s.fail(ctx, &task, "PROVIDER_UNAVAILABLE", "任务队列不可用")
@@ -450,6 +495,8 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if err = s.repository.Update(ctx, task); err != nil {
 		return err
 	}
+	s.event(ctx, task.ID, "running", "ok", "", 0)
+	providerStarted := time.Now()
 	input := task.Request
 	maskRef := ""
 	if input.MaskObjectKey != "" && s.refs != nil {
@@ -474,6 +521,11 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if err != nil {
 		code := "GENERATION_FAILED"
 		message := err.Error()
+		providerCode := "PROVIDER_ERROR"
+		if pe, typed := err.(*providers.Error); typed {
+			providerCode = pe.Code
+		}
+		s.event(ctx, task.ID, "provider", "failed", providerCode, time.Since(providerStarted))
 		if task.LogicalModel != "" {
 			code = "GENERATION_UNAVAILABLE"
 			message = "生成服务繁忙，请稍后重试"
@@ -488,6 +540,7 @@ func (s *Service) Execute(ctx context.Context, taskID string) error {
 	if len(result.Outputs) == 0 {
 		return s.fail(ctx, &task, "GENERATION_FAILED", "Provider 未返回图片")
 	}
+	s.event(ctx, task.ID, "provider", "ok", "", time.Since(providerStarted))
 	if s.storage == nil {
 		return fmt.Errorf("generated asset storage is required")
 	}
@@ -618,7 +671,11 @@ func (s *Service) finalize(ctx context.Context, task *Task) error {
 	}
 	task.Status = "success"
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	return s.repository.Update(ctx, *task)
+	if err := s.repository.Update(ctx, *task); err != nil {
+		return err
+	}
+	s.event(ctx, task.ID, "settled", "ok", "", 0)
+	return nil
 }
 func (s *Service) Deliver(task *Task) error {
 	if task.Status != "success" {
@@ -649,6 +706,7 @@ func (s *Service) Deliver(task *Task) error {
 	return nil
 }
 func (s *Service) fail(ctx context.Context, task *Task, code, message string) error {
+	s.event(ctx, task.ID, "failed", "failed", code, 0)
 	task.Status = "failed"
 	task.Error = &TaskError{code, message}
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
@@ -710,4 +768,9 @@ func id() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b[:4]) + "-" + hex.EncodeToString(b[4:6]) + "-4" + hex.EncodeToString(b[6:8])[1:] + "-8" + hex.EncodeToString(b[8:10])[1:] + "-" + hex.EncodeToString(b[10:])
+}
+
+// AdminGet reads any task for operator tools; callers must enforce admin rights.
+func (s *Service) AdminGet(ctx context.Context, taskID string) (Task, bool, error) {
+	return s.repository.Get(ctx, taskID)
 }
