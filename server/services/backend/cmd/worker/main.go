@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/weavia/weavia/services/backend/internal/storageconfig"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -40,6 +41,12 @@ func main() {
 		fatal(err)
 	}
 	storage := assets.New(cfg.AssetStorageDir, cfg.StorageSigningKey)
+	// The API writes references to object storage when OSS is enabled, so the
+	// worker must use the same storage or every reference image looks missing.
+	if err := storageconfig.New(pool, cfg.StorageSigningKey).Apply(ctx, storage); err != nil {
+		slog.Warn("object storage config not applied, worker reads local disk only", "error", err)
+	}
+	slog.Info("worker storage", "object_storage", storage.BlobEnabled())
 	credentials := providerconfig.New(pool, cfg.StorageSigningKey)
 	routingService := routing.New(pool, credentials)
 	mock := cfg.AIMode == "mock"

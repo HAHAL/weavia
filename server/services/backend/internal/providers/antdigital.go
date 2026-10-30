@@ -3,11 +3,15 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,6 +60,9 @@ func (p *AntDigital) Generate(ctx context.Context, input ImageRequest) (ImageRes
 	if count < 1 {
 		count = 1
 	}
+	if openAIImageModel(input.Model) {
+		return p.generateOpenAI(ctx, input, size, count)
+	}
 	body := map[string]any{"model": input.Model, "prompt": input.Prompt, "size": size, "n": count, "prompt_extend": input.PromptExtend}
 	if input.NegativePrompt != "" {
 		body["negative_prompt"] = input.NegativePrompt
@@ -76,7 +83,85 @@ func (p *AntDigital) Generate(ctx context.Context, input ImageRequest) (ImageRes
 		}
 	}
 	encoded, _ := json.Marshal(body)
-	requestURL, err := url.JoinPath(p.BaseURL, "images/generations")
+	return p.send(ctx, input, "images/generations", "application/json", encoded)
+}
+
+// openAIImageModel reports models that gateways validate against the strict
+// OpenAI Images API: vendor fields such as prompt_extend are rejected and a
+// reference image must go to /images/edits as a multipart file.
+func openAIImageModel(model string) bool {
+	m := strings.ToLower(model)
+	return strings.HasPrefix(m, "gpt-image") || strings.HasPrefix(m, "dall-e")
+}
+
+func (p *AntDigital) generateOpenAI(ctx context.Context, input ImageRequest, size string, count int) (ImageResult, error) {
+	reference := input.ReferenceImage
+	if reference == "" {
+		reference = input.ReferenceURL
+	}
+	if reference == "" {
+		encoded, _ := json.Marshal(map[string]any{"model": input.Model, "prompt": input.Prompt, "size": size, "n": count})
+		return p.send(ctx, input, "images/generations", "application/json", encoded)
+	}
+	image, mime, err := loadReference(ctx, reference)
+	if err != nil {
+		return ImageResult{}, &Error{"INVALID_REQUEST", "Reference image unavailable: " + err.Error(), false, 400}
+	}
+	var form bytes.Buffer
+	writer := multipart.NewWriter(&form)
+	for key, value := range map[string]string{"model": input.Model, "prompt": input.Prompt, "size": size, "n": strconv.Itoa(count)} {
+		_ = writer.WriteField(key, value)
+	}
+	ext := map[string]string{"image/jpeg": "jpg", "image/webp": "webp"}[mime]
+	if ext == "" {
+		ext = "png"
+	}
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename="reference.%s"`, ext))
+	header.Set("Content-Type", mime)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return ImageResult{}, err
+	}
+	_, _ = part.Write(image)
+	if err := writer.Close(); err != nil {
+		return ImageResult{}, err
+	}
+	return p.send(ctx, input, "images/edits", writer.FormDataContentType(), form.Bytes())
+}
+
+// loadReference decodes a data URI or downloads an https reference image.
+func loadReference(ctx context.Context, reference string) ([]byte, string, error) {
+	if strings.HasPrefix(reference, "data:") {
+		head, data, ok := strings.Cut(reference, ",")
+		if !ok || !strings.HasSuffix(head, ";base64") {
+			return nil, "", fmt.Errorf("invalid data URI")
+		}
+		body, err := base64.StdEncoding.DecodeString(data)
+		return body, strings.TrimSuffix(strings.TrimPrefix(head, "data:"), ";base64"), err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reference, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("download returned %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
+	mime := resp.Header.Get("Content-Type")
+	if mime == "" {
+		mime = http.DetectContentType(body)
+	}
+	return body, mime, err
+}
+
+func (p *AntDigital) send(ctx context.Context, input ImageRequest, path, contentType string, requestBody []byte) (ImageResult, error) {
+	requestURL, err := url.JoinPath(p.BaseURL, path)
 	if err != nil {
 		return ImageResult{}, err
 	}
@@ -86,12 +171,12 @@ func (p *AntDigital) Generate(ctx context.Context, input ImageRequest) (ImageRes
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, requestURL, bytes.NewReader(encoded))
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, requestURL, bytes.NewReader(requestBody))
 	if err != nil {
 		return ImageResult{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Idempotency-Key", input.IdempotencyKey)
 	client := p.Client
 	if client == nil {

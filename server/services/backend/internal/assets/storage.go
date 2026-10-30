@@ -97,12 +97,12 @@ func (s *Storage) Put(token string, body []byte) (string, error) {
 	}
 	return key, nil
 }
+
+// DataURL reads from object storage first (where uploads go when OSS is on)
+// and falls back to local disk for files written before the switch.
 func (s *Storage) DataURL(objectKey, mime string) (string, bool) {
-	if strings.Contains(objectKey, "..") {
-		return "", false
-	}
-	body, err := os.ReadFile(filepath.Join(s.Root, filepath.FromSlash(objectKey)))
-	if err != nil {
+	body, ok := s.Read(objectKey)
+	if !ok {
 		return "", false
 	}
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(body), true
