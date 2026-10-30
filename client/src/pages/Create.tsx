@@ -2,6 +2,8 @@ import { ArrowLeft, ArrowUpRight, GalleryHorizontal, WandSparkles } from 'lucide
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, StatePanel } from '../components/ui';
 import { useAssetPreview } from '../hooks/useAssetPreview';
+import { reviewOf, withReview } from '../lib/review';
+import type { Task, Work } from '../types';
 import { useApp } from '../stores/app';
 
 const statusLabel: Record<string, string> = {
@@ -18,6 +20,34 @@ const statusTone: Record<string, 'neutral' | 'warning' | 'success' | 'danger'> =
   Failed: 'danger',
   Cancelled: 'neutral',
 };
+
+function BatchItem({ task, work, active, onOpen }: { task: Task; work?: Work; active: boolean; onOpen: () => void }) {
+  const version = work?.versions.at(-1);
+  const { url } = useAssetPreview(version?.assetId, version?.dataUrl);
+  const review = work ? reviewOf(work) : undefined;
+  const label = !work ? statusLabel[task.status] || task.status : review === 'approved' ? '已通过' : review === 'changes_needed' ? '需修改' : '待核对';
+  return <button type="button" className={`batch-item ${active ? 'active' : ''}`} onClick={onOpen} aria-label={`${task.title}：${label}`}>
+    <span className="batch-thumb">{url ? <img src={url} alt="" /> : <GalleryHorizontal size={20} aria-hidden="true" />}</span>
+    <small>{(task.batch?.index ?? 0) + 1}. {label}</small>
+  </button>;
+}
+
+// One product's whole set on one screen: pick any output, review it, download
+// it, or open the editor, without going through the task list.
+function BatchStrip({ task }: { task: Task }) {
+  const navigate = useNavigate();
+  const { tasks, works, updateWork, notify } = useApp();
+  if (!task.batch) return null;
+  const siblings = tasks.filter(item => item.batch?.id === task.batch!.id).sort((a, b) => (a.batch?.index ?? 0) - (b.batch?.index ?? 0));
+  const workOf = (item: Task) => works.find(work => work.taskId === item.id);
+  const current = workOf(task);
+  const done = siblings.filter(item => workOf(item)).length;
+  return <Card className="batch-strip">
+    <div className="batch-head"><div><span className="home-eyebrow">本套 · {task.batch.title}</span><strong>已出 {done}/{task.batch.total} 张</strong></div><Button variant="secondary" onClick={() => navigate('/delivery')}>去交付台</Button></div>
+    <div className="batch-items">{siblings.map(item => <BatchItem key={item.id} task={item} work={workOf(item)} active={item.id === task.id} onOpen={() => navigate(`/create?task=${item.id}`)} />)}</div>
+    {current && <div className="batch-review"><span>这一张：</span><Button variant="secondary" onClick={() => { updateWork(withReview(current, 'changes_needed')); notify('已标记需修改'); }}>需修改</Button><Button onClick={() => { updateWork(withReview(current, 'approved')); notify('已标记通过'); }}>核对通过</Button></div>}
+  </Card>;
+}
 
 export function CreatePage() {
   const navigate = useNavigate();
@@ -39,6 +69,7 @@ export function CreatePage() {
   return <div className="page session-page">
     <button className="create-back" type="button" onClick={() => navigate('/')}><ArrowLeft size={16} /> 返回首页</button>
     <div className="page-header"><div><span className="home-eyebrow">创作会话</span><h1>{task.title || '本次创作'}</h1><p>结果会保留在本次会话，可继续编辑或导出。</p></div><Badge tone={statusTone[task.status]}>{statusLabel[task.status] || task.status}</Badge></div>
+    <BatchStrip task={task} />
     <div className="session-layout">
       <div className="session-main">
         <Card className="session-stage">

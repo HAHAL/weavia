@@ -8,6 +8,8 @@ import { CreatePage } from './pages/Create';
 import { Products } from './pages/Products';
 import { Assets } from './pages/Assets';
 import { Skills } from './pages/Skills';
+import { TemplatesPage } from './pages/Templates';
+import { VideoRemakePage } from './pages/VideoRemake';
 import { Tasks } from './pages/Tasks';
 import { Works } from './pages/Works';
 import { DeliveryPage } from './pages/Delivery';
@@ -52,6 +54,8 @@ root.render(
               <Route path="products" element={<Products />} />
               <Route path="assets" element={<Assets />} />
               <Route path="skills" element={<Skills />} />
+              <Route path="templates" element={<TemplatesPage />} />
+              <Route path="video-remake" element={import.meta.env.VITE_ENABLE_VIDEO === 'true' ? <VideoRemakePage /> : <Navigate to="/" replace />} />
               <Route path="tasks" element={<Tasks />} />
               <Route path="works" element={<Works />} />
               <Route path="delivery" element={<DeliveryPage />} />

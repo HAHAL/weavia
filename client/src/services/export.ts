@@ -1,4 +1,5 @@
 import { isTauri } from '@tauri-apps/api/core';
+import { reviewOf } from '../lib/review';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import { createZip, type ZipEntry } from '../lib/zip';
@@ -68,7 +69,7 @@ export async function exportSet(works: Work[]): Promise<ExportResult> {
       work.product?.sku || '',
       work.mode === 'image' ? '图片' : '视频',
       `v${work.versions.length}`,
-      work.reviewStatus === 'approved' ? '已通过' : work.reviewStatus === 'changes_needed' ? '需修改' : '待核对',
+      reviewOf(work) === 'approved' ? '已通过' : reviewOf(work) === 'changes_needed' ? '需修改' : '待核对',
       version.prompt || '',
     ]);
   }
@@ -88,7 +89,7 @@ export async function exportSet(works: Work[]): Promise<ExportResult> {
       sku: work.product?.sku || '',
       mode: work.mode,
       versions: work.versions.length,
-      reviewStatus: work.reviewStatus || 'pending',
+      reviewStatus: reviewOf(work),
       taskId: work.taskId,
       prompt: work.versions.at(-1)?.prompt || '',
     })),

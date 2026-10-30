@@ -33,8 +33,9 @@ export function LoginPage() {
       <Field label="密码"><input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="输入密码" /></Field>
       <label className="auth-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /><span>10 天内自动登录</span><small>仅保存登录会话，不保存密码</small></label>
       {error && <p className="form-error auth-error" role="alert">{error}</p>}
+      <details className="auth-forgot"><summary>忘记密码？</summary><p>请联系客服或你的商务对接人，核实账户后会为你重置临时密码。登录后可在「账户 → 登录与安全」查看设备与会话。</p></details>
       <Button className="auth-submit" type="submit" disabled={busy}>{busy ? '登录中…' : '登录'}</Button>
     </form>
-    <div className="auth-meta"><span className={`auth-mode ${apiConfig.mode === 'live' ? 'live' : ''}`}>{apiConfig.mode === 'live' ? 'Live 测试环境' : '演示模式'}</span>{import.meta.env.DEV && <span>开发账号：dev@weavia.local</span>}</div>
+    <div className="auth-meta"><span className={`auth-mode ${apiConfig.mode === 'live' ? 'live' : ''}`}>{apiConfig.mode === 'live' ? '已连接云端' : '演示模式'}</span>{import.meta.env.DEV && <span>开发账号：dev@weavia.local</span>}</div>
   </AuthShell>;
 }

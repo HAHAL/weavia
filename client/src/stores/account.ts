@@ -66,7 +66,9 @@ export function enterAccountScope(userId: string): void {
   const scopeId = userId.trim() || ANONYMOUS_SCOPE;
   if (currentScope() === scopeId) return;
   const saved = readState(partitionKey(scopeId));
-  applyScope(scopeId, hasAccountData(saved) ? saved : adoptLegacyState(scopeId) ?? saved);
+  const initial = hasAccountData(saved) ? saved : adoptLegacyState(scopeId) ?? saved;
+  applyScope(scopeId, initial);
+  if (!hasAccountData(initial)) void import('../services/database').then(m => m.restoreScopeFromDatabase(scopeId)).catch(() => { /* web build has no SQLite */ });
 }
 
 export function leaveAccountScope(): void {

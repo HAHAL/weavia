@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, Boxes, Check, ChevronDown, Crown, Image as ImageIcon, LayoutGrid, Megaphone, SlidersHorizontal, Sparkles, Video, WandSparkles } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Card, Dialog, Field } from '../components/ui';
@@ -11,6 +11,7 @@ import { createTask } from '../services/tasks';
 import { MODELS, type CreativeBrief, type Mode, type Model, type ProductBrief } from '../types';
 import { FALLBACK_SHOWCASE, type ShowcaseItem } from '../data/showcase';
 import { loadShowcase, recordShowcaseUse } from '../services/showcase';
+import { fillTemplate, hasPlaceholders } from '../services/templates';
 import { loadPlatformModels } from '../services/models';
 import { loadSkills, runSkill, type Skill } from '../services/recipes';
 import { trackLiveTask } from '../services/live';
@@ -63,7 +64,7 @@ function sizeFor(ratio: string, resolution: string) {
 export function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const routeState = location.state as { retryPrompt?: string; prompt?: string; productId?: string; mode?: Mode; channel?: string; market?: string; language?: string; audience?: string; videoRatio?: string; videoDuration?: number; modelId?: string; ratio?: string; resolution?: string; count?: number; attachmentIds?: string[] } | null;
+  const routeState = location.state as { retryPrompt?: string; prompt?: string; productId?: string; mode?: Mode; channel?: string; market?: string; language?: string; audience?: string; videoRatio?: string; videoDuration?: number; modelId?: string; ratio?: string; resolution?: string; count?: number; attachmentIds?: string[]; template?: ShowcaseItem } | null;
   const { tasks, works, products, assets, notify } = useApp();
   const user = useAuth(state => state.user);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -107,13 +108,13 @@ export function HomePage() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const selectedProduct = products.find(item => item.id === productId);
   const selectedReferences = selectedProduct?.sourceAssetId ? [selectedProduct.sourceAssetId, ...attachmentIds.filter(id => id !== selectedProduct.sourceAssetId)] : attachmentIds;
-  const models = modelOptions.filter(item => item.modes.includes(mode) && (mode === 'video' ? item.capabilities?.includes('text_to_video') : !item.capabilities || item.capabilities.includes(selectedReferences.length ? 'image_to_image' : 'text_to_image')));
+  const models = modelOptions.filter(item => item.modes.includes(mode) && (mode === 'video' ? item.capabilities?.includes(selectedReferences.length ? 'image_to_video' : 'text_to_video') : !item.capabilities || item.capabilities.includes(selectedReferences.length ? 'image_to_image' : 'text_to_image')));
   // Video stays off until a real video task has succeeded end to end; the
   // server may advertise seedance models long before that is verified.
   const videoEnabled = import.meta.env.VITE_ENABLE_VIDEO === 'true';
   const videoAvailable = videoEnabled && modelOptions.some(item => item.modes.includes('video') && item.capabilities?.includes('text_to_video') && item.available === true && (item.channels || 0) > 0);
   const latestTask = [...tasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  const showcaseImages = showcase.filter(item => item.kind === 'image');
+  const showcaseImages = showcase.filter(item => item.kind === 'image').sort((a, b) => (b.useCount || 0) - (a.useCount || 0)).slice(0, 8);
   const showcaseWorks = showcase.filter(item => item.kind === 'work');
   const selectedModel = models.find(item => item.id === modelId) || models.find(item => item.available !== false) || models[0];
   const planModels = modelOptions.filter(item => item.modes.includes('image') && (!item.capabilities || item.capabilities.includes(selectedReferences.length ? 'image_to_image' : 'text_to_image')));
@@ -124,11 +125,15 @@ export function HomePage() {
     : (selectedModel?.creditBase || 8) * count * resolutionMultiplier;
   const [serverQuote, setServerQuote] = useState<Quote | null>(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
-  const quoteMode: 'text_to_image' | 'image_to_image' | 'text_to_video' = mode === 'video' ? 'text_to_video' : selectedReferences.length ? 'image_to_image' : 'text_to_image';
+  const quoteMode: 'text_to_image' | 'image_to_image' | 'text_to_video' | 'image_to_video' = mode === 'video' ? (selectedReferences.length ? 'image_to_video' : 'text_to_video') : selectedReferences.length ? 'image_to_image' : 'text_to_image';
   const quoteSize = mode === 'video'
     ? (videoResolution === '1080P' ? (videoRatio === '9:16' ? '1080*1920' : '1920*1080') : (videoRatio === '9:16' ? '720*1280' : '1280*720'))
     : sizeFor(ratio, resolution);
   const quoteCount = mode === 'video' ? 1 : count;
+  // The server compares how many reference images were priced, so quote with
+  // exactly the references the submit will upload.
+  const quoteReferenceKey = (mode === 'video' ? selectedReferences.slice(0, 1) : selectedReferences).join(',');
+  const quoteReferences = useMemo(() => (quoteReferenceKey ? quoteReferenceKey.split(',') : []), [quoteReferenceKey]);
   const quoteModelId = selectedModel?.id || '';
   const credits = serverQuote?.totalCredits ?? estimatedCredits;
   const paramSummary = mode === 'video' ? `${videoRatio} · ${videoResolution} · ${duration}s` : `${ratio} · ${resolution} · ${count} 张`;
@@ -144,17 +149,19 @@ export function HomePage() {
     const timer = window.setTimeout(() => {
       if (!active) return;
       setQuoteBusy(true);
-      createQuote({ model: quoteModelId, mode: quoteMode, prompt: prompt.trim(), size: quoteSize, numberOfImages: quoteCount })
+      createQuote({ model: quoteModelId, mode: quoteMode, prompt: prompt.trim(), size: quoteSize, numberOfImages: quoteCount, referenceAssetIds: quoteReferences })
         .then(next => { if (active) setServerQuote(next); })
         .catch(() => { if (active) setServerQuote(null); })
         .finally(() => { if (active) setQuoteBusy(false); });
     }, 500);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [quoteModelId, quoteMode, quoteSize, quoteCount, prompt]);
+  }, [quoteModelId, quoteMode, quoteSize, quoteCount, prompt, quoteReferences]);
 
   function chooseProduct(id: string) {
     const previousSource = products.find(item => item.id === productId)?.sourceAssetId;
     setProductId(id);
+    const next = products.find(item => item.id === id);
+    if (next && hasPlaceholders(prompt)) setPrompt(current => fillTemplate(current, next));
     setAttachmentIds(current => {
       return current.filter(item => item !== previousSource);
     });
@@ -221,7 +228,7 @@ export function HomePage() {
   function applyShowcase(item: ShowcaseItem) {
     const nextMode: Mode = item.media === 'video' && videoAvailable ? 'video' : 'image';
     selectMode(nextMode);
-    setPrompt(item.prompt);
+    setPrompt(fillTemplate(item.prompt, selectedProduct));
     const presetModel = item.model ? modelOptions.find(option => option.id === item.model && option.modes.includes(nextMode)) : undefined;
     if (presetModel) setModelId(presetModel.id);
     if (nextMode === 'image') {
@@ -237,6 +244,17 @@ export function HomePage() {
     promptRef.current?.focus();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
+  // A template chosen in 模板库 arrives through router state; apply it once the
+  // model list is known so its preset model can be selected.
+  const pendingTemplate = useRef(routeState?.template);
+  useEffect(() => {
+    const template = pendingTemplate.current;
+    if (!template || (apiConfig.mode === 'live' && !modelOptions.length)) return;
+    pendingTemplate.current = undefined;
+    const timer = window.setTimeout(() => applyShowcase(template), 0);
+    return () => window.clearTimeout(timer);
+  });
 
   function openParams() {
     const rect = paramButtonRef.current?.getBoundingClientRect();
@@ -286,7 +304,7 @@ export function HomePage() {
         modelId: selectedModel.id,
         quoteId,
         params: nextMode === 'video' ? { ratio: videoRatio, resolution: videoResolution, duration, count: 1, promptExtend, size: videoRatio === '9:16' ? (videoResolution === '1080P' ? '1080*1920' : '720*1280') : (videoResolution === '1080P' ? '1920*1080' : '1280*720'), negativePrompt, seed, outputFormat: 'mp4', watermark, referenceStrength } : { ratio, resolution, count, promptExtend, size: sizeFor(ratio, resolution), negativePrompt, seed, outputFormat, watermark, referenceStrength },
-        referenceAssetIds: nextMode === 'video' ? [] : selectedReferences,
+        referenceAssetIds: nextMode === 'video' ? selectedReferences.slice(0, 1) : selectedReferences,
         product,
         creative,
 
@@ -305,6 +323,7 @@ export function HomePage() {
     if (!channel.trim() || !market.trim() || !language.trim()) { notify('请填写渠道、市场和输出语言。'); return; }
     const product: ProductBrief | undefined = selectedProduct ? { id: selectedProduct.id, name: selectedProduct.name, sku: selectedProduct.sku, description: selectedProduct.description, verifiedFacts: selectedProduct.verifiedFacts || '', forbiddenClaims: selectedProduct.forbiddenClaims || '', sourceAssetId: selectedProduct.sourceAssetId || '' } : undefined;
     let firstTaskId = '';
+    const batch = { id: crypto.randomUUID(), title: `${selectedProduct?.name || '套图'} · ${items.length} 张 · ${new Date().toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}`, total: items.length };
     setSubmittingPlan(true);
     try {
       for (const [index, item] of items.entries()) {
@@ -319,7 +338,7 @@ export function HomePage() {
           });
           const creativePurpose: CreativeBrief['purpose'] = item.purpose === 'scene' || item.purpose === 'usage' ? 'scene' : item.purpose === 'selling_point' ? 'ad' : 'hero';
           const creative: CreativeBrief = { purpose: creativePurpose, channel: channel.trim(), market: market.trim(), language: language.trim(), audience: audience.trim(), product: product ? { localId: product.id, name: product.name, sku: product.sku, description: product.description, verifiedFacts: product.verifiedFacts, forbiddenClaims: product.forbiddenClaims } : undefined };
-          const taskId = await createTask({ prompt: item.prompt.trim(), mode: 'image', modelId: planModel.id, params: { ratio: item.ratio, resolution: '1K', count: 1, size: item.size, promptExtend: true }, quoteId: quote.id, product, creative, referenceAssetIds: selectedReferences });
+          const taskId = await createTask({ prompt: item.prompt.trim(), mode: 'image', modelId: planModel.id, params: { ratio: item.ratio, resolution: '1K', count: 1, size: item.size, promptExtend: true }, quoteId: quote.id, product, creative, referenceAssetIds: selectedReferences, batch: { ...batch, index } });
           if (!firstTaskId) firstTaskId = taskId;
         } catch (cause) {
           notify(`第 ${index + 1} 张提交失败：${cause instanceof Error ? cause.message : '未知错误'}${firstTaskId ? '；前面的任务已提交，请在任务中心查看' : ''}`);
@@ -366,7 +385,7 @@ export function HomePage() {
       {error && <p className="home-composer-error" role="alert">{error}</p>}
       <div className="home-prompt-chips" aria-label="常用创作场景">{scenes.map(scene => <button type="button" key={scene.title} disabled={scene.mode === 'video' && !videoAvailable} title={scene.mode === 'video' && !videoAvailable ? '视频生成暂未开放' : undefined} onClick={() => { setPrompt(scene.prompt); selectMode(scene.mode); setError(''); }}><scene.icon size={16} aria-hidden="true" />{scene.title}{scene.mode === 'video' && !videoAvailable && <small>暂未开放</small>}</button>)}</div>
     </section>
-    <section className="home-section"><div className="section-heading"><div><h2>灵感广场</h2><p>看中哪张点「做同款」，提示词和参数自动带入，换成你的商品即可</p></div><span className="badge">示例</span></div><div className="showcase-grid">{showcaseImages.map(item => <button type="button" key={item.id} className="showcase-card" aria-label={`做同款：${item.title}`} onClick={() => applyShowcase(item)}><img src={item.imageUrl} alt={item.title} loading="lazy" /><span className="showcase-overlay"><strong>{item.title}</strong><small>{item.tag}{item.useCount ? ` · ${item.useCount} 人用过` : ''}</small><span className="showcase-use">做同款</span></span></button>)}</div></section>
+    <section className="home-section"><div className="section-heading"><div><h2>热门模板</h2><p>看中哪张点「做同款」，提示词和参数自动带入，换成你的商品即可</p></div><button type="button" className="text-link" onClick={() => navigate('/templates')}>全部模板 →</button></div><div className="showcase-grid">{showcaseImages.map(item => <button type="button" key={item.id} className="showcase-card" aria-label={`做同款：${item.title}`} onClick={() => applyShowcase(item)}><img src={item.imageUrl} alt={item.title} loading="lazy" /><span className="showcase-overlay"><strong>{item.title}</strong><small>{item.tag}{item.useCount ? ` · ${item.useCount} 人用过` : ''}</small><span className="showcase-use">做同款</span></span></button>)}</div></section>
     {showcaseWorks.length > 0 && <section className="home-section"><div className="section-heading"><div><h2>精选作品</h2><p>完整案例，点「做同款」一键复用</p></div><span className="badge">示例</span></div><div className="showcase-grid">{showcaseWorks.map(item => <button type="button" key={item.id} className="showcase-card" aria-label={`做同款：${item.title}`} onClick={() => applyShowcase(item)}><img src={item.imageUrl} alt={item.title} loading="lazy" /><span className="showcase-overlay"><strong>{item.title}</strong><small>{item.tag}{item.useCount ? ` · ${item.useCount} 人用过` : ''}</small><span className="showcase-use">做同款</span></span></button>)}</div></section>}
     <section className="home-section"><div className="section-heading"><div><h2>继续你的工作</h2><p>查看最近的任务与作品</p></div></div><div className="home-recent-grid"><Card className="home-recent"><strong>最近任务</strong>{latestTask ? <><p>{latestTask.title}</p><small>{latestTask.status === 'Succeeded' ? '已完成' : latestTask.status === 'Running' ? '进行中' : latestTask.status === 'Queued' ? '排队中' : latestTask.status === 'Failed' ? '失败' : '已取消'} · {latestTask.source === 'mock' ? '演示任务' : '云端任务'}</small></> : <p>还没有任务</p>}<Button variant="secondary" onClick={() => navigate('/tasks')}>查看任务</Button></Card><Card className="home-recent"><strong>作品中心</strong><p>{works.length ? `已有 ${works.length} 件作品` : '还没有作品'}</p><small>查看版本与继续编辑</small><Button variant="secondary" onClick={() => navigate('/works')}>查看作品</Button></Card></div></section>
 

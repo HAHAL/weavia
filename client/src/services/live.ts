@@ -1,4 +1,5 @@
 import { ApiError, apiBlob, apiRequest } from './api';
+import { withNewVersion } from '../lib/review';
 import { importAsset } from './assets';
 import { uploadReferenceAsset } from './serverAssets';
 import { useApp } from '../stores/app';
@@ -80,9 +81,9 @@ async function complete(id: string, server: ServerTask) {
       const extension = mime === 'video/mp4' ? 'mp4' : mime === 'video/webm' ? 'webm' : mime === 'image/jpeg' ? 'jpg' : 'png';
       const asset = await importAsset(new File([blob], `${id}-${index + 1}.${extension}`, { type: mime }));
       useApp.getState().addAsset({ ...asset, category: '作品' });
-      const version = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), prompt: task.prompt, assetId: asset.id, mimeType: mime };
+      const version = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), prompt: task.prompt, assetId: asset.id, mimeType: mime, taskId: id, outputIndex: index };
       if (parent && index === 0) {
-        useApp.getState().updateWork({ ...parent, versions: [...parent.versions, version] });
+        useApp.getState().updateWork(withNewVersion(parent, version));
       } else if (!useApp.getState().works.some(work => work.taskId === id && work.outputIndex === index)) {
         const workId = crypto.randomUUID();
         const work: Work = { id: workId, title: total > 1 ? `${task.title} · ${index + 1}` : task.title, mode: task.mode, taskId: id, source: 'live', product: task.product, reviewStatus: 'pending', versions: [version], outputIndex: index };
@@ -182,8 +183,8 @@ export async function createLiveTask(prompt: string, modelId: string, params?: {
       quoteId: quoteId || '',
       modelKey: modelId,
       model,
-      mode: mode === 'video' ? 'text_to_video' : referenceAssets.length ? 'image_to_image' : 'text_to_image',
-      projectId: referenceAssets.length && mode === 'image' ? 'local-assets' : '',
+      mode: mode === 'video' ? (referenceAssets.length ? 'image_to_video' : 'text_to_video') : referenceAssets.length ? 'image_to_image' : 'text_to_image',
+      projectId: referenceAssets.length ? 'local-assets' : '',
       prompt,
       referenceAssets,
       inputAssetId: referenceAssets[0]?.assetId || '',
@@ -255,11 +256,13 @@ export async function createLiveEditTask(prompt: string, modelId: string, asset:
   return server.id;
 }
 
-export function cancelLiveTask(id: string) {
+// Cancels a cloud task that is still queued; the server returns its credits.
+export async function cancelLiveTask(id: string) {
+  await apiRequest(`/api/ai/tasks/${id}/cancel`, { method: 'POST' });
   const timer = timers.get(id);
   if (timer) window.clearTimeout(timer);
   timers.delete(id);
   attempts.delete(id);
-  // This only stops local tracking. The server has no cancellation endpoint.
-  useApp.getState().updateTask(id, { error: '已暂停本机状态查询；服务端任务仍可能继续执行' });
+  useApp.getState().updateTask(id, { status: 'Cancelled', error: '已取消，预扣的 Credits 已退回' });
+  window.dispatchEvent(new Event('weavia:credits'));
 }

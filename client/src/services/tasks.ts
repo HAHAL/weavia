@@ -4,7 +4,7 @@ import { cancelLiveTask, createLiveTask } from './live';
 import type { CreativeBrief, Mode, ProductBrief, Task, Work } from '../types';
 
 export type ImageParams = { ratio: string; resolution: string; count: number; promptExtend: boolean; duration?: number; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number };
-export type CreationInput = { prompt: string; mode: Mode; modelId: string; product?: ProductBrief; creative?: CreativeBrief; referenceAssetIds?: string[]; params?: ImageParams; quoteId?: string };
+export type CreationInput = { prompt: string; mode: Mode; modelId: string; product?: ProductBrief; creative?: CreativeBrief; referenceAssetIds?: string[]; params?: ImageParams; quoteId?: string; batch?: import('../types').TaskBatch };
 
 type Run = { runId: string; timers: number[] };
 const runs = new Map<string, Run>();
@@ -85,15 +85,17 @@ export function disposeMockTasks() {
 }
 
 
-export async function createTask({ prompt, mode, modelId, product, creative, referenceAssetIds = [], params, quoteId }: CreationInput): Promise<string> {
+export async function createTask({ prompt, mode, modelId, product, creative, referenceAssetIds = [], params, quoteId, batch }: CreationInput): Promise<string> {
   if (apiConfig.mode === 'live') {
-    return createLiveTask(prompt, modelId, params, referenceAssetIds, mode, creative, product, quoteId);
+    const id = await createLiveTask(prompt, modelId, params, referenceAssetIds, mode, creative, product, quoteId);
+    if (batch) useApp.getState().updateTask(id, { batch });
+    return id;
   }
   return createMockTask(prompt, mode, { product, creative, referenceAssetIds });
 }
 
 export function cancelTask(id: string) {
   const task = useApp.getState().tasks.find(item => item.id === id);
-  if (task?.source === 'live') cancelLiveTask(id);
+  if (task?.source === 'live') void cancelLiveTask(id).catch(() => { /* running tasks cannot be cancelled */ });
   else cancelMockTask(id);
 }

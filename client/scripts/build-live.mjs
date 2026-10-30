@@ -10,7 +10,7 @@ const env = {
   ...process.env,
   VITE_API_MODE: 'live',
   VITE_API_BASE_URL: apiBase,
-  VITE_ENABLE_VIDEO: process.env.VITE_ENABLE_VIDEO || 'false',
+  VITE_ENABLE_VIDEO: process.env.VITE_ENABLE_VIDEO || 'true',
 };
 
 console.log(`[build-live] mode=live api=${apiBase} video=${env.VITE_ENABLE_VIDEO}`);

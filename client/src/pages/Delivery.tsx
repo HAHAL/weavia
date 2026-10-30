@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { reviewOf, withReview } from '../lib/review';
 import { useNavigate } from 'react-router-dom';
-import { Download, FileArchive, GalleryHorizontal, ListTodo, Package } from 'lucide-react';
+import { Copy, Download, FileArchive, GalleryHorizontal, Link2, ListTodo, Package } from 'lucide-react';
 import { Badge, Button, Card, Dialog, StatePanel } from '../components/ui';
 import { useApp } from '../stores/app';
 import { useAssetPreview } from '../hooks/useAssetPreview';
 import { exportSet } from '../services/export';
+import { applyCustomerDecisions, createReviewLink, listReviewLinks, reviewLinkUrl, revokeReviewLink, type ReviewLink } from '../services/reviewLinks';
+import { isLiveMode } from '../services/api';
 import type { Work } from '../types';
 
 type Tab = 'review' | 'approved' | 'changes' | 'running' | 'failed';
@@ -18,8 +21,8 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 
 function statusOf(work: Work): Tab {
-  if (work.reviewStatus === 'approved') return 'approved';
-  if (work.reviewStatus === 'changes_needed') return 'changes';
+  if (reviewOf(work) === 'approved') return 'approved';
+  if (reviewOf(work) === 'changes_needed') return 'changes';
   return 'review';
 }
 
@@ -44,7 +47,55 @@ export function DeliveryPage() {
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState(false);
 
-  const visibleWorks = works.filter(work => statusOf(work) === tab);
+  const [batchId, setBatchId] = useState('all');
+  const [links, setLinks] = useState<ReviewLink[]>([]);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [checkedAt, setCheckedAt] = useState(() => Date.now());
+  const batchOf = (work: Work) => tasks.find(task => task.id === work.taskId)?.batch;
+  const batches = Array.from(new Map(works.map(work => batchOf(work)).filter((batch): batch is NonNullable<typeof batch> => Boolean(batch)).map(batch => [batch.id, batch])).values());
+  const inBatch = (work: Work) => batchId === 'all' || batchOf(work)?.id === batchId;
+  const visibleWorks = works.filter(work => statusOf(work) === tab && inBatch(work));
+
+  useEffect(() => {
+    if (!isLiveMode()) return;
+    let active = true;
+    const refresh = () => { void listReviewLinks().then(next => { if (!active) return; setLinks(next); setCheckedAt(Date.now()); const changed = applyCustomerDecisions(next); if (changed) notify(`客户更新了 ${changed} 个审阅结果`); }).catch(() => { /* offline: keep last list */ }); };
+    refresh();
+    const timer = window.setInterval(refresh, 60000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [notify]);
+
+  async function shareForReview() {
+    const scope = works.filter(work => inBatch(work) && statusOf(work) !== 'changes');
+    if (!scope.length) { notify('当前批次没有可发给客户的作品'); return; }
+    const batch = batches.find(item => item.id === batchId);
+    const title = window.prompt('审阅标题（客户可见）', batch?.title || `作品审阅 · ${new Date().toLocaleDateString('zh-CN')}`);
+    if (title === null) return;
+    setLinkBusy(true);
+    try {
+      const result = await createReviewLink(title, scope);
+      await navigator.clipboard?.writeText(result.url).catch(() => undefined);
+      notify(`审阅链接已复制，7 天内有效${result.skipped ? `；${result.skipped} 个本机作品没有云端结果，未包含` : ''}`);
+      setLinks(await listReviewLinks());
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '生成审阅链接失败');
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function copyLink(id: string) {
+    const url = reviewLinkUrl(id);
+    if (!url) { notify('这条链接是在其他设备生成的，请在那台设备复制或重新生成'); return; }
+    await navigator.clipboard?.writeText(url).catch(() => undefined);
+    notify('链接已复制');
+  }
+
+  async function revoke(id: string) {
+    if (!window.confirm('撤销后客户将无法再打开这个链接，确定？')) return;
+    await revokeReviewLink(id).catch(() => undefined);
+    setLinks(await listReviewLinks().catch(() => links));
+  }
   const runningTasks = tasks.filter(task => task.status === 'Queued' || task.status === 'Running');
   const failedTasks = tasks.filter(task => task.status === 'Failed');
   const counts: Record<Tab, number> = {
@@ -65,7 +116,7 @@ export function DeliveryPage() {
 
   function review(status: 'approved' | 'changes_needed') {
     if (!selected) return;
-    updateWork({ ...selected, reviewStatus: status } as Work);
+    updateWork(withReview(selected, status));
     setSelected(null);
     notify(status === 'approved' ? '已标记为核对通过' : '已标记为需要修改');
   }
@@ -90,9 +141,21 @@ export function DeliveryPage() {
       <div><h1>交付台</h1><p>一套图从生成到核对到导出，都在这里收口。</p></div>
       <div className="header-actions">
         <Button variant="secondary" onClick={() => navigate('/tasks')}><ListTodo size={15} /> 任务中心</Button>
+        {isLiveMode() && <Button variant="secondary" disabled={linkBusy} onClick={() => void shareForReview()}><Link2 size={15} /> {linkBusy ? '生成中…' : '发给客户审阅'}</Button>}
         <Button disabled={busy || !exportable.length} onClick={() => void exportCurrent()}><FileArchive size={15} /> {busy ? '导出中…' : `导出整套${exportable.length ? ` (${exportable.length})` : ''}`}</Button>
       </div>
     </div>
+
+    {batches.length > 0 && <div className="delivery-batches" role="group" aria-label="按批次查看">
+      <button type="button" className={batchId === 'all' ? 'selected' : ''} onClick={() => setBatchId('all')}><strong>全部作品</strong><small>{works.length} 件</small></button>
+      {batches.map(batch => {
+        const members = works.filter(work => batchOf(work)?.id === batch.id);
+        const approved = members.filter(work => statusOf(work) === 'approved').length;
+        const changes = members.filter(work => statusOf(work) === 'changes').length;
+        const label = members.length < batch.total ? '生成中' : changes ? '返修中' : approved === members.length ? '可交付' : '待核对';
+        return <button type="button" key={batch.id} className={batchId === batch.id ? 'selected' : ''} onClick={() => setBatchId(batch.id)}><strong>{batch.title}</strong><small>{label} · 通过 {approved}/{batch.total}{changes ? ` · 需修改 ${changes}` : ''}</small></button>;
+      })}
+    </div>}
 
     <div className="delivery-tabs" role="tablist" aria-label="交付状态">
       {TABS.map(item => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)}>
@@ -115,13 +178,15 @@ export function DeliveryPage() {
           <WorkThumb work={work} />
           <div className="delivery-card-body">
             <div className="delivery-card-badges">
-              <Badge tone={work.reviewStatus === 'approved' ? 'success' : work.reviewStatus === 'changes_needed' ? 'danger' : 'warning'}>
-                {work.reviewStatus === 'approved' ? '已通过' : work.reviewStatus === 'changes_needed' ? '需修改' : '待核对'}
+              <Badge tone={reviewOf(work) === 'approved' ? 'success' : reviewOf(work) === 'changes_needed' ? 'danger' : 'warning'}>
+                {reviewOf(work) === 'approved' ? '已通过' : reviewOf(work) === 'changes_needed' ? '需修改' : '待核对'}
               </Badge>
               <Badge>{work.mode === 'image' ? '图片' : '视频'}</Badge>
+              {work.versions.at(-1)?.customer && <Badge tone={work.versions.at(-1)?.customer?.decision === 'approved' ? 'success' : 'danger'}>客户{work.versions.at(-1)?.customer?.decision === 'approved' ? '已通过' : '要修改'}</Badge>}
             </div>
             <h2>{work.title}</h2>
             <p>{work.product ? `${work.product.name} · ${work.product.sku}` : '未关联商品'} · v{work.versions.length}</p>
+            {work.versions.at(-1)?.customer?.note && <p className="delivery-customer-note">客户意见：{work.versions.at(-1)?.customer?.note}</p>}
             <div className="delivery-card-actions">
               <Button variant="secondary" onClick={() => open(work)}><Package size={14} /> 查看</Button>
             </div>
@@ -136,6 +201,13 @@ export function DeliveryPage() {
         action={tab === 'review' ? <Button onClick={() => navigate('/')}>开始创作</Button> : undefined}
       />
     )}
+
+    {links.length > 0 && <section className="delivery-links"><h2>客户审阅链接</h2>{links.slice(0, 8).map(link => {
+      const approved = link.decisions.filter(item => item.decision === 'approved').length;
+      const changes = link.decisions.filter(item => item.decision === 'changes').length;
+      const expired = new Date(link.expiresAt).getTime() < checkedAt;
+      return <Card key={link.id} className="delivery-link"><div><strong>{link.title}</strong><small>{link.items.length} 个结果 · 客户通过 {approved} · 要修改 {changes} · {link.status === 'revoked' ? '已撤销' : expired ? '已过期' : `有效至 ${new Date(link.expiresAt).toLocaleDateString('zh-CN')}`}</small></div>{link.status === 'active' && !expired && <div className="header-actions"><Button variant="secondary" onClick={() => void copyLink(link.id)}><Copy size={14} /> 复制链接</Button><Button variant="ghost" onClick={() => void revoke(link.id)}>撤销</Button></div>}</Card>;
+    })}</section>}
 
     {selected && <Dialog title={selected.title} onClose={() => setSelected(null)} wide>
       <div className="dialog-content">

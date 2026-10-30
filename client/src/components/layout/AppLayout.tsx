@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Home, Package, Images, GalleryHorizontal, ListTodo, WandSparkles, Clapperboard, Workflow, Boxes, LayoutGrid, PanelLeftClose, PanelLeftOpen, Search, ChevronDown, FileArchive } from 'lucide-react';
+import { Home, Package, Images, GalleryHorizontal, ListTodo, WandSparkles, Clapperboard, Film, Boxes, LayoutGrid, LayoutTemplate, PanelLeftClose, PanelLeftOpen, Search, ChevronDown, FileArchive } from 'lucide-react';
 import { useApp } from '../../stores/app';
 import { Avatar } from '../Avatar';
 import { apiConfig, apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/auth';
 import { log } from '../../lib/logger';
 import { startupSync } from '../../services/sync';
+import { startProductSync, stopProductSync } from '../../services/productSync';
 import { APP_VERSION } from '../../services/clientConfig';
 import { Dialog } from '../ui';
 import { AnnouncementCenter } from '../Announcements';
@@ -19,13 +20,13 @@ const primaryNav = [
   { to: '/tasks', label: '任务', icon: ListTodo },
 ];
 const secondaryNav = [{ to: '/assets', label: '素材中心', icon: Images }];
-const capabilityNav = [{ to: '/skills', label: 'Skill 模板', icon: Boxes }, { to: '/applications', label: 'AI 应用', icon: LayoutGrid }];
+const capabilityNav = [{ to: '/templates', label: '模板库', icon: LayoutTemplate }, { to: '/skills', label: 'Skill 模板', icon: Boxes }, { to: '/applications', label: 'AI 应用', icon: LayoutGrid }];
 // Video and the DAG workflow stay out of the menu until they pass acceptance;
 // their routes still exist for internal testing.
 const videoEnabled = import.meta.env.VITE_ENABLE_VIDEO === 'true';
 const toolNav = [
   { to: '/image-editing', label: '图片编辑', icon: WandSparkles },
-  ...(videoEnabled ? [{ to: '/video-studio', label: '视频工作台', icon: Clapperboard }, { to: '/workflow', label: '工作流', icon: Workflow }] : []),
+  ...(videoEnabled ? [{ to: '/video-remake', label: '爆款复刻 · 测试版', icon: Film }, { to: '/video-studio', label: '视频分镜 · 测试版', icon: Clapperboard }] : []),
 ];
 
 export function AppLayout() {
@@ -43,7 +44,7 @@ export function AppLayout() {
     ...works.filter(item => item.title.toLocaleLowerCase().includes(searchTerm)).map(item => ({ id: `work-${item.id}`, type: '作品', label: item.title, detail: '本地作品', to: '/works' })),
   ] : [];
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
-  useEffect(() => { if (!user?.id) return; void startupSync(user.id).catch(() => { /* cached data remains available */ }); }, [user?.id]);
+  useEffect(() => { if (!user?.id) return; void startupSync(user.id).catch(() => { /* cached data remains available */ }); void startProductSync(user.id); return () => stopProductSync(); }, [user?.id]);
   useEffect(() => { const current = user; if (!current) return; let active = true; apiRequest<{ available: number }>('/api/credits').then(data => { if (active) setCreditState({ userId: current.id, available: data.available }); }).catch(() => { /* keep the last known balance */ }); return () => { active = false; }; }, [user, creditsVersion]);
   useEffect(() => { const refresh = () => setCreditsVersion(value => value + 1); window.addEventListener('weavia:credits', refresh); return () => window.removeEventListener('weavia:credits', refresh); }, []);
   const credits = user && creditState?.userId === user.id ? creditState.available : null;
