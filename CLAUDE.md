@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-给 Claude / 任何接手本仓库的 AI 的工作约定。先读 `HANDOFF_2026-10-30.md`（现状、环境、未完成项），再读 `AGENTS.md`（构建与发布规则）。
+给 Claude / 任何接手本仓库的 AI 的工作约定。先读 `HANDOFF_2026-10-30.md`（**§0.2 是最新状态**，再看现状、环境、未完成项），再读 `AGENTS.md`（构建与发布规则）。
 
 ## 项目一句话
 
@@ -29,6 +29,10 @@ UI 改动还要在浏览器里看：把 `client/dist` 用带 SPA fallback 的静
 
 - `generation.Deliver()` 默认不内联 base64：它只读本地盘，OSS 模式下会让所有成功任务详情 500。要开得设 `INLINE_OUTPUT_BASE64=true`。
 - 报价与扣费共用 `generation.TaskCredits`（单价 × 张数 × 尺寸倍率）；改计价只改这一处。
+- worker 与 backend 同一份代码，**两个镜像都要换**；worker 必须加载存储配置，否则 OSS 模式下参考图读不到。
+- GPT-Image / DALL·E 走网关时必须用 OpenAI 原生格式（`providers.openAIImageModel`），别给它们加 `prompt_extend` 等扩展字段。
+- 模型用途决定输入/输出模态（`routing.purposeIO`，后台 `app.js` 的 `PURPOSES` 是镜像），两边要一起改。
+- 改 `server/apps/admin/**` 后递增 `index.html` 里的 `?v=` 版本号。
 - 客户端 0.2.0 起会读 `/api/client/config`：后台改 API 地址或调高最低版本会影响所有新客户端，先验证再保存。
 - 客户端启动会恢复历史任务结果，必须限流（现为最近 3 条、间隔 600ms），否则 6 条连接被占满。
 - 后台前端调用 `/api/admin/tasks/{id}` 等接口，改后端时注意别把已有路由名改掉。
@@ -45,13 +49,17 @@ UI 改动还要在浏览器里看：把 `client/dist` 用带 SPA fallback 的静
 | 生成/计费 | `internal/generation/`、`internal/commercial/`、`internal/quote/` |
 | 后台 | `server/apps/admin/app.js` |
 
-## 当前该做什么（按 HANDOFF §7）
+## 当前该做什么
 
-1. 花 40 Credits 验证真实生成与套图提交（唯一"代码全绿但可能出不了图"的地方）
-2. 改管理员密码、3001 限源
-3. 按 `reviews/2026-10-30/release-0.3.0-acceptance.md` 验收 0.3.0（视频复刻需先在后台配置视觉模型）
+1. 在后台「AI Studio → 模型」按供应商文档补全各模型用途（很多图片模型只标了文生图）
+2. 改管理员密码、3001 限源、上 HTTPS 与域名（换域名在「客户端发布」里改 API 地址）
+3. 按 `reviews/2026-10-30/release-0.3.0-acceptance.md` 与 `ai-studio-acceptance.md` 验收剩余功能（视频复刻需先配视觉模型）
 4. 设计新功能前用项目 Skill `weavia-feature-design` 出规格
-5. 再做 P2：批量 SKU、视频、模板市场、数据分析三维对账
+5. 再做：批量 SKU、品牌套件、可编辑文字层、交付包模板、对账报表、Apple 签名公证与自动更新
+
+## 部署约定
+
+线上部署（迁移、换镜像、重建后台）必须等用户明确说「部署」再做；每次先打 `pre-<改动名>` 回滚 tag。
 
 ## 提交信息
 
