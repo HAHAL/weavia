@@ -194,6 +194,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/ai/providers", s.adminProviders)
 			r.Get("/ai/models", s.adminModels)
 			r.Get("/ai/routing", s.adminRouting)
+			r.Get("/ai/health", s.adminAIHealth)
+			r.Get("/ai/logs", s.adminAILogs)
 			r.Get("/ai/usage", s.adminUsage)
 			r.Get("/skills", s.adminSkills)
 			r.Get("/apps", s.adminApps)
@@ -246,6 +248,8 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("provider.write")).Get("/ai/channels/{channelID}/keys-health", s.adminChannelKeyHealth)
 		r.With(s.requirePermission("provider.write")).Patch("/ai/routing/{bindingID}", s.adminUpdateRouting)
 		r.With(s.requirePermission("provider.write")).Patch("/ai/channel-keys/{keyID}", s.adminUpdateChannelKey)
+		r.With(s.requirePermission("provider.write")).Post("/ai/channel-keys/{keyID}/test", s.adminTestChannelKey)
+		r.With(s.requirePermission("provider.write")).Patch("/ai/logical-models/{modelKey}", s.adminUpdateLogicalModel)
 		r.With(s.requirePermission("provider.write")).Delete("/ai/channel-keys/{keyID}", s.adminDeleteChannelKey)
 		r.With(s.requirePermission("provider.write")).Put("/pricing/settings", s.adminUpdatePricingSettings)
 		r.With(s.requirePermission("provider.write")).Put("/pricing/cost/{channelModelID}", s.adminUpdateChannelCost)
@@ -964,7 +968,7 @@ func (s *Server) listPlatformModels(w http.ResponseWriter, r *http.Request) {
 			if modality != "" && item.Modality != modality {
 				continue
 			}
-			out = append(out, map[string]any{"id": item.Key, "key": item.Key, "displayName": item.DisplayName, "icon": item.Icon, "modality": item.Modality, "capabilities": item.Capabilities, "creditsCost": item.CreditsCost, "params": item.Params, "channels": item.Channels, "available": item.Available && s.RealAIEnabled})
+			out = append(out, map[string]any{"id": item.Key, "key": item.Key, "displayName": item.DisplayName, "icon": item.Icon, "modality": item.Modality, "capabilities": item.Capabilities, "creditsCost": item.CreditsCost, "params": item.Params, "channels": item.Channels, "available": item.Available && s.RealAIEnabled, "description": item.Description, "tags": item.Tags})
 		}
 		ok(w, map[string]any{"items": out})
 		return

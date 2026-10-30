@@ -29,6 +29,8 @@ type Logical struct {
 	Params       map[string]any `json:"params"`
 	Channels     int            `json:"channels"`
 	Available    bool           `json:"available"`
+	Description  string         `json:"description"`
+	Tags         []string       `json:"tags"`
 }
 
 type Binding struct {
@@ -56,13 +58,13 @@ func New(pool *pgxpool.Pool, keys *providerconfig.Service) *Service {
 }
 
 func (s *Service) List(ctx context.Context) ([]Logical, error) {
-	rows, err := s.pool.Query(ctx, `SELECT l.key,l.display_name,l.icon,l.modality,l.capabilities,l.credits_cost,l.params,
+	rows, err := s.pool.Query(ctx, `SELECT l.key,l.display_name,l.icon,l.modality,l.capabilities,l.credits_cost,l.params,l.description,l.tags,
 		count(a.id) FILTER (WHERE a.enabled AND c.enabled AND cm.enabled AND (a.cooldown_until IS NULL OR a.cooldown_until < now()) AND (l.modality <> 'video' OR c.provider_code IN ('dashscope','volcengine')) AND EXISTS (SELECT 1 FROM channel_keys k WHERE k.channel_id=c.id AND k.enabled)) AS channels
 		FROM logical_models l
 		LEFT JOIN logical_model_abilities a ON a.logical_model_id=l.id
 		LEFT JOIN channel_models cm ON cm.id=a.channel_model_id
 		LEFT JOIN provider_channels c ON c.id=cm.channel_id
-		WHERE l.enabled=true
+		WHERE l.enabled=true AND l.modality IN ('image','video')
 		GROUP BY l.id ORDER BY l.sort_order,l.display_name`)
 	if err != nil {
 		return nil, err
@@ -71,13 +73,17 @@ func (s *Service) List(ctx context.Context) ([]Logical, error) {
 	out := []Logical{}
 	for rows.Next() {
 		var item Logical
-		var capabilities, params []byte
-		if err = rows.Scan(&item.Key, &item.DisplayName, &item.Icon, &item.Modality, &capabilities, &item.CreditsCost, &params, &item.Channels); err != nil {
+		var capabilities, params, tags []byte
+		if err = rows.Scan(&item.Key, &item.DisplayName, &item.Icon, &item.Modality, &capabilities, &item.CreditsCost, &params, &item.Description, &tags, &item.Channels); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(capabilities, &item.Capabilities)
 		_ = json.Unmarshal(params, &item.Params)
-		item.Available = item.Channels > 0 && (item.Modality != "video" || slices.Contains(item.Capabilities, "text_to_video"))
+		_ = json.Unmarshal(tags, &item.Tags)
+		if item.Tags == nil {
+			item.Tags = []string{}
+		}
+		item.Available = item.Channels > 0 && (item.Modality != "video" || slices.ContainsFunc(item.Capabilities, func(c string) bool { return c == "text_to_video" || c == "image_to_video" }))
 		out = append(out, item)
 	}
 	return out, rows.Err()
@@ -349,12 +355,13 @@ type Channel struct {
 	CooldownUntil      *time.Time `json:"cooldownUntil,omitempty"`
 	KeyLast4           string     `json:"keyLast4,omitempty"`
 	ModelCount         int        `json:"modelCount"`
+	ModelsURL          string     `json:"modelsUrl"`
 }
 
 func (s *Service) ListChannels(ctx context.Context) ([]Channel, error) {
 	rows, err := s.pool.Query(ctx, `SELECT c.id::text,c.provider_code,c.name,c.base_url,c.priority,c.weight,c.enabled,c.auto_disable,c.failure_threshold,c.cooldown_seconds,c.consecutive_failures,c.cooldown_until,
 		coalesce((SELECT key_last4 FROM channel_keys k WHERE k.channel_id=c.id ORDER BY k.created_at DESC LIMIT 1),''),
-		(SELECT count(*) FROM channel_models cm WHERE cm.channel_id=c.id)
+		(SELECT count(*) FROM channel_models cm WHERE cm.channel_id=c.id), c.models_url
 		FROM provider_channels c ORDER BY c.priority DESC,c.name`)
 	if err != nil {
 		return nil, err
@@ -363,7 +370,7 @@ func (s *Service) ListChannels(ctx context.Context) ([]Channel, error) {
 	out := []Channel{}
 	for rows.Next() {
 		var c Channel
-		if err = rows.Scan(&c.ID, &c.ProviderCode, &c.Name, &c.BaseURL, &c.Priority, &c.Weight, &c.Enabled, &c.AutoDisable, &c.FailureThreshold, &c.CooldownSeconds, &c.ConsecutiveFailure, &c.CooldownUntil, &c.KeyLast4, &c.ModelCount); err != nil {
+		if err = rows.Scan(&c.ID, &c.ProviderCode, &c.Name, &c.BaseURL, &c.Priority, &c.Weight, &c.Enabled, &c.AutoDisable, &c.FailureThreshold, &c.CooldownSeconds, &c.ConsecutiveFailure, &c.CooldownUntil, &c.KeyLast4, &c.ModelCount, &c.ModelsURL); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -426,11 +433,16 @@ func (s *Service) CreateChannel(ctx context.Context, providerCode, name, baseURL
 	return Channel{}, errors.New("channel not found after create")
 }
 
-func (s *Service) UpdateChannelMeta(ctx context.Context, id, name, baseURL string) error {
+func (s *Service) UpdateChannelMeta(ctx context.Context, id, name, baseURL, modelsURL string) error {
 	if strings.TrimSpace(name) == "" {
 		return &generation.APIError{Code: "INVALID_REQUEST", Message: "渠道名称不能为空", Status: 400}
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE provider_channels SET name=$2, base_url=$3, updated_at=now() WHERE id=$1`, id, strings.TrimSpace(name), strings.TrimSpace(baseURL))
+	for _, value := range []string{baseURL, modelsURL} {
+		if v := strings.TrimSpace(value); v != "" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+			return &generation.APIError{Code: "INVALID_REQUEST", Message: "地址必须以 http:// 或 https:// 开头", Status: 400}
+		}
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE provider_channels SET name=$2, base_url=$3, models_url=$4, updated_at=now() WHERE id=$1`, id, strings.TrimSpace(name), strings.TrimSpace(baseURL), strings.TrimSpace(modelsURL))
 	if err != nil {
 		return err
 	}
@@ -638,28 +650,15 @@ func (s *Service) SetGroupMultiplier(ctx context.Context, groupID string, multip
 
 // DiscoverModels 用渠道 Key 拉取供应商的模型列表（只读）。
 func (s *Service) DiscoverModels(ctx context.Context, channelID string) ([]string, error) {
-	var provider, base string
-	if err := s.pool.QueryRow(ctx, `SELECT provider_code, COALESCE(NULLIF(base_url,''), '') FROM provider_channels WHERE id=$1`, channelID).Scan(&provider, &base); err != nil {
+	var provider, base, modelsURL string
+	if err := s.pool.QueryRow(ctx, `SELECT provider_code, COALESCE(NULLIF(base_url,''), ''), models_url FROM provider_channels WHERE id=$1`, channelID).Scan(&provider, &base, &modelsURL); err != nil {
 		return nil, &generation.APIError{Code: "NOT_FOUND", Message: "渠道不存在", Status: 404}
 	}
 	key, err := s.keys.GetChannelKey(ctx, channelID)
 	if err != nil || key == "" {
 		return nil, &generation.APIError{Code: "NO_KEY", Message: "该渠道还没有可用 Key", Status: 400}
 	}
-	if provider == "dashscope" {
-		return nil, &generation.APIError{Code: "UNSUPPORTED", Message: "DashScope 不支持模型枚举，请手动添加", Status: 400}
-	}
-	if base == "" {
-		switch provider {
-		case "volcengine":
-			base = "https://ark.cn-beijing.volces.com/api/v3"
-		case "computrix":
-			base = "https://maas-api.computrix.ai/v1"
-		default:
-			base = "https://maas-api.antdigital.com/v1"
-		}
-	}
-	endpoint := strings.TrimRight(base, "/") + "/models"
+	endpoint := ModelsEndpoint(provider, base, modelsURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -672,22 +671,10 @@ func (s *Service) DiscoverModels(ctx context.Context, channelID string) ([]strin
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	var payload struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	_ = json.Unmarshal(raw, &payload)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &generation.APIError{Code: "PROVIDER_ERROR", Message: fmt.Sprintf("供应商返回 %d", resp.StatusCode), Status: 502}
+		return nil, &generation.APIError{Code: "PROVIDER_ERROR", Message: fmt.Sprintf("模型列表地址 %s 返回 %d", endpoint, resp.StatusCode), Status: 502}
 	}
-	ids := make([]string, 0, len(payload.Data))
-	for _, item := range payload.Data {
-		if item.ID != "" {
-			ids = append(ids, item.ID)
-		}
-	}
-	return ids, nil
+	return ParseModelIDs(raw), nil
 }
 
 // EnableModel 把一个渠道模型接入逻辑模型，供客户端选择。
@@ -695,13 +682,30 @@ func (s *Service) EnableModel(ctx context.Context, channelID, providerModelID, d
 	if providerModelID == "" || displayName == "" {
 		return &generation.APIError{Code: "INVALID_REQUEST", Message: "模型 ID 与名称必填", Status: 400}
 	}
-	if modality != "image" && modality != "video" {
+	for _, c := range capabilities {
+		if !slices.Contains(Purposes, c) {
+			return &generation.APIError{Code: "INVALID_REQUEST", Message: "未知用途：" + c, Status: 400}
+		}
+	}
+	// The primary output modality follows the purposes; the caller's value is
+	// only a fallback when no purpose was given.
+	if len(capabilities) > 0 {
+		_, _, modality = DeriveIO(capabilities)
+	}
+	if !slices.Contains(Modalities, modality) {
 		modality = "image"
 	}
 	if len(capabilities) == 0 {
-		if modality == "video" {
+		switch modality {
+		case "video":
 			capabilities = []string{"text_to_video"}
-		} else {
+		case "text":
+			capabilities = []string{"text_generation"}
+		case "speech":
+			capabilities = []string{"tts"}
+		case "audio":
+			capabilities = []string{"audio_generation"}
+		default:
 			capabilities = []string{"text_to_image"}
 		}
 	}
@@ -725,16 +729,19 @@ func (s *Service) EnableModel(ctx context.Context, channelID, providerModelID, d
 		RETURNING id::text`, channelID, providerModelID, displayName, modality, caps).Scan(&channelModelID); err != nil {
 		return err
 	}
-	icon := "sparkles"
-	if modality == "video" {
-		icon = "video"
+	icon := map[string]string{"video": "video", "text": "text", "speech": "mic", "audio": "music"}[modality]
+	if icon == "" {
+		icon = "sparkles"
 	}
+	inputs, outputs, _ := DeriveIO(capabilities)
+	inputsJSON, _ := json.Marshal(inputs)
+	outputsJSON, _ := json.Marshal(outputs)
 	var logicalID string
 	if err = tx.QueryRow(ctx, `
-		INSERT INTO logical_models(key, display_name, type, icon, modality, capabilities, credits_cost, enabled)
-		VALUES($1,$2,$3,$4,$5,$6,$7,true)
-		ON CONFLICT (key) DO UPDATE SET display_name=EXCLUDED.display_name, modality=EXCLUDED.modality, capabilities=EXCLUDED.capabilities, credits_cost=EXCLUDED.credits_cost, enabled=true
-		RETURNING id::text`, logicalKey, displayName, modality, icon, modality, caps, credits).Scan(&logicalID); err != nil {
+		INSERT INTO logical_models(key, display_name, type, icon, modality, capabilities, credits_cost, enabled, input_modalities, output_modalities)
+		VALUES($1,$2,$3,$4,$5,$6,$7,true,$8,$9)
+		ON CONFLICT (key) DO UPDATE SET key=logical_models.key -- an existing model only gains a backup channel; its name, purposes and price stay as operators set them
+		RETURNING id::text`, logicalKey, displayName, modality, icon, modality, caps, credits, inputsJSON, outputsJSON).Scan(&logicalID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `

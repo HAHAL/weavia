@@ -130,12 +130,12 @@ func (s *Server) adminChannelKeyHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminDiscoverModels(w http.ResponseWriter, r *http.Request) {
-	ids, err := s.Routing.DiscoverModels(r.Context(), chi.URLParam(r, "channelID"))
+	items, err := s.Routing.DiscoverDetailed(r.Context(), chi.URLParam(r, "channelID"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	ok(w, map[string]any{"items": ids})
+	ok(w, map[string]any{"items": items})
 }
 
 func (s *Server) adminEnableModel(w http.ResponseWriter, r *http.Request) {
@@ -191,19 +191,20 @@ func (s *Server) adminSetChannelModel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminUpdateChannelMeta(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name    string `json:"name"`
-		BaseURL string `json:"baseUrl"`
+		Name      string `json:"name"`
+		BaseURL   string `json:"baseUrl"`
+		ModelsURL string `json:"modelsUrl"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeError(w, err)
 		return
 	}
 	id := chi.URLParam(r, "channelID")
-	if err := s.Routing.UpdateChannelMeta(r.Context(), id, body.Name, body.BaseURL); err != nil {
+	if err := s.Routing.UpdateChannelMeta(r.Context(), id, body.Name, body.BaseURL, body.ModelsURL); err != nil {
 		writeError(w, err)
 		return
 	}
-	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "channel.update", "provider_channel", id, clientIP(r), nil, map[string]any{"name": body.Name, "baseUrl": body.BaseURL})
+	_ = s.Commercial.RecordAdminAudit(r.Context(), currentUser(r).ID, "channel.update", "provider_channel", id, clientIP(r), nil, map[string]any{"name": body.Name, "baseUrl": body.BaseURL, "modelsUrl": body.ModelsURL})
 	ok(w, map[string]bool{"ok": true})
 }
 

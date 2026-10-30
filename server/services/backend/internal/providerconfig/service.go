@@ -118,10 +118,13 @@ type ChannelKey struct {
 	Cooldown   *time.Time `json:"cooldownUntil"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
 	CreatedAt  time.Time  `json:"createdAt"`
+	// Why the system switched the key off (e.g. AUTH_FAILED); empty when an operator did.
+	DisabledReason string     `json:"disabledReason"`
+	DisabledAt     *time.Time `json:"disabledAt"`
 }
 
 func (s *Service) ListChannelKeys(ctx context.Context, channelID string) ([]ChannelKey, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id::text, key_last4, weight, enabled, consecutive_failures, cooldown_until, last_used_at, created_at FROM channel_keys WHERE channel_id=$1 ORDER BY created_at`, channelID)
+	rows, err := s.pool.Query(ctx, `SELECT id::text, key_last4, weight, enabled, consecutive_failures, cooldown_until, last_used_at, created_at, disabled_reason, disabled_at FROM channel_keys WHERE channel_id=$1 ORDER BY created_at`, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +132,7 @@ func (s *Service) ListChannelKeys(ctx context.Context, channelID string) ([]Chan
 	out := make([]ChannelKey, 0, 4)
 	for rows.Next() {
 		var item ChannelKey
-		if err := rows.Scan(&item.ID, &item.Last4, &item.Weight, &item.Enabled, &item.Failures, &item.Cooldown, &item.LastUsedAt, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Last4, &item.Weight, &item.Enabled, &item.Failures, &item.Cooldown, &item.LastUsedAt, &item.CreatedAt, &item.DisabledReason, &item.DisabledAt); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -141,7 +144,7 @@ func (s *Service) UpdateChannelKey(ctx context.Context, keyID string, enabled *b
 	if weight != nil && (*weight < 0 || *weight > 100) {
 		return &generation.APIError{Code: "INVALID_REQUEST", Message: "权重必须在 0 到 100 之间", Status: 400}
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE channel_keys SET enabled=COALESCE($2, enabled), weight=COALESCE($3, weight) WHERE id=$1`, keyID, enabled, weight)
+	tag, err := s.pool.Exec(ctx, `UPDATE channel_keys SET enabled=COALESCE($2, enabled), weight=COALESCE($3, weight), disabled_reason=CASE WHEN $2 IS TRUE THEN '' ELSE disabled_reason END, disabled_at=CASE WHEN $2 IS TRUE THEN NULL ELSE disabled_at END WHERE id=$1`, keyID, enabled, weight)
 	if err != nil {
 		return err
 	}
@@ -224,4 +227,22 @@ func Mask(key string) string {
 		return "••••"
 	}
 	return base64.RawURLEncoding.EncodeToString([]byte(key[:4]))[:4] + "••••" + key[len(key)-4:]
+}
+
+// DisableKey switches a key off with a machine-readable reason, so routing
+// stops picking it and the admin console can say why.
+func (s *Service) DisableKey(ctx context.Context, keyID, reason string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE channel_keys SET enabled=false, disabled_reason=$2, disabled_at=now() WHERE id=$1 AND enabled`, keyID, reason)
+	return err
+}
+
+// KeyByID returns one key's plaintext and its channel, for connection tests.
+func (s *Service) KeyByID(ctx context.Context, keyID string) (string, string, error) {
+	var channelID string
+	var sealed []byte
+	if err := s.pool.QueryRow(ctx, `SELECT channel_id::text, encrypted_key FROM channel_keys WHERE id=$1`, keyID).Scan(&channelID, &sealed); err != nil {
+		return "", "", &generation.APIError{Code: "NOT_FOUND", Message: "Key 不存在", Status: 404}
+	}
+	value, err := s.decrypt(sealed)
+	return value, channelID, err
 }

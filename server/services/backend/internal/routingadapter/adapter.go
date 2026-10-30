@@ -55,3 +55,8 @@ func (a *Adapter) LogRoute(ctx context.Context, taskID, key, channelID, channelM
 	a.service.LogAttempt(ctx, taskID, key, channelID, channelModelID, providerModelID, keyID, attempt, status, errorCode, latency)
 }
 func (a *Adapter) Retryable(err error) bool { return routing.Retryable(err) }
+
+// MarkKeyRejected switches off a key the provider refused.
+func (a *Adapter) MarkKeyRejected(ctx context.Context, keyID, code string) {
+	a.service.MarkKeyRejected(ctx, keyID, code)
+}

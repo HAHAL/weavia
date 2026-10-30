@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -577,6 +578,13 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 		if attempt >= maxChannelAttempts {
 			break
 		}
+		if binding.APIKey == "" {
+			// Without a channel key the provider router would fall back to an
+			// old provider-level key and report a misleading AUTH_FAILED.
+			callErr = &providers.Error{Code: "NO_KEY", Message: "channel has no usable key", Retryable: true, Status: 503}
+			s.router.LogRoute(ctx, task.ID, task.LogicalModel, binding.ChannelID, binding.ChannelModelID, binding.ProviderModelID, "", attempt+1, "failed", "NO_KEY", 0)
+			continue
+		}
 		request := base
 		request.Provider = binding.Provider
 		request.Model = binding.ProviderModelID
@@ -585,6 +593,15 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 		started := time.Now()
 		var result providers.ImageResult
 		result, callErr = s.provider.Generate(ctx, request)
+		if callErr != nil {
+			// The customer sees a generic message; the provider's own reason
+			// goes to the worker log (admin 运行与排障) for diagnosis.
+			detail := callErr.Error()
+			if len(detail) > 400 {
+				detail = detail[:400]
+			}
+			slog.Warn("provider call failed", "task", task.ID, "model", task.LogicalModel, "provider_model", binding.ProviderModelID, "channel", binding.ChannelName, "attempt", attempt+1, "error", detail)
+		}
 		s.router.RecordRoute(ctx, binding.ID, callErr)
 		status, code := "success", ""
 		if callErr != nil {
@@ -599,6 +616,13 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 			task.Provider = binding.Provider
 			task.Model = binding.ProviderModelID
 			return result, nil
+		}
+		if pe, ok := callErr.(*providers.Error); ok && (pe.Status == 401 || pe.Status == 403) {
+			if marker, ok := s.router.(interface {
+				MarkKeyRejected(context.Context, string, string)
+			}); ok {
+				marker.MarkKeyRejected(ctx, binding.KeyID, pe.Code)
+			}
 		}
 		if task.ProviderTaskID != "" || !rejectedBeforeAccept(callErr) {
 			break
