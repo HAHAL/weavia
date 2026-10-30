@@ -7,7 +7,9 @@ import { apiConfig, apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/auth';
 import { log } from '../../lib/logger';
 import { startupSync } from '../../services/sync';
+import { APP_VERSION } from '../../services/clientConfig';
 import { Dialog } from '../ui';
+import { AnnouncementCenter } from '../Announcements';
 
 const primaryNav = [
   { to: '/', label: '首页', icon: Home },
@@ -17,11 +19,13 @@ const primaryNav = [
   { to: '/tasks', label: '任务', icon: ListTodo },
 ];
 const secondaryNav = [{ to: '/assets', label: '素材中心', icon: Images }];
-const capabilityNav = [{ to: '/skills', label: 'Skill', icon: Boxes }, { to: '/applications', label: 'AI 应用', icon: LayoutGrid }];
+const capabilityNav = [{ to: '/skills', label: 'Skill 模板', icon: Boxes }, { to: '/applications', label: 'AI 应用', icon: LayoutGrid }];
+// Video and the DAG workflow stay out of the menu until they pass acceptance;
+// their routes still exist for internal testing.
+const videoEnabled = import.meta.env.VITE_ENABLE_VIDEO === 'true';
 const toolNav = [
   { to: '/image-editing', label: '图片编辑', icon: WandSparkles },
-  { to: '/video-studio', label: '视频工作台', icon: Clapperboard },
-  { to: '/workflow', label: '工作流', icon: Workflow },
+  ...(videoEnabled ? [{ to: '/video-studio', label: '视频工作台', icon: Clapperboard }, { to: '/workflow', label: '工作流', icon: Workflow }] : []),
 ];
 
 export function AppLayout() {
@@ -43,7 +47,7 @@ export function AppLayout() {
   useEffect(() => { const current = user; if (!current) return; let active = true; apiRequest<{ available: number }>('/api/credits').then(data => { if (active) setCreditState({ userId: current.id, available: data.available }); }).catch(() => { /* keep the last known balance */ }); return () => { active = false; }; }, [user, creditsVersion]);
   useEffect(() => { const refresh = () => setCreditsVersion(value => value + 1); window.addEventListener('weavia:credits', refresh); return () => window.removeEventListener('weavia:credits', refresh); }, []);
   const credits = user && creditState?.userId === user.id ? creditState.available : null;
-  useEffect(() => { log('info', 'client.started', `v0.1.0 ${apiConfig.mode}`); const onError = () => log('error', 'frontend.exception'); window.addEventListener('error', onError); return () => { window.removeEventListener('error', onError); log('info', 'client.exit'); }; }, []);
+  useEffect(() => { log('info', 'client.started', `v${APP_VERSION} ${apiConfig.mode}`); const onError = () => log('error', 'frontend.exception'); window.addEventListener('error', onError); return () => { window.removeEventListener('error', onError); log('info', 'client.exit'); }; }, []);
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => notify(''), 3500); return () => clearTimeout(id); }, [toast, notify]);
   function openSearch() { setQuery(''); setSearchOpen(true); }
   function selectResult(to: string) { setSearchOpen(false); navigate(to); }
@@ -53,10 +57,11 @@ export function AppLayout() {
       <div className="brand"><img className="brand-mark" src="/brand/weavia-icon.png" alt="WEAVIA" />{!collapsed && <span className="brand-label"><img className="brand-wordmark" src="/brand/weavia-wordmark.png" alt="" /><small>AI Commerce Studio</small></span>}<button className="icon-btn sidebar-toggle" title={collapsed ? '展开侧栏' : '收起侧栏'} aria-label={collapsed ? '展开侧栏' : '收起侧栏'} onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
       <nav className="nav-list" aria-label="工作区">
         <button type="button" className="nav-item nav-search" onClick={openSearch} aria-label="搜索商品或作品" title={collapsed ? '搜索' : undefined}><Search size={18} aria-hidden="true" />{!collapsed && <span>搜索</span>}</button>
+        <AnnouncementCenter collapsed={collapsed} />
         {!collapsed && <div className="nav-section-label">工作区</div>}
         {primaryNav.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/'} title={collapsed ? item.label : undefined} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><item.icon size={18} aria-hidden="true" />{!collapsed && <span>{item.label}</span>}</NavLink>)}
         {secondaryNav.map(item => <NavLink key={item.to} to={item.to} title={collapsed ? item.label : undefined} className={({ isActive }) => `nav-item nav-group-start ${isActive ? 'active' : ''}`}><item.icon size={18} aria-hidden="true" />{!collapsed && <span>{item.label}</span>}</NavLink>)}
-        {!collapsed && <div className="nav-section-label nav-section-label-spaced">能力</div>}
+        {!collapsed && <div className="nav-section-label nav-section-label-spaced">模板</div>}
         {capabilityNav.map(item => <NavLink key={item.to} to={item.to} title={collapsed ? item.label : undefined} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><item.icon size={18} aria-hidden="true" />{!collapsed && <span>{item.label}</span>}</NavLink>)}
         <button type="button" className={`nav-item nav-group-start tool-toggle ${toolsOpen && !collapsed ? 'expanded' : ''}`} aria-expanded={toolsOpen && !collapsed} aria-controls="creative-tools" aria-label="创作工具" title={collapsed ? '创作工具' : undefined} onClick={() => { if (collapsed) { setCollapsed(false); setToolsOpen(true); } else setToolsOpen(!toolsOpen); }}><WandSparkles size={18} aria-hidden="true" />{!collapsed && <><span>创作工具</span><ChevronDown size={15} className="tool-chevron" aria-hidden="true" /></>}</button>
         {toolsOpen && !collapsed && <div id="creative-tools" className="tool-links">{toolNav.map(item => <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><item.icon size={17} aria-hidden="true" /><span>{item.label}</span></NavLink>)}</div>}

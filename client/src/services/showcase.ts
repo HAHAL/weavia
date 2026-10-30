@@ -2,14 +2,7 @@ import { apiConfig, apiRequest } from './api';
 import { getCachedShowcase } from './sync';
 import { FALLBACK_SHOWCASE, type ShowcaseItem, type ShowcaseKind } from '../data/showcase';
 
-type ServerShowcaseItem = {
-  id: string;
-  kind: ShowcaseKind;
-  title: string;
-  tag: string;
-  prompt: string;
-  imageUrl: string;
-};
+type ServerShowcaseItem = Omit<ShowcaseItem, 'kind'> & { kind: ShowcaseKind };
 
 function absoluteImageUrl(value: string) {
   if (!value) return '';
@@ -26,14 +19,17 @@ export async function loadShowcase(): Promise<ShowcaseItem[]> {
     const items = data.items || [];
     if (!items.length) return FALLBACK_SHOWCASE;
     return items.map((item) => ({
-      id: item.id,
+      ...item,
       kind: item.kind === 'work' ? 'work' : 'image',
-      title: item.title,
-      tag: item.tag,
-      prompt: item.prompt,
       imageUrl: absoluteImageUrl(item.imageUrl),
     }));
   } catch {
     return FALLBACK_SHOWCASE;
   }
+}
+
+// Counts one 一键同款 so operators can rank presets; failures never block the user.
+export function recordShowcaseUse(id: string) {
+  if (apiConfig.mode !== 'live' || !/^[0-9a-f-]{36}$/i.test(id)) return;
+  void apiRequest(`/api/showcase/${id}/use`, { method: 'POST' }).catch(() => { /* best effort */ });
 }

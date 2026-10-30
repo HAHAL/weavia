@@ -79,7 +79,7 @@ export function VideoStudioPage() {
 
   const assistantReady = Boolean(codex?.keyConfigured && codex.engineAvailable && codex.baseUrl && codex.model);
   return <div className="page">
-    <div className="page-header"><div><h1>Video Studio</h1><p>编排商品短视频分镜，检查脚本后到创作台选择已配置的视频模型。</p></div><Badge>分镜策划</Badge></div>
+    <div className="page-header"><div><h1>视频工作台</h1><p>编排商品短视频分镜，检查脚本后到创作台选择已配置的视频模型。</p></div><Badge>分镜策划</Badge></div>
     <div className="video-summary"><Card><Clapperboard size={22} /><strong>{shots.length} 个镜头</strong><span>脚本总时长 {total} 秒</span></Card><Card><strong>画幅比例</strong><select aria-label="视频画幅" value={ratio} onChange={event => setRatio(event.target.value)}><option>16:9</option><option>9:16</option></select></Card><Card><strong>生成方式</strong><span>创作台选择可用模型后提交</span></Card></div>
 
     <Card className="video-assistant"><div className="section-heading"><div><h2>投放资料</h2><p>分镜策划与后续生成会使用同一份商品和市场信息。</p></div></div><div className="creative-brief-grid"><Field label="商品"><select value={productId} onChange={event => setProductId(event.target.value)}><option value="">自由创作</option>{products.map(item => <option key={item.id} value={item.id}>{item.name} · {item.sku}</option>)}</select></Field><Field label="渠道"><input value={channel} onChange={event => setChannel(event.target.value)} /></Field><Field label="目标市场"><input value={market} onChange={event => setMarket(event.target.value)} /></Field><Field label="输出语言"><input value={language} onChange={event => setLanguage(event.target.value)} /></Field></div></Card>

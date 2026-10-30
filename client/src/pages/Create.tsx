@@ -48,7 +48,7 @@ export function CreatePage() {
       </div>
       <aside className="session-side">
         <Card className="session-summary"><span className="home-eyebrow">本次创作</span><h2>{task.status === 'Succeeded' ? '结果已就绪' : running ? '正在处理' : '任务结束'}</h2><dl><div><dt>类型</dt><dd>{task.mode === 'image' ? '图片' : '视频'}</dd></div><div><dt>商品</dt><dd>{task.product?.name || '自由创作'}</dd></div><div><dt>来源</dt><dd>{task.source === 'live' ? '云端' : '演示'}</dd></div></dl>
-          {running && <div className="session-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress}><span style={{ width: `${task.progress}%` }} /></div>}
+          {running && <div className="session-progress is-indeterminate" role="progressbar" aria-label={task.status === 'Queued' ? '排队中' : '生成中'}><span /></div>}
           {task.error && <p className="form-error" role="alert">{task.error}</p>}
           <div className="session-actions">
             {work && <Button onClick={() => navigate('/works')}><GalleryHorizontal size={16} /> 查看作品</Button>}

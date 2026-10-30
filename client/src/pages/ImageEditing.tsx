@@ -150,7 +150,7 @@ export function ImageEditingPage() {
   return (
     <div className="page editor-page">
       <div className="page-header">
-        <div><h1>Image Editing</h1><p>用图片模型进行 AI 编辑，同时保留本地亮度/对比度调整。</p></div>
+        <div><h1>图片编辑</h1><p>用图片模型进行 AI 编辑，同时保留本地亮度/对比度调整。</p></div>
         <div className="header-actions">
           <Button variant="secondary" disabled={!source} onClick={download}><Download size={15} /> 导出 PNG</Button>
           <Button disabled={!source || saving} onClick={() => void save()}><Save size={15} /> {saving ? '保存中…' : '保存作品版本'}</Button>

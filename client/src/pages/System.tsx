@@ -1,3 +1,4 @@
+import { APP_VERSION } from '../services/clientConfig';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Trash2, Search, ShieldCheck, Coins, Crown, Receipt, UserRound, Settings, ScrollText, HardDrive, Cloud, Bot } from 'lucide-react';
@@ -15,7 +16,7 @@ const accountSections = [
   { id: 'overview', label: '账户概览', icon: UserRound, group: 'account' },
   { id: 'subscription', label: '会员套餐', icon: Crown, group: 'account' },
   { id: 'credits', label: 'Credits 明细', icon: Coins, group: 'account' },
-  { id: 'orders', label: '订单记录', icon: Receipt, group: 'account' },
+  { id: 'orders', label: '充值说明', icon: Receipt, group: 'account' },
   { id: 'security', label: '登录与安全', icon: ShieldCheck, group: 'account' },
   { id: 'storage', label: '存储与备份', icon: HardDrive, group: 'account' },
   { id: 'settings', label: '偏好设置', icon: Settings, group: 'app' },
@@ -57,12 +58,12 @@ export function AccountPage() {
   }, [userId]);
   return <div className="page account-page">
     <div className="page-header"><div><h1>账户与设置</h1><p>管理账户信息和客户端偏好。</p></div><Badge>{!auth.user ? '未登录' : health === 'ok' ? '服务已连接' : health === 'checking' ? '检测中' : '服务不可用'}</Badge></div>
-    <div className="account-layout"><nav className="account-section-nav" aria-label="账户与设置分区">{(['account', 'app'] as const).map(group => <div className="account-nav-group" key={group}><h2>{group === 'account' ? '账户' : '应用设置'}</h2>{accountSections.filter(item => item.group === group).map(item => <button type="button" key={item.id} className={section === item.id ? 'selected' : ''} aria-current={section === item.id ? 'page' : undefined} onClick={() => select(item.id)}><item.icon size={17} aria-hidden="true" />{item.label}</button>)}</div>)}</nav>
+    <div className="account-layout"><nav className="account-section-nav" aria-label="账户与设置分区">{(['account', 'app'] as const).map(group => <div className="account-nav-group" key={group}><h2>{group === 'account' ? '账户' : '高级设置'}</h2>{accountSections.filter(item => item.group === group).map(item => <button type="button" key={item.id} className={section === item.id ? 'selected' : ''} aria-current={section === item.id ? 'page' : undefined} onClick={() => select(item.id)}><item.icon size={17} aria-hidden="true" />{item.label}</button>)}</div>)}</nav>
     <section className="section-content" aria-label={active.label}>
       {section === 'overview' && (auth.user ? <><AvatarPicker /><Card className="settings-card"><h2>{health === 'down' ? '云端不可用' : '已连接云端'}</h2><p>{auth.user.email}</p><p className="muted">Credits 余额：{account ? account.available : '读取中…'}{account ? ` · 冻结 ${account.reserved}` : ''}</p><div className="header-actions"><Button onClick={() => select('credits')}>查看明细</Button><Button variant="secondary" onClick={() => void recheckHealth()}>重新检查</Button><Button variant="secondary" onClick={() => void auth.logout()}>退出登录</Button></div></Card><Card className="settings-card"><h2>账户 ID</h2><p className="muted">{features?.accountNo || auth.user.id}</p></Card><Card className="settings-card"><h2>帮助与反馈</h2>{features?.supportEmail ? <p className="muted">遇到问题可以发邮件：<a href={`mailto:${features.supportEmail}`}>{features.supportEmail}</a>，附上账户 ID {features.accountNo || ''} 与任务 ID 会更快定位。</p> : <p className="muted">如需支持，请联系运营人员并提供账户 ID {features?.accountNo || ''}。</p>}{features?.supportUrl ? <p className="muted"><a href={features.supportUrl} target="_blank" rel="noreferrer">打开帮助中心</a></p> : null}</Card><Card className="settings-card"><h2>云端同步（OSS）</h2>{features?.ossSync ? <><p className="muted">运营已为当前账户开通。开启后作品与素材会同步到云端对象存储。</p><label className="switch-row">启用同步 <input type="checkbox" checked={syncOn} onChange={event => { const next = event.target.checked; setSyncOn(next); localStorage.setItem('weavia.sync.oss', next ? '1' : '0'); }} /></label></> : <p className="muted">未开通：该功能需要运营在后台为当前账户开启，客户端无法自行激活。</p>}</Card></> : <><Card className="settings-card"><h2>访客工作区</h2><p>当前为演示模式，尚未连接真实账户。登录后可读取真实余额和任务。</p><div className="header-actions"><Button onClick={() => navigate('/login')}>登录</Button></div></Card><EmptyService title="尚无真实账户数据" detail="登录后这里会显示真实余额、任务和订单。" /></>)}
       {section === 'subscription' && <><h2>会员套餐</h2>{auth.user ? <MembershipSection key={auth.user.id} /> : <StatePanel type="empty" title="登录后查看会员套餐" />}</>}
       {section === 'credits' && <><h2>Credits 明细</h2>{auth.user ? <Card className="settings-card"><h2>当前余额</h2><p><b>{account ? account.available : '读取中…'}</b> Credits · 冻结 {account?.reserved ?? 0}</p><p className="muted">每次生成先预占，成功后确认扣费，失败自动释放。</p></Card> : <Card className="settings-card"><h2>登录后查看</h2><p>真实余额与流水以服务端账本为准。</p><Button onClick={() => navigate('/login')}>登录</Button></Card>}</>}
-      {section === 'orders' && <><h2>订单记录</h2><Card className="settings-card"><p>在线支付尚未接入，充值请联系运营。</p></Card></>}
+      {section === 'orders' && <><h2>充值说明</h2><Card className="settings-card"><h2>线下充值</h2><p>WEAVIA 采用线下付款：联系商务或客服完成付款后，运营会在后台为你的账户加 Credits，到账后余额和明细会自动更新。</p><p className="muted">充值时请提供账户邮箱{auth.user ? `（${auth.user.email}）` : ''}，并保留付款凭证。</p></Card></>}
       {section === 'security' && <><h2>登录与安全</h2>{auth.user ? <SecuritySection key={auth.user.id} /> : <StatePanel type="empty" title="登录后管理会话与设备" />}</>}
       {section === 'storage' && <StorageSettings />}
       {section === 'settings' && <GeneralSettings />}
@@ -195,7 +196,7 @@ function StorageSettings() {
 
 function GeneralSettings() {
   const { theme, setTheme, collapsed, setCollapsed, notify } = useApp();
-  return <><h2>偏好设置</h2><Card className="settings-card"><h2>外观</h2><p>颜色来自 WEAVIA Design System 的 Figma 变量。</p><div className="theme-options">{(['light', 'cream', 'dark'] as const).map(value => <button type="button" key={value} className={theme === value ? 'selected' : ''} onClick={() => { setTheme(value); notify(`已切换到 ${value} 主题`); }}>{value === 'light' ? 'Light' : value === 'cream' ? 'Cream' : 'Dark'}</button>)}</div></Card><Card className="settings-card"><h2>导航</h2><label className="switch-row">默认收起 Sidebar <input type="checkbox" checked={collapsed} onChange={event => setCollapsed(event.target.checked)} /></label></Card><Card className="settings-card"><h2>服务连接</h2><p>当前模式：<Badge>{apiConfig.mode === 'mock' ? 'Mock' : 'Live'}</Badge></p><p>API 地址：{apiConfig.baseUrl}</p><p>服务地址在构建客户端时由 VITE_API_BASE_URL 设置；Provider Key 只配置在服务端。真实模式需登录后使用。</p></Card></>;
+  return <><h2>偏好设置</h2><Card className="settings-card"><h2>外观</h2><p>颜色来自 WEAVIA Design System 的 Figma 变量。</p><div className="theme-options">{(['light', 'cream', 'dark'] as const).map(value => <button type="button" key={value} className={theme === value ? 'selected' : ''} onClick={() => { setTheme(value); notify(`已切换到 ${value} 主题`); }}>{value === 'light' ? 'Light' : value === 'cream' ? 'Cream' : 'Dark'}</button>)}</div></Card><Card className="settings-card"><h2>导航</h2><label className="switch-row">默认收起 Sidebar <input type="checkbox" checked={collapsed} onChange={event => setCollapsed(event.target.checked)} /></label></Card><Card className="settings-card"><h2>服务连接</h2><p>当前模式：<Badge>{apiConfig.mode === 'mock' ? 'Mock' : 'Live'}</Badge></p><p>客户端版本：{APP_VERSION}</p><p>API 地址：{apiConfig.baseUrl}</p><p>服务地址由运营后台「客户端发布」统一下发，更换域名后客户端会自动切换。</p></Card></>;
 }
 
 function CodexSettingsSection() {

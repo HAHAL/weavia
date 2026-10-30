@@ -1,4 +1,4 @@
-import { apiBlob, apiRequest } from './api';
+import { ApiError, apiBlob, apiRequest } from './api';
 import { importAsset } from './assets';
 import { uploadReferenceAsset } from './serverAssets';
 import { useApp } from '../stores/app';
@@ -150,6 +150,26 @@ function poll(id: string) {
   void tick();
 }
 
+// One submission keeps one idempotency key across network retries, so a
+// response lost in transit can be re-sent without creating (and charging) a
+// second task: the server returns the task it already created for that key.
+async function submitTask(body: Record<string, unknown>): Promise<ServerTask> {
+  const idempotencyKey = crypto.randomUUID();
+  const payload = JSON.stringify({ ...body, idempotencyKey });
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await apiRequest<ServerTask>('/api/ai/tasks', { method: 'POST', body: payload, headers: { 'Idempotency-Key': idempotencyKey } }, { timeoutMs: 30000 });
+    } catch (error) {
+      lastError = error;
+      const transient = error instanceof ApiError && (error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT');
+      if (!transient) throw error;
+      await new Promise(resolve => window.setTimeout(resolve, 1200 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export async function createLiveTask(prompt: string, modelId: string, params?: { ratio: string; resolution: string; count: number; promptExtend: boolean; duration?: number; size?: string; negativePrompt?: string; seed?: string; outputFormat?: string; watermark?: boolean; referenceStrength?: number }, referenceAssetIds: string[] = [], mode: 'image' | 'video' = 'image', creative?: CreativeBrief, product?: ProductBrief, quoteId?: string): Promise<string> {
   const model = LIVE_MODELS[modelId] || modelId;
   if (!model) throw new Error('当前模型尚未接入云端生成');
@@ -158,10 +178,7 @@ export async function createLiveTask(prompt: string, modelId: string, params?: {
     return asset ? uploadReferenceAsset(asset) : null;
   }));
   const referenceAssets = references.filter(Boolean).map(item => ({ assetId: item!.assetId, objectKey: item!.objectKey, mimeType: item!.mimeType }));
-  const server = await apiRequest<ServerTask>('/api/ai/tasks', {
-    method: 'POST',
-    body: JSON.stringify({
-      idempotencyKey: crypto.randomUUID(),
+  const server = await submitTask({
       quoteId: quoteId || '',
       modelKey: modelId,
       model,
@@ -183,9 +200,9 @@ export async function createLiveTask(prompt: string, modelId: string, params?: {
       referenceStrength: params?.referenceStrength ?? 0.65,
       workflow: 'image_generation',
       creative,
-    }),
   });
   trackLiveTask(server, prompt, undefined, product);
+  useApp.getState().updateTask(server.id, { creative, referenceAssetIds, retry: { modelId, ratio: params?.ratio, resolution: params?.resolution, count: params?.count, duration: params?.duration } });
   return server.id;
 }
 
@@ -221,10 +238,7 @@ export function retryLiveResult(id: string) {
 export async function createLiveEditTask(prompt: string, modelId: string, asset: import('../types').Asset, parentWorkId?: string): Promise<string> {
   const model = modelId || 'qwen-image-edit-plus';
   const reference = await uploadReferenceAsset(asset);
-  const server = await apiRequest<ServerTask>('/api/ai/tasks', {
-    method: 'POST',
-    body: JSON.stringify({
-      idempotencyKey: crypto.randomUUID(),
+  const server = await submitTask({
       modelKey: model,
       model,
       mode: model === 'qwen-image-2.0' ? 'image_to_image' : 'image_edit',
@@ -236,7 +250,6 @@ export async function createLiveEditTask(prompt: string, modelId: string, asset:
       size: '1024x1024',
       numberOfImages: 1,
       workflow: 'image_generation',
-    }),
   });
   trackLiveTask(server, prompt.slice(0, 28), parentWorkId);
   return server.id;

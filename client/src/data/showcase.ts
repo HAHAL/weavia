@@ -7,6 +7,13 @@ export type ShowcaseItem = {
   tag: string;
   prompt: string;
   imageUrl: string;
+  // 一键同款 preset published from the admin console; empty means prompt only.
+  media?: 'image' | 'video';
+  model?: string;
+  ratio?: string;
+  resolution?: string;
+  count?: number;
+  useCount?: number;
 };
 
 // Bundled offline fallback. The published library comes from /api/showcase.

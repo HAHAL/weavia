@@ -20,6 +20,10 @@ import { RegisterPage } from './pages/Register';
 import { useAuth } from './stores/auth';
 import './styles.css';
 import { initDatabase } from './services/database';
+import { applyStoredApiBase } from './services/clientConfig';
+import { UpgradeGate } from './components/UpgradeGate';
+
+applyStoredApiBase();
 const WorkflowPage = React.lazy(() => import('./pages/Workflow').then(m => ({ default: m.WorkflowPage })));
 
 function RequireAuth() {
@@ -36,6 +40,7 @@ const root = ReactDOM.createRoot(document.getElementById('root')!);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
+      <UpgradeGate>
       <BrowserRouter>
         <Routes>
           <Route path="login" element={<LoginPage />} />
@@ -60,12 +65,13 @@ root.render(
               <Route path="security" element={<Navigate to="/account?section=security" replace />} />
               <Route path="applications" element={<Applications />} />
               <Route path="image-editing" element={<ImageEditingPage />} />
-              <Route path="video-studio" element={<VideoStudioPage />} />
+              <Route path="video-studio" element={import.meta.env.VITE_ENABLE_VIDEO === 'true' ? <VideoStudioPage /> : <Navigate to="/" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Route>
         </Routes>
       </BrowserRouter>
+      </UpgradeGate>
     </ErrorBoundary>
   </React.StrictMode>
 );

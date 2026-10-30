@@ -37,6 +37,14 @@ function CopyId({ value, label }: { value: string; label: string }) {
   </button>;
 }
 
+function stageLabel(task: Task) {
+  if (task.status === 'Queued') return '排队中';
+  if (task.status === 'Running') return task.providerTaskId ? '模型生成中' : '提交中';
+  if (task.status === 'Succeeded') return task.expectedOutputs && (task.savedOutputs?.length ?? 0) < task.expectedOutputs ? '结果保存中' : '已完成';
+  if (task.status === 'Failed') return '已失败';
+  return '已取消';
+}
+
 function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
   const navigate = useNavigate();
   const { notify } = useApp();
@@ -44,11 +52,12 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
   const running = task.status === 'Running' || task.status === 'Queued';
   function retry() {
     onClose();
-    navigate('/', { state: { retryPrompt: task.prompt } });
+    // Bring back everything the original submission used, not only the prompt.
+    navigate('/', { state: { retryPrompt: task.prompt, mode: task.mode, productId: task.product?.id, channel: task.creative?.channel, market: task.creative?.market, language: task.creative?.language, audience: task.creative?.audience, modelId: task.retry?.modelId, ratio: task.retry?.ratio, resolution: task.retry?.resolution, count: task.retry?.count, videoDuration: task.retry?.duration, attachmentIds: task.referenceAssetIds } });
   }
   return <Dialog title="任务详情" onClose={onClose} wide><div className="dialog-content task-detail">
     <div className="task-detail-head"><div><Badge tone={meta.tone}>{meta.label}</Badge><h2>{task.title}</h2><p>{task.mode === 'image' ? '图片创作' : '视频创作'} · {new Date(task.createdAt).toLocaleString('zh-CN')}</p></div><div className="task-detail-result">{task.outputDataUrl && task.mode === 'video' ? <video controls src={task.outputDataUrl} /> : task.mode === 'video' ? <div className="task-result-placeholder"><Video size={22} /><span>{running ? '视频生成中' : '暂无视频结果'}</span></div> : <div className="task-result-placeholder"><ImageIcon size={22} /><span>{running ? '图片生成中' : '结果在作品中心'}</span></div>}</div></div>
-    <div className="task-facts"><div><small>执行来源</small><strong>{task.source === 'live' ? '云端' : '演示'}</strong></div><div><small>进度</small><strong>{task.progress}%</strong></div><div><small>类型</small><strong>{task.mode === 'image' ? '图片' : '视频'}</strong></div><div><small>创建时间</small><strong>{new Date(task.createdAt).toLocaleDateString('zh-CN')}</strong></div></div>
+    <div className="task-facts"><div><small>执行来源</small><strong>{task.source === 'live' ? '云端' : '演示'}</strong></div><div><small>阶段</small><strong>{stageLabel(task)}</strong></div><div><small>类型</small><strong>{task.mode === 'image' ? '图片' : '视频'}</strong></div><div><small>创建时间</small><strong>{new Date(task.createdAt).toLocaleDateString('zh-CN')}</strong></div></div>
     <section className="task-detail-section"><h3>任务标识</h3><div className="task-id-grid"><div><span>平台任务 ID</span><CopyId value={task.id} label="平台任务 ID" /></div></div></section>
     <section className="task-detail-section"><h3>创作描述</h3><p className="task-prompt-full">{task.prompt}</p></section>
     {task.creative && <section className="task-detail-section"><h3>投放资料</h3><p>{task.creative.purpose === 'video' ? '宣传视频' : task.creative.purpose === 'hero' ? '商品主图' : task.creative.purpose === 'scene' ? '场景图' : '宣传图'} · {task.creative.channel} · {task.creative.market} · {task.creative.language}{task.creative.audience ? ` · ${task.creative.audience}` : ''}</p></section>}

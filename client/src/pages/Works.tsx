@@ -19,8 +19,7 @@ function WorkThumb({ work }: { work: Work }) {
 }
 
 export function Works() {
-  const { works, tasks, assets, updateWork, notify } = useApp();
-  const [tab, setTab] = useState<'works' | 'tasks'>('works');
+  const { works, assets, updateWork, notify } = useApp();
   const navigate = useNavigate();
   const [selected, setSelected] = useState<Work | null>(null);
   const [version, setVersion] = useState(0);
@@ -71,9 +70,9 @@ export function Works() {
   return (
     <div className="page">
       <div className="page-header">
-        <div><h1>作品中心</h1><p>预览生成结果，查看生成记录。</p></div><div className="works-tabs"><button type="button" className={tab === 'works' ? 'selected' : ''} onClick={() => setTab('works')}>作品</button><button type="button" className={tab === 'tasks' ? 'selected' : ''} onClick={() => setTab('tasks')}>生成记录</button></div>
+        <div><h1>作品中心</h1><p>预览生成结果、管理版本。生成过程和失败任务在任务中心查看。</p></div><Button variant="secondary" onClick={() => navigate('/tasks')}>任务中心</Button>
       </div>
-      {tab === 'tasks' ? <div className="list-stack">{tasks.length ? tasks.map(task => <Card key={task.id} className="task-row"><div className="task-main"><div><Badge>{task.source === 'live' ? '云端' : '演示'}</Badge><h2>{task.title}</h2><p>{task.prompt}</p></div><span className={`badge ${task.status === 'Succeeded' ? 'badge-success' : task.status === 'Failed' ? 'badge-danger' : ''}`}>{task.status === 'Succeeded' ? '已完成' : task.status === 'Running' ? '生成中' : task.status === 'Queued' ? '排队中' : task.status === 'Failed' ? '失败' : '已取消'}</span></div><small>{new Date(task.createdAt).toLocaleString('zh-CN')}{task.error ? ` · ${task.error}` : ''}</small></Card>) : <StatePanel type="empty" title="还没有生成记录" detail="完成一次生成后会出现在这里。" />}</div> : works.length ? (
+      {works.length ? (
         <div className="work-grid">
           {works.map(work => (
             <Card key={work.id} className="work-card">
