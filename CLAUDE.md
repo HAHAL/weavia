@@ -28,7 +28,8 @@ UI 改动还要在浏览器里看：把 `client/dist` 用带 SPA fallback 的静
 ## 容易踩的地方
 
 - `generation.Deliver()` 默认不内联 base64：它只读本地盘，OSS 模式下会让所有成功任务详情 500。要开得设 `INLINE_OUTPUT_BASE64=true`。
-- 启动同步用 `If-None-Match`，而服务端 CORS 没放行这个头 → 第二次启动起永远走缓存（未修）。
+- 报价与扣费共用 `generation.TaskCredits`（单价 × 张数 × 尺寸倍率）；改计价只改这一处。
+- 客户端 0.2.0 起会读 `/api/client/config`：后台改 API 地址或调高最低版本会影响所有新客户端，先验证再保存。
 - 客户端启动会恢复历史任务结果，必须限流（现为最近 3 条、间隔 600ms），否则 6 条连接被占满。
 - 后台前端调用 `/api/admin/tasks/{id}` 等接口，改后端时注意别把已有路由名改掉。
 
@@ -48,8 +49,8 @@ UI 改动还要在浏览器里看：把 `client/dist` 用带 SPA fallback 的静
 
 1. 花 40 Credits 验证真实生成与套图提交（唯一"代码全绿但可能出不了图"的地方）
 2. 改管理员密码、3001 限源
-3. 修 CORS `If-None-Match`
-4. 加批次概念（用 `conversationId` 当 batchId，避免迁移）
+3. 按 `reviews/2026-10-30/release-0.2.0-acceptance.md` 验收 0.2.0
+4. 加批次概念（规格见 `reviews/2026-10-30/feature-specs.md`）
 5. 再做 P2：批量 SKU、视频、模板市场、数据分析三维对账
 
 ## 提交信息
