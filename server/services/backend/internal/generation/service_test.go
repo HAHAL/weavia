@@ -236,3 +236,33 @@ func TestMockModeAllowsTextToImageWithoutProject(t *testing.T) {
 		t.Fatalf("credits: %+v", credits)
 	}
 }
+
+func TestSizeMultiplierAndTaskCredits(t *testing.T) {
+	cases := []struct {
+		mode, size string
+		want       int64
+	}{
+		{"text_to_image", "1024x1024", 1},
+		{"text_to_image", "768x1024", 1},
+		{"text_to_image", "1536x2048", 2},
+		{"text_to_image", "4096x2304", 4},
+		{"text_to_video", "1920*1080", 1},
+	}
+	for _, c := range cases {
+		if got := SizeMultiplier(c.mode, c.size); got != c.want {
+			t.Errorf("SizeMultiplier(%q,%q)=%d want %d", c.mode, c.size, got, c.want)
+		}
+	}
+	if got := TaskCredits(10, "text_to_image", "2048x2048", 3); got != 60 {
+		t.Fatalf("TaskCredits=%d want 60", got)
+	}
+}
+
+func TestRejectedBeforeAccept(t *testing.T) {
+	if !rejectedBeforeAccept(&providers.Error{Status: 429}) || !rejectedBeforeAccept(&providers.Error{Status: 401}) {
+		t.Fatal("rate limit and bad key must fail over")
+	}
+	if rejectedBeforeAccept(&providers.Error{Status: 500}) || rejectedBeforeAccept(errors.New("boom")) {
+		t.Fatal("ambiguous failures must not fail over")
+	}
+}

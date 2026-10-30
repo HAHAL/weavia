@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weavia/weavia/services/backend/internal/auth"
@@ -209,6 +211,57 @@ func (s *Service) bindingsFor(ctx context.Context, userID, key string) ([]RouteB
 	return s.router.BindingsFor(ctx, key)
 }
 
+// SizeMultiplier is the single pricing rule for output size, shared by quotes
+// and task reservations so the two can never disagree: images up to 1280px on
+// the long edge cost 1×, up to 2048px 2×, larger 4×. Video is priced per clip.
+func SizeMultiplier(mode, size string) int64 {
+	if mode == "text_to_video" || mode == "image_to_video" {
+		return 1
+	}
+	long := 0
+	for _, part := range strings.FieldsFunc(size, func(r rune) bool { return r == 'x' || r == '*' }) {
+		if n, err := strconv.Atoi(part); err == nil && n > long {
+			long = n
+		}
+	}
+	switch {
+	case long > 2048:
+		return 4
+	case long > 1280:
+		return 2
+	default:
+		return 1
+	}
+}
+
+// TaskCredits is unit price × count × size multiplier.
+func TaskCredits(unit int64, mode, size string, count int) int64 {
+	if count < 1 {
+		count = 1
+	}
+	return unit * int64(count) * SizeMultiplier(mode, size)
+}
+
+// ValidSize reports whether size is one the generation pipeline accepts.
+func ValidSize(size string) bool { return validSizes[size] }
+
+// UnitPrice resolves the per-output price a user pays for a logical model,
+// including their route-group multiplier, plus the model's capabilities.
+func (s *Service) UnitPrice(ctx context.Context, userID, key string) (int64, []string, error) {
+	if s.router != nil {
+		if info, err := s.router.LookupRoute(ctx, key); err == nil {
+			return s.priceFor(ctx, userID, key, info.CreditsCost), info.Capabilities, nil
+		}
+	}
+	if s.registry != nil {
+		model, err := s.registry.Lookup(ctx, key)
+		if err == nil && model.Enabled && model.CreditCost > 0 {
+			return model.CreditCost, model.Capabilities, nil
+		}
+	}
+	return 0, nil, &APIError{"UNSUPPORTED_MODEL", "模型不可用", 400}
+}
+
 // priceFor 优先使用账户分组倍率后的价格。
 func (s *Service) priceFor(ctx context.Context, userID, key string, fallback int64) int64 {
 	if s.router == nil {
@@ -266,14 +319,7 @@ func (s *Service) Create(ctx context.Context, user auth.User, input Request) (Ta
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	taskID := id()
-	multiplier := int64(1)
-	switch input.Resolution {
-	case "2K":
-		multiplier = 2
-	case "4K":
-		multiplier = 4
-	}
-	cost := model.CreditCost * int64(input.NumberOfImages) * multiplier
+	cost := TaskCredits(model.CreditCost, input.Mode, input.Size, input.NumberOfImages)
 	reservationID := ""
 	if s.credits != nil {
 		var reserveErr error
@@ -469,32 +515,59 @@ func (s *Service) generate(ctx context.Context, task *Task, base providers.Image
 	if err != nil || len(bindings) == 0 {
 		return providers.ImageResult{}, &providers.Error{Code: "NO_CHANNEL", Message: "no available channel", Retryable: false, Status: 503}
 	}
-	// One task submits to exactly one provider. A failed task must be retried by
-	// the customer as a new task; we never resubmit automatically.
-	binding := bindings[0]
-	request := base
-	request.Provider = binding.Provider
-	request.Model = binding.ProviderModelID
-	request.APIKey = binding.APIKey
-	request.BaseURL = binding.BaseURL
-	started := time.Now()
-	result, callErr := s.provider.Generate(ctx, request)
-	s.router.RecordRoute(ctx, binding.ID, callErr)
-	status, code := "success", ""
-	if callErr != nil {
-		status = "failed"
-		code = "PROVIDER_ERROR"
-		if pe, ok := callErr.(*providers.Error); ok {
-			code = pe.Code
+	// A provider may already have accepted (and billed) a request that then
+	// errored, so we only move to the next channel when the failure proves the
+	// request was never accepted: nothing was submitted and the provider
+	// rejected it up front (bad key, rate limit, unavailable, network).
+	var callErr error
+	for attempt, binding := range bindings {
+		if attempt >= maxChannelAttempts {
+			break
+		}
+		request := base
+		request.Provider = binding.Provider
+		request.Model = binding.ProviderModelID
+		request.APIKey = binding.APIKey
+		request.BaseURL = binding.BaseURL
+		started := time.Now()
+		var result providers.ImageResult
+		result, callErr = s.provider.Generate(ctx, request)
+		s.router.RecordRoute(ctx, binding.ID, callErr)
+		status, code := "success", ""
+		if callErr != nil {
+			status = "failed"
+			code = "PROVIDER_ERROR"
+			if pe, ok := callErr.(*providers.Error); ok {
+				code = pe.Code
+			}
+		}
+		s.router.LogRoute(ctx, task.ID, task.LogicalModel, binding.ChannelID, binding.ChannelModelID, binding.ProviderModelID, binding.KeyID, attempt+1, status, code, time.Since(started))
+		if callErr == nil {
+			task.Provider = binding.Provider
+			task.Model = binding.ProviderModelID
+			return result, nil
+		}
+		if task.ProviderTaskID != "" || !rejectedBeforeAccept(callErr) {
+			break
 		}
 	}
-	s.router.LogRoute(ctx, task.ID, task.LogicalModel, binding.ChannelID, binding.ChannelModelID, binding.ProviderModelID, binding.KeyID, 1, status, code, time.Since(started))
-	if callErr != nil {
-		return providers.ImageResult{}, callErr
+	return providers.ImageResult{}, callErr
+}
+
+const maxChannelAttempts = 3
+
+func rejectedBeforeAccept(err error) bool {
+	pe, ok := err.(*providers.Error)
+	if !ok {
+		return false
 	}
-	task.Provider = binding.Provider
-	task.Model = binding.ProviderModelID
-	return result, nil
+	switch pe.Status {
+	case 401, 403, 429, 503:
+		return true
+	case 0:
+		return pe.Retryable
+	}
+	return false
 }
 
 func (s *Service) finalize(ctx context.Context, task *Task) error {
@@ -608,7 +681,6 @@ func validateBase(r Request, mock bool) error {
 	if r.Size == "" {
 		r.Size = "1024x1024"
 	}
-	validSizes := map[string]bool{"1280x720": true, "720x1280": true, "1920x1080": true, "1080x1920": true, "1280*720": true, "720*1280": true, "1920*1080": true, "1080*1920": true, "1024x1024": true, "819x1024": true, "768x1024": true, "1024x576": true, "576x1024": true, "2048x2048": true, "1638x2048": true, "1536x2048": true, "2048x1152": true, "1152x2048": true, "4096x4096": true, "3277x4096": true, "3072x4096": true, "4096x2304": true, "2304x4096": true}
 	if !validSizes[r.Size] {
 		return &APIError{"INVALID_REQUEST", "不支持的图片尺寸", 400}
 	}
@@ -620,6 +692,9 @@ func validateBase(r Request, mock bool) error {
 	}
 	return nil
 }
+
+var validSizes = map[string]bool{"1280x720": true, "720x1280": true, "1920x1080": true, "1080x1920": true, "1280*720": true, "720*1280": true, "1920*1080": true, "1080*1920": true, "1024x1024": true, "819x1024": true, "768x1024": true, "1024x576": true, "576x1024": true, "2048x2048": true, "1638x2048": true, "1536x2048": true, "2048x1152": true, "1152x2048": true, "4096x4096": true, "3277x4096": true, "3072x4096": true, "4096x2304": true, "2304x4096": true}
+
 func supports(capabilities []string, mode string) bool {
 	if mode == "" {
 		mode = "text_to_image"

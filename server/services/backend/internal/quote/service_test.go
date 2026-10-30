@@ -37,7 +37,7 @@ func (f *fakeStore) Consume(_ context.Context, userID, id string) (Quote, error)
 
 type fakePricer struct{}
 
-func (fakePricer) Price(context.Context, string) (ModelPrice, error) {
+func (fakePricer) Price(context.Context, string, string) (ModelPrice, error) {
 	return ModelPrice{Credits: 30, Enabled: true, Capabilities: []string{"text_to_image", "image_edit"}}, nil
 }
 

@@ -70,7 +70,7 @@ type ModelPrice struct {
 }
 
 type Pricer interface {
-	Price(context.Context, string) (ModelPrice, error)
+	Price(ctx context.Context, userID, model string) (ModelPrice, error)
 }
 
 type Store interface {
@@ -92,6 +92,9 @@ func NewPostgres(pool *pgxpool.Pool) *Service {
 	return New(&postgresStore{pool: pool}, &postgresPricer{pool: pool})
 }
 
+// WithPricer swaps the price source, e.g. for the routing-aware generation price.
+func (s *Service) WithPricer(p Pricer) *Service { s.pricer = p; return s }
+
 func newID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
@@ -105,27 +108,34 @@ func (s *Service) Create(ctx context.Context, userID string, req Request, idempo
 	if req.Mode == "" {
 		req.Mode = "text_to_image"
 	}
+	video := req.Mode == "text_to_video" || req.Mode == "image_to_video"
 	switch req.Mode {
-	case "text_to_image", "image_to_image", "image_edit":
+	case "text_to_image", "image_to_image", "image_edit", "text_to_video", "image_to_video":
 	default:
 		return Quote{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "生成模式无效", Status: 400}
 	}
 	if req.Size == "" {
 		req.Size = "1024x1024"
 	}
-	if req.Size != "1024x1024" || req.NumberOfImages != 1 {
-		return Quote{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "当前仅支持一张 1024x1024 图片", Status: 400}
+	if req.NumberOfImages == 0 {
+		req.NumberOfImages = 1
+	}
+	if !generation.ValidSize(req.Size) {
+		return Quote{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "不支持的尺寸", Status: 400}
+	}
+	if req.NumberOfImages < 1 || req.NumberOfImages > 4 || (video && req.NumberOfImages != 1) {
+		return Quote{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "数量必须在 1-4 之间，视频为 1 条", Status: 400}
 	}
 	if req.EditMode != "" && req.EditMode != "whole" && req.EditMode != "region" {
 		return Quote{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "编辑模式无效", Status: 400}
 	}
-	if req.Mode != "text_to_image" && len(req.ReferenceAssetIDs) == 0 {
+	if (req.Mode == "image_to_image" || req.Mode == "image_edit" || req.Mode == "image_to_video") && len(req.ReferenceAssetIDs) == 0 {
 		return Quote{}, &generation.APIError{Code: "REFERENCE_REQUIRED", Message: "改图任务需要参考图", Status: 400}
 	}
 	if req.EditMode == "region" && req.MaskAssetID == "" {
 		return Quote{}, &generation.APIError{Code: "MASK_REQUIRED", Message: "局部改图必须提供 mask", Status: 400}
 	}
-	price, err := s.pricer.Price(ctx, req.Model)
+	price, err := s.pricer.Price(ctx, userID, req.Model)
 	if err != nil || !price.Enabled || price.Credits <= 0 {
 		return Quote{}, &generation.APIError{Code: "UNSUPPORTED_MODEL", Message: "模型不可用", Status: 400}
 	}
@@ -139,8 +149,9 @@ func (s *Service) Create(ctx context.Context, userID string, req Request, idempo
 		return Quote{}, &generation.APIError{Code: "INVALID_REQUEST", Message: "幂等键无效", Status: 400}
 	}
 	now := s.now().UTC()
-	total := price.Credits
-	line := []LineItem{{Model: req.Model, Quantity: 1, UnitCredits: price.Credits, TotalCredits: total}}
+	unit := price.Credits * generation.SizeMultiplier(req.Mode, req.Size)
+	total := generation.TaskCredits(price.Credits, req.Mode, req.Size, req.NumberOfImages)
+	line := []LineItem{{Model: req.Model, Quantity: req.NumberOfImages, UnitCredits: unit, TotalCredits: total, Note: req.Size}}
 	requestJSON, _ := json.Marshal(req)
 	return s.store.Create(ctx, Quote{
 		UserID:              userID,
@@ -229,7 +240,7 @@ func supports(capabilities []string, mode string) bool {
 
 type postgresPricer struct{ pool *pgxpool.Pool }
 
-func (p *postgresPricer) Price(ctx context.Context, model string) (ModelPrice, error) {
+func (p *postgresPricer) Price(ctx context.Context, _ string, model string) (ModelPrice, error) {
 	var price ModelPrice
 	var caps []byte
 	err := p.pool.QueryRow(ctx, `SELECT coalesce(credit_cost,0),enabled,capabilities FROM ai_models WHERE model_name=$1`, model).Scan(&price.Credits, &price.Enabled, &caps)

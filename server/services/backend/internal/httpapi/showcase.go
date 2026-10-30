@@ -92,13 +92,19 @@ func (s *Server) adminUploadShowcase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sortOrder, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("sortOrder")))
+	count, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("count")))
 	input := showcase.CreateInput{
-		Kind:      defaultString(r.FormValue("kind"), "image"),
-		Title:     strings.TrimSpace(r.FormValue("title")),
-		Tag:       strings.TrimSpace(r.FormValue("tag")),
-		Prompt:    strings.TrimSpace(r.FormValue("prompt")),
-		Status:    defaultString(r.FormValue("status"), "published"),
-		SortOrder: sortOrder,
+		Kind:       defaultString(r.FormValue("kind"), "image"),
+		Title:      strings.TrimSpace(r.FormValue("title")),
+		Tag:        strings.TrimSpace(r.FormValue("tag")),
+		Prompt:     strings.TrimSpace(r.FormValue("prompt")),
+		Status:     defaultString(r.FormValue("status"), "published"),
+		SortOrder:  sortOrder,
+		Media:      defaultString(r.FormValue("media"), "image"),
+		Model:      strings.TrimSpace(r.FormValue("model")),
+		Ratio:      strings.TrimSpace(r.FormValue("ratio")),
+		Resolution: strings.TrimSpace(r.FormValue("resolution")),
+		Count:      count,
 	}
 	item, err := s.Showcase.Create(r.Context(), currentUser(r).ID, input, body)
 	if err != nil {
@@ -114,24 +120,41 @@ func (s *Server) adminPatchShowcase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Kind      *string `json:"kind"`
-		Title     *string `json:"title"`
-		Tag       *string `json:"tag"`
-		Prompt    *string `json:"prompt"`
-		Status    *string `json:"status"`
-		SortOrder *int    `json:"sortOrder"`
+		Kind       *string `json:"kind"`
+		Title      *string `json:"title"`
+		Tag        *string `json:"tag"`
+		Prompt     *string `json:"prompt"`
+		Status     *string `json:"status"`
+		SortOrder  *int    `json:"sortOrder"`
+		Media      *string `json:"media"`
+		Model      *string `json:"model"`
+		Ratio      *string `json:"ratio"`
+		Resolution *string `json:"resolution"`
+		Count      *int    `json:"count"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	if err := decoder.Decode(&body); err != nil {
 		writeError(w, &generation.APIError{Code: "INVALID_REQUEST", Message: "请求体无效", Status: 400})
 		return
 	}
-	item, err := s.Showcase.Update(r.Context(), chi.URLParam(r, "showcaseID"), showcase.Patch{Kind: body.Kind, Title: body.Title, Tag: body.Tag, Prompt: body.Prompt, Status: body.Status, SortOrder: body.SortOrder})
+	item, err := s.Showcase.Update(r.Context(), chi.URLParam(r, "showcaseID"), showcase.Patch{Kind: body.Kind, Title: body.Title, Tag: body.Tag, Prompt: body.Prompt, Status: body.Status, SortOrder: body.SortOrder, Media: body.Media, Model: body.Model, Ratio: body.Ratio, Resolution: body.Resolution, Count: body.Count})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	ok(w, showcaseJSON(item))
+}
+
+func (s *Server) useShowcase(w http.ResponseWriter, r *http.Request) {
+	if s.Showcase == nil {
+		writeError(w, &generation.APIError{Code: "UNAVAILABLE", Message: "示例图库未初始化", Status: 503})
+		return
+	}
+	if err := s.Showcase.RecordUse(r.Context(), chi.URLParam(r, "showcaseID")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) adminDeleteShowcase(w http.ResponseWriter, r *http.Request) {

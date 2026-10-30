@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/weavia/weavia/services/backend/internal/clientapp"
 	"io"
 	"log/slog"
 	"net"
@@ -42,6 +43,7 @@ type Server struct {
 	Conversations        *conversation.Service
 	Quotes               *quote.Service
 	Showcase             *showcase.Service
+	ClientApp            *clientapp.Service
 	Credentials          *providerconfig.Service
 	Models               *modelcatalog.Service
 	Ops                  *ops.Service
@@ -89,6 +91,8 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/plans", s.plans)
 	r.Get("/api/ai/models", s.listPlatformModels)
 	r.Get("/api/showcase", s.listShowcase)
+	r.Get("/api/client/config", s.clientConfig)
+	r.Get("/api/announcements", s.listAnnouncements)
 	r.Get("/api/showcase/images/{showcaseID}", s.showcaseImage)
 	r.Get("/api/reference/{token}", s.referenceImage)
 	r.Get("/api/reference/{token}/image.png", s.referenceImage)
@@ -140,6 +144,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/skus/{skuID}/assets", s.listProductAssets)
 			r.Post("/ai/estimate", s.estimate)
 			r.Post("/ai/quotes", s.createQuote)
+			r.Post("/showcase/{showcaseID}/use", s.useShowcase)
 			r.Get("/ai/templates", s.templates)
 			r.Post("/ai/tasks", s.createTask)
 			r.Get("/ai/tasks", s.listTasks)
@@ -188,6 +193,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/tasks/{taskID}", s.adminTaskDetail)
 			r.Get("/task-runs", s.adminTaskRuns)
 			r.Get("/showcase", s.adminListShowcase)
+			r.Get("/client-config", s.clientConfig)
+			r.Get("/announcements", s.adminListAnnouncements)
 			r.Get("/ai/channels", s.adminChannels)
 			r.Get("/pricing", s.adminPricing)
 			r.Get("/invites", s.adminInvites)
@@ -240,6 +247,10 @@ func (s *Server) Router() http.Handler {
 		r.With(s.requirePermission("showcase.write")).Post("/showcase", s.adminUploadShowcase)
 		r.With(s.requirePermission("showcase.write")).Patch("/showcase/{showcaseID}", s.adminPatchShowcase)
 		r.With(s.requirePermission("showcase.write")).Delete("/showcase/{showcaseID}", s.adminDeleteShowcase)
+		r.With(s.requirePermission("showcase.write")).Post("/announcements", s.adminCreateAnnouncement)
+		r.With(s.requirePermission("showcase.write")).Put("/announcements/{announcementID}", s.adminUpdateAnnouncement)
+		r.With(s.requirePermission("showcase.write")).Delete("/announcements/{announcementID}", s.adminDeleteAnnouncement)
+		r.With(s.requirePermission("provider.write")).Put("/client-config", s.adminSaveClientConfig)
 		r.With(s.requirePermission("credits.write")).Post("/credits/adjust", s.adminAdjustCredits)
 		r.With(s.requirePermission("users.write")).Patch("/users/{userID}/status", s.adminSetUserStatus)
 		r.With(s.requirePermission("users.write")).Put("/users/{userID}/roles", s.adminSetUserRoles)
@@ -259,7 +270,8 @@ func cors(next http.Handler) http.Handler {
 		if origin := r.Header.Get("Origin"); allowed[origin] || sameHostOrigin(r, origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-None-Match, Idempotency-Key")
+			w.Header().Set("Access-Control-Expose-Headers", "ETag")
 			w.Header().Set("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {

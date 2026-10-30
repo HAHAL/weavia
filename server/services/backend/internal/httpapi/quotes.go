@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/weavia/weavia/services/backend/internal/generation"
@@ -30,7 +31,7 @@ func quoteRequestForTask(input generation.Request) quote.Request {
 		ConversationID:    input.ConversationID,
 		WorkspaceID:       input.WorkspaceID,
 		ProjectID:         input.ProjectID,
-		Model:             input.Model,
+		Model:             quoteModel(input),
 		Mode:              input.Mode,
 		EditMode:          input.EditMode,
 		Prompt:            input.Prompt,
@@ -39,4 +40,24 @@ func quoteRequestForTask(input generation.Request) quote.Request {
 		ReferenceAssetIDs: ids,
 		MaskAssetID:       input.MaskAssetID,
 	}
+}
+
+// quoteModel is the model id the client quoted with: the logical key when the
+// task was routed by key, else the provider model name.
+func quoteModel(input generation.Request) string {
+	if input.ModelKey != "" {
+		return input.ModelKey
+	}
+	return input.Model
+}
+
+// GenerationPricer prices quotes exactly the way tasks reserve credits.
+type GenerationPricer struct{ Generation *generation.Service }
+
+func (p GenerationPricer) Price(ctx context.Context, userID, model string) (quote.ModelPrice, error) {
+	unit, caps, err := p.Generation.UnitPrice(ctx, userID, model)
+	if err != nil {
+		return quote.ModelPrice{}, err
+	}
+	return quote.ModelPrice{Credits: unit, Enabled: true, Capabilities: caps}, nil
 }
