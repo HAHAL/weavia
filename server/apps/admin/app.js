@@ -1,4 +1,4 @@
-const BUILD_TAG = '2026-10-30-client-a';
+const BUILD_TAG = '2026-10-31-batch-d';
 const $ = (id) => document.getElementById(id);
 const content = $('content');
 const modal = $('modal');
@@ -337,7 +337,7 @@ function inviteNewModal() {
 
 function usersTable(rows) {
   if (!rows.length) return empty('没有匹配的用户');
-  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><div class="user-cell"><img class="user-avatar" src="/avatars/${esc(user.avatarUrl || defaultAvatarId(user.id))}.png" alt="账户头像" loading="lazy" /><div><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></div></div></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-roles" data-id="${esc(user.id)}" data-email="${esc(user.email)}">角色</button><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><div class="user-cell"><img class="user-avatar" src="/avatars/${esc(user.avatarUrl || defaultAvatarId(user.id))}.png" alt="账户头像" loading="lazy" /><div><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></div></div></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-roles" data-id="${esc(user.id)}" data-email="${esc(user.email)}">角色</button><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button><button data-action="user-password" data-id="${esc(user.id)}">重置密码</button></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 const avatarIds = ['mascot-fox','mascot-bear','mascot-rabbit','mascot-cat','mascot-owl','mascot-bird'];
@@ -818,7 +818,7 @@ async function taskDetailModal(taskID) {
     const routes = (detail.routes || []).map((route) => `<tr><td>${fmtDate(route.createdAt)}</td><td>${esc(route.channelName || route.provider || '—')}</td><td>${esc(route.providerModelId || '—')}</td><td>${route.keyLast4 ? `•••• ${esc(route.keyLast4)}` : '—'}</td><td>${status(route.status)}${route.errorCode ? `<span class="cell-sub">${esc(route.errorCode)}</span>` : ''}</td><td>${fmtNumber(route.latencyMs)} ms</td></tr>`).join('') || emptyRow(6);
     const types = { reserve: '预留', consume: '实扣', release: '返还' };
     const transactions = (detail.transactions || []).map((entry) => `<tr><td>${fmtDate(entry.createdAt)}</td><td>${esc(types[entry.type] || entry.type)}</td><td>${fmtNumber(entry.availableDelta)}</td><td>${fmtNumber(entry.reservedDelta)}</td></tr>`).join('') || emptyRow(4);
-    const stages = { reserved: '预留 Credits', queued: '进入队列', worker_started: 'Worker 开始', provider_request: '调用渠道', provider_submitted: '上游已提交', provider_response: '渠道响应', asset_saved: '素材已保存', settled: '已结算', failed: '任务失败', refund: '返还失败' };
+    const stages = { running: '开始生成', provider: '渠道生成', failed: '失败', cancelled: '用户取消', reserved: '预留 Credits', queued: '进入队列', worker_started: 'Worker 开始', provider_request: '调用渠道', provider_submitted: '上游已提交', provider_response: '渠道响应', asset_saved: '素材已保存', settled: '已结算', failed: '任务失败', refund: '返还失败' };
     const events = (eventData.items || []).map((entry) => `<tr><td>${fmtDate(entry.createdAt)}</td><td>${esc(stages[entry.stage] || entry.stage)}</td><td>${opsBadge(entry.state)}</td><td>${esc(entry.code || '—')}</td><td>${entry.durationMs ? `${fmtNumber(entry.durationMs)} ms` : '—'}</td></tr>`).join('') || emptyRow(5);
     modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">TASK DETAIL</span><h2>${esc(task.type)} · ${esc(task.id.slice(0, 8))}</h2><p>${esc(task.email || task.userId)} · ${esc(task.accountNo || '未分配账户号')} · ${fmtDate(task.createdAt)}</p></div><button type="button" class="modal-close" data-close-modal aria-label="关闭">×</button></div>
       <div class="activity-summary"><div><small>任务状态</small><strong>${status(task.status)}</strong><span>${esc(task.errorCode || '无失败码')}</span></div><div><small>预留 Credits</small><strong>${fmtNumber(task.reservedCredits)}</strong><span>任务提交时预留</span></div><div><small>实扣 Credits</small><strong>${fmtNumber(task.consumedCredits)}</strong><span>${esc(billingBasisLabel(task.billingBasis))}</span></div><div><small>返还 Credits</small><strong>${fmtNumber(task.releasedCredits)}</strong><span>来自返还流水</span></div></div>
@@ -826,8 +826,15 @@ async function taskDetailModal(taskID) {
       <section class="activity-section"><h3>执行时间线</h3><p class="muted">仅新版本产生的任务有阶段记录；历史任务请结合渠道与 Credits 流水查看。</p><div class="table-wrap"><table><thead><tr><th>时间</th><th>阶段</th><th>结果</th><th>错误码</th><th>耗时</th></tr></thead><tbody>${events}</tbody></table></div></section>
       <section class="activity-section"><h3>渠道调用（最近 5 条）</h3><div class="table-wrap"><table><thead><tr><th>时间</th><th>渠道</th><th>渠道模型</th><th>Key 末四位</th><th>结果</th><th>延迟</th></tr></thead><tbody>${routes}</tbody></table></div></section>
       <section class="activity-section"><h3>Credits 流水</h3><div class="table-wrap"><table><thead><tr><th>时间</th><th>动作</th><th>可用变动</th><th>冻结变动</th></tr></thead><tbody>${transactions}</tbody></table></div></section></div>
-      <div class="activity-actions"><span class="muted">本页只读；金额以 Credits 流水为准</span><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
+      <div class="activity-actions"><span class="muted">金额以 Credits 流水为准</span>${task.status === 'success' ? `<button type="button" class="secondary" id="taskToTemplate">设为模板（草稿）</button>` : ''}<button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
     closeButtons();
+    $('taskToTemplate')?.addEventListener('click', async (event) => {
+      const title = prompt('模板标题（客户端灵感广场显示）', '');
+      if (title === null) return;
+      setBusy(event.target, true);
+      try { await post(`/api/admin/showcase/from-task/${encodeURIComponent(taskID)}`, { title, tag: '' }); toast('已存为草稿模板，到「内容管理」检查后发布'); modal.close(); }
+      catch (error) { toast(error.message); setBusy(event.target, false); }
+    });
   } catch (error) {
     if (modal.open) modal.querySelector('.activity-loading').textContent = error.message || '任务详情读取失败';
   }
@@ -857,13 +864,15 @@ async function loadClient() {
         <div class="form-row"><label>最低可用版本（低于它必须升级）<input name="minVersion" value="${esc(c.minVersion || '')}" placeholder="0.2.0" /></label><label>最新版本<input name="latestVersion" value="${esc(c.latestVersion || '')}" placeholder="0.2.0" /></label></div>
         <div class="form-row"><label>macOS 下载地址<input name="downloadMac" value="${esc(c.downloadMac || '')}" placeholder="https://…/WEAVIA-mac.zip" /></label><label>Windows 下载地址<input name="downloadWindows" value="${esc(c.downloadWindows || '')}" placeholder="https://…/WEAVIA-setup.exe" /></label></div>
         <label>更新说明<textarea name="releaseNotes" rows="4" maxlength="4000">${esc(c.releaseNotes || '')}</textarea></label>
+        <div class="form-row"><label>视频复刻 · 拆解渠道<select name="visionProvider">${['volcengine', 'dashscope', 'antdigital', 'computrix'].map((id) => `<option value="${id}" ${(c.visionProvider || 'volcengine') === id ? 'selected' : ''}>${id}</option>`).join('')}</select></label><label>视频复刻 · 视觉模型 ID<input name="visionModel" value="${esc(c.visionModel || '')}" placeholder="该渠道已开通的多模态模型，如豆包视觉模型 ID" /></label></div>
+        <p class="muted">视频复刻会把参考视频的关键帧发给这个模型拆解分镜；留空则客户端提示「未配置」。</p>
         <div class="row-actions"><button class="primary" type="submit">保存连接与版本</button></div>
       </form></section>
     <section class="panel"><div class="panel-head"><div><h2>公告</h2><p>已发布且在有效期内的公告会显示在客户端首页顶部和铃铛里；置顶的排在最前</p></div><button class="secondary" data-action="announcement-new">新建公告</button></div>${announcementsTable(state.announcements)}</section>`;
   $('clientConfigForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.target);
-    const body = Object.fromEntries(['apiBaseUrl', 'minVersion', 'latestVersion', 'downloadMac', 'downloadWindows', 'releaseNotes'].map((key) => [key, String(form.get(key) || '').trim()]));
+    const body = Object.fromEntries(['apiBaseUrl', 'minVersion', 'latestVersion', 'downloadMac', 'downloadWindows', 'releaseNotes', 'visionProvider', 'visionModel'].map((key) => [key, String(form.get(key) || '').trim()]));
     if (body.minVersion && !confirm(`保存后，版本低于 ${body.minVersion} 的客户端将无法继续使用，必须下载新版。确定？`)) return;
     const button = event.target.querySelector('button[type=submit]');
     setBusy(button, true);
@@ -953,11 +962,21 @@ async function userActivityModal(user) {
 }
 
 function creditsModal(user) {
-  openModal('调整 Credits', `<label>用户<input value="${esc(user.email)}" disabled /></label><label>调整数量（正数增加，负数扣减）<input name="amount" type="number" step="1" required /></label><label>原因<input name="reason" required maxlength="200" placeholder="例如：活动补偿 / 人工充值" /></label>`, '确认调整', async (form) => {
+  openModal('调整 Credits', `<label>用户<input value="${esc(user.email)}" disabled /></label><label>类型<select name="kind"><option value="topup">线下充值入账（需凭证号）</option><option value="adjust">人工调整（补偿 / 扣减）</option></select></label><label>调整数量（正数增加，负数扣减）<input name="amount" type="number" step="1" required /></label><label>收款凭证号（线下充值必填，同一凭证只能入账一次）<input name="voucher" maxlength="80" placeholder="例如：转账流水号 / 收据编号" /></label><label>原因<input name="reason" required maxlength="200" placeholder="例如：线下充值 ¥500 / 活动补偿" /></label>`, '确认调整', async (form) => {
     const amount = Number(form.get('amount'));
     if (!Number.isInteger(amount) || amount === 0) throw new Error('请输入非零整数');
-    await post('/api/admin/credits/adjust', { userId: user.id, amount, reason: form.get('reason'), idempotencyKey: crypto.randomUUID() });
+    const voucher = String(form.get('voucher') || '').trim();
+    const topup = form.get('kind') === 'topup';
+    if (topup && amount < 0) throw new Error('充值入账必须是正数');
+    if (topup && !voucher) throw new Error('线下充值必须填写收款凭证号');
+    const reason = topup ? `线下充值 · 凭证 ${voucher} · ${form.get('reason')}` : form.get('reason');
+    await post('/api/admin/credits/adjust', { userId: user.id, amount, reason, idempotencyKey: topup ? `voucher:${voucher}` : crypto.randomUUID() });
     await navigate('users');
+  });
+}
+function passwordModal(user) {
+  openModal('重置登录密码', `<label>用户<input value="${esc(user.email)}" disabled /></label><label>新的临时密码（至少 8 位）<input name="password" type="text" minlength="8" maxlength="64" required autocomplete="off" /></label><p class="muted">保存后该用户所有设备会被退出，请把临时密码线下告知用户，并提醒其登录后自行修改。</p>`, '确认重置', async (form) => {
+    await post(`/api/admin/users/${user.id}/password`, { password: form.get('password') });
   });
 }
 function providerKeyModal(provider) {
@@ -1129,6 +1148,7 @@ content.addEventListener('click', async (event) => {
     if (action === 'account-lookup') { const row = state.users.find((item) => item.accountNo === target.dataset.no); if (row) accountLookupModal(row.accountNo); return; }
     if (action === 'user-activity') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) userActivityModal(user); return; }
     if (action === 'user-status') { setBusy(target, true); await patch(`/api/admin/users/${target.dataset.id}/status`, { status: target.dataset.status }); await navigate('users'); return; }
+    if (action === 'user-password') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) passwordModal(user); return; }
     if (action === 'user-credits') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) creditsModal(user); return; }
     if (action === 'plan-edit') { const plan = state.plans.find((item) => item.id === target.dataset.id); if (plan) planModal(plan); return; }
     if (action === 'skill-publish') { setBusy(target, true); await patch(`/api/admin/skills/${target.dataset.id}`, { status: 'published' }); await navigate('ai'); return; }
