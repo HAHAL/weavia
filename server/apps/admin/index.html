@@ -2,22 +2,48 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
+  <script>try{var m=localStorage.getItem("weavia.admin.theme")||"system";document.documentElement.dataset.theme=m==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):m}catch(e){}</script>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WEAVIA 运营后台</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20261031k" />
 </head>
 <body>
   <section id="loginView" class="login-shell">
-    <form id="loginForm" class="login-card">
-      <span class="eyebrow">WEAVIA ADMIN</span>
-      <h1>运营管理后台</h1>
-      <p>用户、商业、AI、任务与客户端内容，在一个地方管理。</p>
-      <label>邮箱<input id="email" type="email" autocomplete="username" required /></label>
-      <label>密码<input id="password" type="password" autocomplete="current-password" required /></label>
-      <label>API 地址<input id="apiBase" value="http://127.0.0.1:8080" /></label>
-      <button class="primary" type="submit">进入后台</button>
-      <p id="loginError" class="form-error" role="alert"></p>
-    </form>
+    <aside class="login-brand" aria-hidden="false">
+      <div class="login-brand-top"><span class="brand-mark">W</span><span class="login-wordmark">WEAVIA<small>ADMIN CONSOLE</small></span></div>
+      <div class="login-brand-body">
+        <h2>电商视觉的<br />运营控制台</h2>
+        <p>用户、渠道、模型与交付，一处掌握。</p>
+        <ul class="login-points">
+          <li><span>01</span><div><strong>渠道健康</strong><small>Key 失效、渠道冷却、单点模型自动告警</small></div></li>
+          <li><span>02</span><div><strong>经营与计费</strong><small>收入、成本、毛利与线下入账留痕</small></div></li>
+          <li><span>03</span><div><strong>客户端发布</strong><small>公告、强制升级与 API 地址统一下发</small></div></li>
+        </ul>
+      </div>
+      <div class="login-brand-foot"><span class="login-status" id="loginStatus" data-state="checking"><i></i><span>正在检查服务…</span></span><span id="loginBuild"></span></div>
+    </aside>
+    <main class="login-main">
+      <div class="login-theme" id="loginTheme"></div>
+      <form id="loginForm" class="login-card" novalidate>
+        <span class="eyebrow">WEAVIA ADMIN</span>
+        <h1>欢迎回来</h1>
+        <p class="login-sub">仅限授权的运营与管理员账号登录。</p>
+        <label for="email">邮箱</label>
+        <input id="email" type="email" autocomplete="username" placeholder="name@company.com" required />
+        <div class="label-row"><label for="password">密码</label><span class="caps-hint" id="capsHint" hidden>大写锁定已开启</span></div>
+        <div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="输入密码" required /><button type="button" id="togglePassword" class="password-toggle" aria-label="显示密码" aria-pressed="false">显示</button></div>
+        <div class="login-options"><label class="check"><input type="checkbox" id="rememberEmail" /> 记住邮箱</label><span class="muted">忘记密码请联系超级管理员</span></div>
+        <p id="loginError" class="form-error login-error" role="alert"></p>
+        <button class="primary login-submit" type="submit"><span>登录</span></button>
+        <details class="login-advanced" id="loginAdvanced">
+          <summary>连接设置 <span id="apiHostLabel"></span></summary>
+          <label for="apiBase">API 地址</label>
+          <input id="apiBase" value="http://127.0.0.1:8080" spellcheck="false" />
+          <small class="muted">后台通过这个地址访问 WEAVIA 服务；换域名后在这里改一次即可。</small>
+        </details>
+      </form>
+      <p class="login-legal">© WEAVIA · 操作均会记录在审计日志</p>
+    </main>
   </section>
 
   <div id="adminView" class="admin-shell" hidden>
@@ -32,15 +58,16 @@
     </aside>
     <div class="workspace">
       <header class="topbar">
-        <div><span class="eyebrow" id="pageKicker">OVERVIEW</span><span class="topbar-note">WEAVIA 运营工作区</span></div>
-        <div class="topbar-actions"><span class="status-dot" id="serviceDot"></span><button id="serviceStatus" class="status-link" type="button" title="查看运行与排障">服务检查中</button><button id="refresh" class="ghost" type="button">刷新</button></div>
+        <nav class="crumbs" aria-label="当前位置"><span id="pageKicker">经营</span><span class="crumb-sep">/</span><strong id="pageCrumb">仪表盘</strong></nav>
+        <div class="topbar-actions"><span id="themeSlot"></span><span class="status-dot" id="serviceDot"></span><button id="serviceStatus" class="status-link" type="button" title="查看运行与排障">服务检查中</button><button id="refresh" class="ghost" type="button" title="重新加载当前页">刷新</button></div>
       </header>
       <main id="content" class="content" aria-live="polite"></main>
     </div>
   </div>
 
   <dialog id="modal" class="modal"></dialog>
+  <dialog id="confirmModal" class="modal confirm-modal"></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="/app.js?v=20261031k"></script>
 </body>
 </html>

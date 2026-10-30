@@ -1,29 +1,90 @@
-const BUILD_TAG = '2026-10-31-batch-d';
+const BUILD_TAG = '2026-10-31-refresh';
 const $ = (id) => document.getElementById(id);
 const content = $('content');
 const modal = $('modal');
 const pages = [
-  { id: 'dashboard', label: '仪表盘', kicker: 'OVERVIEW' },
-  { id: 'users', label: '用户中心', kicker: 'CUSTOMERS' },
-  { id: 'roles', label: '角色权限', kicker: 'ACCESS' },
-  { id: 'commerce', label: '商业中心', kicker: 'COMMERCE' },
-  { id: 'ai', label: 'AI Studio', kicker: 'AI OPERATIONS' },
-  { id: 'pricing', label: '定价与成本', kicker: 'PRICING' },
-  { id: 'invites', label: '邀请码', kicker: 'GROWTH' },
-  { id: 'storage', label: '存储', kicker: 'STORAGE' },
-  { id: 'tasks', label: '创作任务', kicker: 'TASKS' },
-  { id: 'ops', label: '运行与排障', kicker: 'OPERATIONS' },
-  { id: 'showcase', label: '内容管理', kicker: 'SHOWCASE' },
-  { id: 'client', label: '客户端发布', kicker: 'CLIENT RELEASE' },
-  { id: 'analytics', label: '数据分析', kicker: 'ANALYTICS' },
-  { id: 'settings', label: '设置', kicker: 'SETTINGS' },
+  { id: 'dashboard', label: '仪表盘', kicker: '经营', group: '经营', icon: 'grid' },
+  { id: 'commerce', label: '商业中心', kicker: '经营', group: '经营', icon: 'wallet' },
+  { id: 'pricing', label: '定价与成本', kicker: '经营', group: '经营', icon: 'tag' },
+  { id: 'analytics', label: '数据分析', kicker: '经营', group: '经营', icon: 'chart' },
+  { id: 'users', label: '用户中心', kicker: '用户', group: '用户', icon: 'users' },
+  { id: 'roles', label: '角色权限', kicker: '用户', group: '用户', icon: 'shield' },
+  { id: 'invites', label: '邀请码', kicker: '用户', group: '用户', icon: 'ticket' },
+  { id: 'ai', label: 'AI Studio', kicker: 'AI 运维', group: 'AI 运维', icon: 'spark' },
+  { id: 'tasks', label: '创作任务', kicker: 'AI 运维', group: 'AI 运维', icon: 'list' },
+  { id: 'ops', label: '运行与排障', kicker: 'AI 运维', group: 'AI 运维', icon: 'pulse' },
+  { id: 'showcase', label: '内容管理', kicker: '内容与客户端', group: '内容与客户端', icon: 'image' },
+  { id: 'client', label: '客户端发布', kicker: '内容与客户端', group: '内容与客户端', icon: 'rocket' },
+  { id: 'storage', label: '存储', kicker: '系统', group: '系统', icon: 'db' },
+  { id: 'settings', label: '设置', kicker: '系统', group: '系统', icon: 'gear' },
 ];
+// 16px line icons, stroke uses currentColor so active/hover colors follow the text.
+const ICONS = {
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  wallet: '<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M16 13h2M3 10h18M7 6V4h10v2"/>',
+  tag: '<path d="M20 13l-7 7-9-9V4h7z"/><circle cx="8.5" cy="8.5" r="1.5"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.8 3 2.6 3.5 5.2"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.3 8-8 9-4.7-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+  ticket: '<path d="M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 1 0-4V4H3zM14 4v16" stroke-dasharray="0"/>',
+  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7z"/>',
+  list: '<path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>',
+  pulse: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  rocket: '<path d="M5 15c-1.5 1.5-2 4-2 6 2 0 4.5-.5 6-2M9 13l2 2M14.5 4.5C17 2 20 2 21.5 2.5 22 4 22 7 19.5 9.5L12 17l-5-5z"/><circle cx="16" cy="8" r="1.6"/>',
+  db: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 15H3.5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 4.4V4a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4z"/>',
+};
+Object.assign(ICONS, {
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+});
+const icon = (name) => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ''}</svg>`;
 const defaultApiBase = location.port && location.port !== '80' && location.port !== '443' ? `${location.protocol}//${location.hostname}:8080` : location.origin;
 let apiBase = localStorage.getItem('weavia.admin.api') || defaultApiBase;
 let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
 const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', opsPeriod: '24h', health: 'checking', opsStatus: null, users: [], showcase: [], announcements: [], clientConfig: null, plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
 
+
+// Appearance: 跟随系统 / 浅色 / 深色, remembered per browser.
+const THEME_KEY = 'weavia.admin.theme';
+const THEME_MODES = [['system', '跟随系统', 'monitor'], ['light', '浅色', 'sun'], ['dark', '深色', 'moon']];
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+function themeMode() {
+  try { const value = localStorage.getItem(THEME_KEY); return THEME_MODES.some(([id]) => id === value) ? value : 'system'; } catch { return 'system'; }
+}
+function applyTheme() {
+  const mode = themeMode();
+  document.documentElement.dataset.theme = mode === 'system' ? (systemDark.matches ? 'dark' : 'light') : mode;
+  document.querySelectorAll('[data-theme-mode]').forEach((button) => {
+    const active = button.dataset.themeMode === mode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+function setTheme(mode) {
+  try { localStorage.setItem(THEME_KEY, mode); } catch { /* private mode: keep for this page only */ }
+  applyTheme();
+}
+function themeSwitch() {
+  return `<div class="theme-switch" role="group" aria-label="外观">${THEME_MODES.map(([id, label, name]) => `<button type="button" data-theme-mode="${id}" title="${label}" aria-label="${label}">${icon(name)}</button>`).join('')}</div>`;
+}
+systemDark.addEventListener('change', () => { if (themeMode() === 'system') applyTheme(); });
+document.addEventListener('click', (event) => { const button = event.target.closest('[data-theme-mode]'); if (button) setTheme(button.dataset.themeMode); });
+
+// Styled replacement for window.confirm; uses its own <dialog> so it can sit
+// on top of an open modal (e.g. deleting a key from the key list).
+function confirmDialog(message, { okLabel = '确定', danger = true } = {}) {
+  const dialog = $('confirmModal');
+  dialog.innerHTML = `<form method="dialog" class="confirm-inner"><div class="confirm-icon ${danger ? 'danger' : ''}">!</div><div><h2>${danger ? '请确认' : '确认操作'}</h2><p>${esc(message).replace(/\n/g, '<br />')}</p></div><div class="confirm-actions"><button value="cancel" class="secondary">取消</button><button value="ok" class="${danger ? 'danger-button' : 'primary'}">${esc(okLabel)}</button></div></form>`;
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'ok'), { once: true });
+    dialog.showModal();
+    dialog.querySelector('button[value=ok]').focus();
+  });
+}
 
 const tablePagers = new Map();
 let nextTableId = 0;
@@ -173,10 +234,15 @@ const patch = (path, body) => request(path, { method: 'PATCH', body: JSON.string
 const remove = (path) => request(path, { method: 'DELETE' });
 
 function renderNav() {
-  $('nav').innerHTML = pages.map((page, index) => `<button type="button" class="nav-item ${state.page === page.id ? 'active' : ''}" data-page="${page.id}"><span class="nav-index">${String(index + 1).padStart(2, "0")}</span><span class="nav-label">${esc(page.label)}</span>${page.id === 'showcase' && state.showcase.length ? `<span class="nav-count">${state.showcase.length}</span>` : ''}</button>`).join('');
+  let group = '';
+  $('nav').innerHTML = pages.map((page) => {
+    const heading = page.group !== group ? `<div class="nav-group">${esc(page.group)}</div>` : '';
+    group = page.group;
+    return `${heading}<button type="button" class="nav-item ${state.page === page.id ? 'active' : ''}" data-page="${page.id}" title="${esc(page.label)}">${icon(page.icon)}<span class="nav-label">${esc(page.label)}</span>${page.id === 'showcase' && state.showcase.length ? `<span class="nav-count">${state.showcase.length}</span>` : ''}</button>`;
+  }).join('');
   document.querySelectorAll('[data-page]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.page)));
 }
-function showLogin() { $('loginView').hidden = false; $('adminView').hidden = true; }
+function showLogin() { $('loginView').hidden = false; $('adminView').hidden = true; applyTheme(); setTimeout(() => ($('email').value ? $('password') : $('email')).focus(), 0); }
 function showAdmin() {
   $('loginView').hidden = true;
   $('adminView').hidden = false;
@@ -189,9 +255,59 @@ function logout() {
   sessionStorage.removeItem('weavia.admin.email');
   showLogin();
 }
+const REMEMBER_KEY = 'weavia.admin.rememberEmail';
+async function checkLoginService() {
+  const badge = $('loginStatus');
+  if (!badge) return;
+  const base = $('apiBase').value.trim().replace(/\/$/, '');
+  try { $('apiHostLabel').textContent = new URL(base).host; } catch { $('apiHostLabel').textContent = '地址无效'; }
+  badge.dataset.state = 'checking';
+  badge.querySelector('span').textContent = '正在检查服务…';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(base + '/api/readiness', { signal: controller.signal });
+    const ok = response.ok;
+    badge.dataset.state = ok ? 'ok' : 'down';
+    badge.querySelector('span').textContent = ok ? '服务正常' : `服务异常（${response.status}）`;
+  } catch {
+    badge.dataset.state = 'down';
+    badge.querySelector('span').textContent = '无法连接服务，请检查连接设置';
+  } finally { clearTimeout(timer); }
+}
+function initLogin() {
+  $('loginTheme').innerHTML = themeSwitch();
+  $('loginBuild').textContent = `版本 ${BUILD_TAG}`;
+  try {
+    const saved = localStorage.getItem(REMEMBER_KEY);
+    if (saved) { $('email').value = saved; $('rememberEmail').checked = true; }
+  } catch { /* storage unavailable */ }
+  $('togglePassword').addEventListener('click', () => {
+    const input = $('password');
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    $('togglePassword').textContent = show ? '隐藏' : '显示';
+    $('togglePassword').setAttribute('aria-pressed', String(show));
+    $('togglePassword').setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+    input.focus();
+  });
+  const caps = (event) => { if (event.getModifierState) $('capsHint').hidden = !event.getModifierState('CapsLock'); };
+  $('password').addEventListener('keydown', caps);
+  $('password').addEventListener('keyup', caps);
+  ['email', 'password'].forEach((id) => $(id).addEventListener('input', () => { $(id).classList.remove('invalid'); $('loginError').textContent = ''; }));
+  $('apiBase').addEventListener('change', checkLoginService);
+  checkLoginService();
+}
+
 async function login(event) {
   event.preventDefault();
   $('loginError').textContent = '';
+  const emailValue = $('email').value.trim();
+  const passwordValue = $('password').value;
+  $('email').classList.toggle('invalid', !emailValue);
+  $('password').classList.toggle('invalid', !passwordValue);
+  if (!emailValue || !passwordValue) { $('loginError').textContent = '请输入邮箱和密码'; (emailValue ? $('password') : $('email')).focus(); return; }
+  try { if ($('rememberEmail').checked) localStorage.setItem(REMEMBER_KEY, emailValue); else localStorage.removeItem(REMEMBER_KEY); } catch { /* ignore */ }
   apiBase = $('apiBase').value.trim().replace(/\/$/, '');
   localStorage.setItem('weavia.admin.api', apiBase);
   const button = event.target.querySelector('button[type=submit]');
@@ -199,7 +315,7 @@ async function login(event) {
   try {
     const data = await request('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value, deviceInfo: { deviceName: 'weavia-admin', platform: 'web', appVersion: '0.1.0' } }),
+      body: JSON.stringify({ email: emailValue, password: passwordValue, deviceInfo: { deviceName: 'weavia-admin', platform: 'web', appVersion: '0.1.0' } }),
     }, false);
     token = data.accessToken;
     email = data.user.email;
@@ -208,6 +324,11 @@ async function login(event) {
     showAdmin(); renderNav(); await navigate(pageFromHash()); await checkService();
   } catch (error) {
     $('loginError').textContent = error.message;
+    $('password').value = '';
+    $('password').focus();
+    $('loginForm').classList.remove('shake');
+    void $('loginForm').offsetWidth;
+    $('loginForm').classList.add('shake');
   } finally {
     setBusy(button, false);
   }
@@ -244,6 +365,7 @@ async function navigate(pageId) {
   if (location.hash !== `#/${pageId}`) history.replaceState(null, '', `#/${pageId}`);
   const page = pages.find((item) => item.id === pageId) || pages[0];
   $('pageKicker').textContent = page.kicker;
+  $('pageCrumb').textContent = page.label;
   renderNav();
   content.innerHTML = loading();
   try { await loaders[pageId](); enhanceTables(); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
@@ -251,22 +373,34 @@ async function navigate(pageId) {
 const loaders = { client: loadClient, dashboard: loadDashboard, users: loadUsers, roles: loadRoles, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, ops: loadOps, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
 async function loadDashboard() {
-  const [overview, orders, tasks, showcase] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase')]);
+  const [overview, orders, tasks, showcase, health] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase'), get('/api/admin/ai/health').catch(() => null)]);
   state.overview = overview; state.orders = orders || []; state.tasks = tasks || []; state.showcase = showcase.items || [];
-  content.innerHTML = pageHead('仪表盘', '今天的运营、收入、任务与内容状态。', '<button class="secondary" data-action="go-showcase">管理客户端内容</button>') +
-    `<div class="metrics">
-      ${metric('用户总数', fmtNumber(overview.users), `今日新增 ${fmtNumber(overview.newUsersToday)}`)}
-      ${metric('付费会员', fmtNumber(overview.paidMembers), '订阅中的付费用户')}
-      ${metric('累计收入', fmtMoney(overview.revenueMinorCNY), '已支付订单')}
-      ${metric('Credits 消耗', fmtNumber(overview.creditsConsumed), '已结算任务')}
-      ${metric('任务总数', fmtNumber(overview.tasks), `失败 ${fmtNumber(overview.failedTasks)}`)}
-      ${metric('AI 成本', '¥' + Number(overview.aiCostByCurrency?.CNY || 0).toFixed(2), '按 Provider 记账')}
-      ${metric('毛利', overview.grossProfitCNY == null ? '—' : fmtMoney(Math.round(overview.grossProfitCNY * 100)), '收入 - AI 成本')}
-      ${metric('内容条目', fmtNumber(state.showcase.length), '在内容管理中查看')}
+  if (health) state.aiHealth = health;
+  const recent = state.tasks.filter((t) => Date.now() - new Date(t.createdAt).getTime() < 86400000);
+  const failed24 = recent.filter((t) => t.status === 'failed').length;
+  // grossProfitCNY is yuan, revenue is fen: margin % = gross×100 / revenue × 100.
+  const margin = overview.revenueMinorCNY && overview.grossProfitCNY != null ? (overview.grossProfitCNY * 100 * 100) / overview.revenueMinorCNY : null;
+  // One list of things an operator should act on today, each linking to where it is fixed.
+  const todo = [];
+  (health?.channels || []).filter((c) => ['auth_failed', 'no_key'].includes(c.status)).forEach((c) => todo.push(['danger', `渠道「${c.name}」${CHANNEL_STATUS[c.status][1]}`, 'ai']));
+  const broken = (health?.models || []).filter((m) => m.enabled && ['image', 'video'].includes(m.modality) && ['no_channel', 'no_usable_channel', 'video_provider_unsupported'].includes(m.reason));
+  if (broken.length) todo.push(['danger', `${broken.length} 个客户端可见模型当前不可用：${broken.slice(0, 3).map((m) => m.displayName).join('、')}${broken.length > 3 ? ' 等' : ''}`, 'ai']);
+  if (failed24) todo.push([failed24 / Math.max(recent.length, 1) > 0.1 ? 'danger' : 'warning', `过去 24 小时 ${failed24} 个任务失败（共 ${recent.length} 个）`, 'tasks']);
+  if (margin != null && margin < 30) todo.push(['warning', `整体毛利率 ${margin.toFixed(0)}%，低于 30%`, 'pricing']);
+  if (!todo.length) todo.push(['success', '没有需要处理的问题', '']);
+  content.innerHTML = pageHead('仪表盘', '今天的经营、任务与渠道状态。', '<button class="secondary" data-action="go-tasks">创作任务</button><button class="primary" data-action="go-page" data-page="ai">AI Studio</button>') +
+    `<div class="metrics hero-metrics">
+      ${metric('累计收入', fmtMoney(overview.revenueMinorCNY), `毛利 ${overview.grossProfitCNY == null ? '—' : fmtMoney(Math.round(overview.grossProfitCNY * 100))}${margin != null ? ` · ${margin.toFixed(0)}%` : ''}`)}
+      ${metric('用户', fmtNumber(overview.users), `今日新增 ${fmtNumber(overview.newUsersToday)} · 付费 ${fmtNumber(overview.paidMembers)}`)}
+      ${metric('任务', fmtNumber(overview.tasks), `累计失败 ${fmtNumber(overview.failedTasks)} · ${overview.tasks ? ((overview.failedTasks / overview.tasks) * 100).toFixed(1) : 0}%`)}
+      ${metric('AI 成本', '¥' + Number(overview.aiCostByCurrency?.CNY || 0).toFixed(2), `Credits 消耗 ${fmtNumber(overview.creditsConsumed)}`)}
     </div>
+    <section class="panel"><div class="panel-head"><div><h2>今天需要处理</h2><p>渠道、模型、任务与毛利的异常汇总，点右侧直接去处理</p></div></div>
+      ${todo.map(([level, text, page]) => `<div class="alert-row"><span class="badge ${level}">${level === 'danger' ? '严重' : level === 'warning' ? '注意' : '正常'}</span><span>${esc(text)}</span><span class="spacer"></span>${page ? `<button class="mini" data-action="go-page" data-page="${page}">去处理</button>` : ''}</div>`).join('')}
+    </section>
     <div class="panel-grid">
-      <section class="panel"><div class="panel-head"><div><h2>最近订单</h2><p>最新 6 笔商业订单</p></div><button class="text-button" data-action="go-commerce">全部订单</button></div>${ordersTable((orders || []).slice(0, 6))}</section>
-      <section class="panel"><div class="panel-head"><div><h2>最近任务</h2><p>最新 6 个创作任务</p></div><button class="text-button" data-action="go-tasks">全部任务</button></div>${tasksTable((tasks || []).slice(0, 6), true)}</section>
+      <section class="panel"><div class="panel-head"><div><h2>最近任务</h2><p>最新 6 个创作任务</p></div><button class="mini" data-action="go-tasks">全部任务</button></div>${tasksTable((tasks || []).slice(0, 6), true)}</section>
+      <section class="panel"><div class="panel-head"><div><h2>最近订单</h2><p>最新 6 笔订单（线下入账见用户中心 → 调整 Credits）</p></div><button class="mini" data-action="go-commerce">全部订单</button></div>${ordersTable((orders || []).slice(0, 6))}</section>
     </div>`;
 }
 function ordersTable(rows) {
@@ -285,13 +419,21 @@ async function loadUsers() {
   const [users, inviteData] = await Promise.all([get('/api/admin/users'), get('/api/admin/invites')]);
   state.users = users || [];
   state.invites = inviteData?.items || [];
-  content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态。') + `<div class="panel"><div class="toolbar"><input id="userSearch" placeholder="搜索邮箱、姓名或套餐" /><span class="spacer"></span><span class="badge gold">${state.users.length} 位用户</span></div><div id="userTable"></div></div>`
-  const draw = (rows) => { renderInto($('userTable'), usersTable(rows)); };
-  draw(state.users);
-  $('userSearch').addEventListener('input', (event) => {
-    const query = event.target.value.trim().toLowerCase();
-    draw(users.filter((user) => `${user.email} ${user.name} ${user.plan}`.toLowerCase().includes(query)));
-  });
+  const all = state.users;
+  const filters = [['all', '全部', () => true], ['paid', '付费会员', (u) => u.membershipStatus === 'active' || (u.plan && u.plan !== 'free')], ['low', 'Credits < 100', (u) => Number(u.credits) < 100], ['sync', '已开 OSS 同步', (u) => u.ossSync], ['disabled', '已禁用', (u) => u.status !== 'active']];
+  const today = all.filter((u) => Date.now() - new Date(u.createdAt).getTime() < 86400000).length;
+  content.innerHTML = pageHead('用户中心', '查看用户、套餐、Credits 与账号状态；常用操作在每行右侧，其余在「更多」。') +
+    `<div class="metrics">${metric('用户总数', fmtNumber(all.length))}${metric('今日注册', fmtNumber(today))}${metric('付费会员', fmtNumber(all.filter(filters[1][2]).length))}${metric('已禁用', fmtNumber(all.filter(filters[4][2]).length))}</div>
+    <div class="panel"><div class="panel-head"><div class="tabs sub-tabs" style="margin:0">${filters.map(([id, label, fn]) => `<button type="button" class="${(state.userFilter || 'all') === id ? 'active' : ''}" data-user-filter="${id}">${label} <small>${all.filter(fn).length}</small></button>`).join('')}</div><input id="userSearch" class="search-input" placeholder="搜索邮箱、姓名、账号或套餐" /></div><div id="userTable"></div></div>`;
+  const draw = () => {
+    const query = ($('userSearch')?.value || '').trim().toLowerCase();
+    const fn = (filters.find(([id]) => id === (state.userFilter || 'all')) || filters[0])[2];
+    renderInto($('userTable'), usersTable(all.filter((u) => fn(u) && `${u.email} ${u.name} ${u.plan} ${u.accountNo}`.toLowerCase().includes(query))));
+    enhanceTables($('userTable'));
+  };
+  content.querySelectorAll('[data-user-filter]').forEach((button) => button.addEventListener('click', () => { state.userFilter = button.dataset.userFilter; content.querySelectorAll('[data-user-filter]').forEach((b) => b.classList.toggle('active', b === button)); draw(); }));
+  $('userSearch').addEventListener('input', draw);
+  draw();
 }
 
 
@@ -337,7 +479,7 @@ function inviteNewModal() {
 
 function usersTable(rows) {
   if (!rows.length) return empty('没有匹配的用户');
-  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><div class="user-cell"><img class="user-avatar" src="/avatars/${esc(user.avatarUrl || defaultAvatarId(user.id))}.png" alt="账户头像" loading="lazy" /><div><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></div></div></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-roles" data-id="${esc(user.id)}" data-email="${esc(user.email)}">角色</button><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">关联</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭同步' : '开通同步'}</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><button data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用' : '启用'}</button><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button><button data-action="user-password" data-id="${esc(user.id)}">重置密码</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>用户</th><th>套餐</th><th>Credits</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${rows.map((user) => `<tr><td><div class="user-cell"><img class="user-avatar" src="/avatars/${esc(user.avatarUrl || defaultAvatarId(user.id))}.png" alt="账户头像" loading="lazy" /><div><span class="cell-main">${esc(user.email)}</span><span class="cell-sub">${esc(user.accountNo || '—')} · ${esc(user.name || '未命名')} · ${esc(user.membershipStatus || 'none')}${user.inviteCode ? ` · 邀请码 ${esc(user.inviteCode)}` : ''}</span></div></div></td><td>${esc(user.plan || 'free')}</td><td><span class="cell-main">${fmtNumber(user.credits)}</span></td><td>${status(user.status)}<span class="badge ${user.ossSync ? 'success' : ''}">${user.ossSync ? 'OSS 同步已开' : 'OSS 同步未开'}</span></td><td>${fmtDate(user.createdAt)}</td><td><div class="row-actions"><button data-action="user-credits" data-id="${esc(user.id)}" data-email="${esc(user.email)}">调整 Credits</button><button data-action="user-activity" data-id="${esc(user.id)}">活动</button><details class="more-menu"><summary>更多</summary><div><button data-action="user-roles" data-id="${esc(user.id)}" data-email="${esc(user.email)}">角色</button><button data-action="account-lookup" data-no="${esc(user.accountNo || '')}">渠道分组</button><button data-action="oss-sync" data-id="${esc(user.id)}" data-enabled="${user.ossSync ? 'false' : 'true'}">${user.ossSync ? '关闭 OSS 同步' : '开通 OSS 同步'}</button><button data-action="user-password" data-id="${esc(user.id)}">重置密码</button><button class="danger" data-action="user-status" data-id="${esc(user.id)}" data-status="${user.status === 'active' ? 'disabled' : 'active'}">${user.status === 'active' ? '禁用账号' : '启用账号'}</button></div></details></div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 const avatarIds = ['mascot-fox','mascot-bear','mascot-rabbit','mascot-cat','mascot-owl','mascot-bird'];
@@ -424,55 +566,222 @@ function paymentsTable(rows) {
   if (!rows.length) return empty('还没有支付记录');
   return `<div class="table-wrap"><table><thead><tr><th>Provider</th><th>订单</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.provider)}</span><span class="cell-sub">${esc(row.id.slice(0, 8))}</span></td><td>${esc(row.orderId.slice(0, 8))}</td><td>${fmtMoney(row.amountMinor)} ${esc(row.currency)}</td><td>${status(row.status)}</td><td>${fmtDate(row.paidAt || row.createdAt)}</td></tr>`).join('')}</tbody></table></div>`;
 }
+// Modalities and the input → output contract of each purpose; mirrors
+// routing.purposeIO on the server so the console derives the same answer.
+const MODALITIES = [['text', '文本'], ['image', '图像'], ['video', '视频'], ['audio', '音频'], ['speech', '语音']];
+const modalityLabel = (id) => (MODALITIES.find(([key]) => key === id) || [id, id])[1];
+const PURPOSES = [
+  ['text_to_image', '文生图', ['text'], 'image'], ['image_to_image', '参考图生图', ['text', 'image'], 'image'], ['image_edit', '图片编辑', ['text', 'image'], 'image'],
+  ['text_to_video', '文生视频', ['text'], 'video'], ['image_to_video', '图生视频', ['text', 'image'], 'video'], ['reference_to_video', '参考生视频', ['text', 'image'], 'video'], ['video_edit', '视频编辑', ['text', 'video'], 'video'],
+  ['audio_generation', '音乐 / 音效生成', ['text'], 'audio'],
+  ['tts', '语音合成', ['text'], 'speech'],
+  ['text_generation', '文本生成（文案 / 对话）', ['text'], 'text'], ['vision', '图像 / 视频理解', ['text', 'image', 'video'], 'text'], ['asr', '语音识别', ['speech'], 'text'],
+];
+function deriveIO(purposes) {
+  const inputs = new Set(); const outputs = new Set();
+  purposes.forEach((id) => { const p = PURPOSES.find(([key]) => key === id); if (p) { p[2].forEach((m) => inputs.add(m)); outputs.add(p[3]); } });
+  const order = MODALITIES.map(([m]) => m);
+  return [order.filter((m) => inputs.has(m)), order.filter((m) => outputs.has(m))];
+}
+const ioLabel = (inputs, outputs) => `${(inputs || []).map(modalityLabel).join(' + ') || '—'} → ${(outputs || []).map(modalityLabel).join(' + ') || '—'}`;
+const purposeLabel = (id) => (PURPOSES.find(([key]) => key === id) || [id, id])[1];
+const MODEL_REASONS = {
+  ok: ['success', '正常'], single_channel: ['warning', '只有 1 个可用渠道'], hidden: ['', '客户端已隐藏'], no_channel: ['danger', '没有绑定渠道'],
+  no_usable_channel: ['danger', '没有可用渠道'], video_provider_unsupported: ['danger', '该渠道暂不支持视频'],
+};
+const CHANNEL_STATUS = {
+  ok: ['success', '正常'], degraded: ['warning', '部分 Key 失效'], auth_failed: ['danger', 'Key 全部失效'], no_key: ['danger', '没有可用 Key'], cooldown: ['warning', '冷却中'], disabled: ['', '已停用'],
+};
+// Plain-language explanations for provider error codes seen in route logs.
+const ERROR_HELP = {
+  AUTH_FAILED: 'Key 无效、过期或无权限：到「渠道与 Key」更新 Key 或点测试',
+  PROVIDER_ERROR: '供应商返回未分类错误：看调用日志里的渠道和时间，联系供应商',
+  TIMEOUT: '供应商响应超时：高峰期常见，可调高备用渠道优先级',
+  RATE_LIMITED: '触发限流：增加 Key 或降低该渠道权重',
+  INVALID_REQUEST: '请求参数不被接受：多为尺寸、参考图或模型能力不匹配，检查模型用途设置',
+  InvalidParameter: '参数无效：多为尺寸或参考图格式不被该模型支持',
+  NO_CHANNEL: '没有可用渠道：模型未绑定渠道，或渠道 / Key 全部不可用',
+  UNKNOWN: '未知错误：结合任务详情时间线排查',
+  OK: '成功',
+};
+const errorHelp = (code) => ERROR_HELP[code] || '';
+const pct = (ok, failed) => { const total = ok + failed; return total ? `${Math.round((ok / total) * 100)}%` : '—'; };
+const badge = ([tone, label]) => `<span class="badge ${tone}">${esc(label)}</span>`;
+
 async function loadAI() {
-  const [providers, models, routing, usage, channelData, skillData, appData, groupData, pricingData, storageData, providerSummary] = await Promise.all([get('/api/admin/ai/providers'), get('/api/admin/ai/models'), get('/api/admin/ai/routing'), get('/api/admin/ai/usage'), get('/api/admin/ai/channels'), get('/api/admin/skills'), get('/api/admin/apps'), get('/api/admin/route-groups'), get('/api/admin/pricing').catch(() => null), get('/api/admin/storage').catch(() => null), get('/api/admin/ai/provider-summary').catch(() => null)]);
-  const channels = channelData.items || [];
-  state.providers = providers || []; state.models = models; state.platformModels = models?.platformModels || []; state.routing = routing; state.usage = usage?.usage || []; state.channels = channels || []; state.skills = skillData?.items || []; state.apps = appData?.items || []; state.routeGroups = groupData?.items || []; state.aiPricing = pricingData?.items || []; state.aiStorage = storageData || null; state.providerSummary = providerSummary?.items || [];
-  content.innerHTML = pageHead('AI Studio', 'Provider、模型目录、路由与调用成本。') + renderAITabs() + '<div id="aiBody"></div>';
+  const [health, channelData, groupData, pricingData, storageData] = await Promise.all([get('/api/admin/ai/health'), get('/api/admin/ai/channels'), get('/api/admin/route-groups'), get('/api/admin/pricing').catch(() => null), get('/api/admin/storage').catch(() => null)]);
+  state.aiHealth = health || { models: [], channels: [] };
+  state.channels = channelData.items || [];
+  state.routeGroups = groupData?.items || [];
+  state.aiPricing = pricingData?.items || [];
+  state.aiStorage = storageData || null;
+  if (!['overview', 'models', 'channels', 'logs', 'groups'].includes(state.aiTab)) state.aiTab = 'overview';
+  content.innerHTML = pageHead('AI Studio', '模型能不能用、为什么不能用、谁在失败，在这里一眼看清。') + renderAITabs() + '<div id="aiBody"></div>';
   renderAIBody();
 }
 function renderAITabs() {
-  return `<div class="tabs">${[['overview', '概览'], ['providers', '供应商'], ['channels', '渠道与 Key'], ['models', '模型与能力'], ['routing', '路由'], ['groups', '分组'], ['usage', '用量'], ['skills', 'Skill'], ['apps', '应用']].map(([id, label]) => `<button type="button" class="${state.aiTab === id ? 'active' : ''}" data-action="ai-tab" data-tab="${id}">${label}</button>`).join('')}</div>`;
+  return `<div class="tabs">${[['overview', '健康看板'], ['models', '模型'], ['channels', '渠道与 Key'], ['logs', '调用日志'], ['groups', '分组与价格']].map(([id, label]) => `<button type="button" class="${state.aiTab === id ? 'active' : ''}" data-action="ai-tab" data-tab="${id}">${label}</button>`).join('')}</div>`;
 }
 function renderAIBody() {
   const body = $('aiBody');
-  if (state.aiTab === 'overview') {
-    renderInto(body, renderAIOverview());
-    return;
-  }
-  if (state.aiTab === 'providers') {
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>供应商</h2><p>平台档案与健康概览；Key 统一在「渠道与 Key」里管理</p></div></div><div class="provider-grid">${providerCards()}</div></div>`;
-  } else if (state.aiTab === 'channels') {
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>渠道</h2><p>一个渠道对应一个 Provider 账号/Key，可配置优先级和权重</p></div><button class="primary" data-action="channel-new">新增渠道</button></div>${channelsTable(state.channels)}</div>`;
-  } else if (state.aiTab === 'skills') {
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>Skill 管理</h2><p>客户上传后默认私有，审核通过才公开</p></div><span class="badge gold">${(state.skills || []).length} 个</span></div>${skillsTable(state.skills || [])}</div>`;
-  } else if (state.aiTab === 'apps') {
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>AI 应用管理</h2><p>图片应用开放；视频应用在阶段 3 接入</p></div><span class="badge gold">${(state.apps || []).length} 个</span></div>${appsTable(state.apps || [])}</div>`;
-  } else if (state.aiTab === 'models') {
-    const platform = state.platformModels || [];
-    const images = platform.filter((item) => item.modality === 'image');
-    const videos = platform.filter((item) => item.modality === 'video');
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>平台模型</h2><p>来自 Provider /models；显示名、模态与接入状态</p></div><div class="row-actions"><span class="badge gold">${platform.length} 个模型</span><button class="mini" data-action="sync-models">同步到客户端</button></div></div><div class="toolbar" style="margin:12px 0"><input id="modelFilter" placeholder="搜索模型名称或 ID" /></div><h3 class="model-section-title">图片模型</h3>${platformTable(images)}<h3 class="model-section-title">视频模型</h3>${platformTable(videos)}</div>`;
-  } else if (state.aiTab === 'routing') {
-    const bindings = state.routing?.bindings || [];
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>逻辑模型路由</h2><p>客户端看到的模型 → 实际渠道模型；优先级越大越先选中，可按权重分流</p></div></div><div class="toolbar" style="margin:12px 0"><input id="routingFilter" placeholder="搜索逻辑模型、渠道或模型 ID" /></div>${routingTable(bindings)}</div>`;
-  } else if (state.aiTab === 'groups') {
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>渠道分组</h2><p>把优质渠道放进独立分组，绑定给指定账户；组内不可用时自动回退默认组</p></div><button class="primary" data-action="group-new">新建分组</button></div>${routeGroupsTable(state.routeGroups || [])}</div>`;
-  } else {
-    body.innerHTML = `<div class="panel"><div class="panel-head"><div><h2>调用用量</h2><p>最近 500 条 Provider 调用</p></div></div><div class="toolbar" style="margin:12px 0"><input id="usageFilter" placeholder="搜索工作流、模型或状态" /></div>${usageTable(state.usage)}</div>`;
-  }
-  ['modelFilter', 'routingFilter', 'usageFilter'].forEach((id) => {
-    const input = $(id);
-    if (!input) return;
-    input.addEventListener('input', () => {
-      const query = input.value.trim().toLowerCase();
-      document.querySelectorAll('#aiBody tbody tr').forEach((row) => {
-        row.dataset.filtered = Boolean(query) && !row.textContent.toLowerCase().includes(query) ? '1' : '0';
-      });
-      refreshTables();
-    });
-  });
+  if (state.aiTab === 'overview') renderInto(body, renderAIOverview());
+  else if (state.aiTab === 'models') renderInto(body, renderModelsTab());
+  else if (state.aiTab === 'channels') renderInto(body, renderChannelsTab());
+  else if (state.aiTab === 'logs') { renderInto(body, '<div id="logsBody">' + loading() + '</div>'); void loadLogs(); return; }
+  else renderInto(body, `<div class="panel"><div class="panel-head"><div><h2>渠道分组</h2><p>把优质渠道放进独立分组并绑定给指定账户（如大客户）；组内全部不可用时自动回退默认组。倍率只影响售价。</p></div><div class="row-actions"><button class="secondary" data-action="go-pricing">定价与成本</button><button class="primary" data-action="group-new">新建分组</button></div></div>${routeGroupsTable(state.routeGroups || [])}</div>`);
+  if (state.aiTab === 'models') bindModelFilters();
   enhanceTables(body);
+}
+
+function renderAIOverview() {
+  const models = state.aiHealth.models || [];
+  const channels = state.aiHealth.channels || [];
+  const visible = models.filter((m) => m.enabled && ['image', 'video'].includes(m.modality));
+  const ok = visible.filter((m) => m.reason === 'ok' || m.reason === 'single_channel');
+  const success = channels.reduce((n, c) => n + c.success24h, 0);
+  const failed = channels.reduce((n, c) => n + c.failed24h, 0);
+  const alerts = [];
+  channels.filter((c) => c.status === 'auth_failed' || c.status === 'no_key').forEach((c) => alerts.push({ level: 'danger', text: `渠道「${c.name}」${CHANNEL_STATUS[c.status][1]}，绑定在它上面的模型可能已不可用`, action: `<button class="mini" data-action="ai-tab" data-tab="channels">去处理</button>` }));
+  channels.filter((c) => c.status === 'degraded').forEach((c) => alerts.push({ level: 'warning', text: `渠道「${c.name}」有 ${c.rejectedKeys} 把 Key 被供应商拒绝，已自动停用`, action: `<button class="mini" data-action="ai-tab" data-tab="channels">查看 Key</button>` }));
+  visible.filter((m) => ['no_channel', 'no_usable_channel', 'video_provider_unsupported'].includes(m.reason)).forEach((m) => alerts.push({ level: 'danger', text: `模型「${m.displayName}」客户端可见但${MODEL_REASONS[m.reason][1]}，客户点了必定失败`, action: `<button class="mini" data-action="model-edit" data-key="${esc(m.key)}">隐藏或修复</button>` }));
+  visible.filter((m) => m.reason === 'single_channel' && (m.success24h + m.failed24h) > 0).forEach((m) => alerts.push({ level: 'warning', text: `模型「${m.displayName}」只有 1 个可用渠道，渠道出问题就会停摆`, action: `<button class="mini" data-action="model-routes" data-key="${esc(m.key)}">看路由</button>` }));
+  channels.filter((c) => c.status === 'cooldown').forEach((c) => alerts.push({ level: 'warning', text: `渠道「${c.name}」连续失败，冷却到 ${fmtDate(c.cooldownUntil)}`, action: '' }));
+  const blocked = (state.aiPricing || []).filter((row) => row.status === 'block').length;
+  if (blocked) alerts.push({ level: 'danger', text: `${blocked} 条定价低于毛利红线，已被拦截`, action: '<button class="mini" data-action="go-pricing">定价</button>' });
+  if (success + failed >= 10 && failed / (success + failed) >= 0.1) alerts.push({ level: 'warning', text: `24 小时渠道调用失败率 ${pct(failed, success)} 失败，请看调用日志`, action: '<button class="mini" data-action="ai-tab" data-tab="logs">看日志</button>' });
+  if (!alerts.length) alerts.push({ level: 'success', text: '没有需要处理的问题', action: '' });
+  const order = { danger: 0, warning: 1, success: 2 };
+  alerts.sort((a, b) => order[a.level] - order[b.level]);
+  return `<div class="metrics">
+      ${metric('客户端可用模型', `${ok.length}/${visible.length}`, '可用 / 客户端可见')}
+      ${metric('渠道', `${channels.filter((c) => c.status === 'ok').length}/${channels.filter((c) => c.enabled).length}`, '正常 / 启用')}
+      ${metric('24h 渠道调用', fmtNumber(success + failed), `成功率 ${pct(success, failed)}`)}
+      ${metric('对象存储', state.aiStorage?.provider === 'oss' ? 'OSS' : '本地磁盘', state.aiStorage?.bucket || '未配置')}
+    </div>
+    <section class="panel"><div class="panel-head"><div><h2>需要处理</h2><p>按严重程度排序；Key 被供应商拒绝（401/403）时系统会自动停用该 Key</p></div><button class="mini" data-action="ai-refresh">刷新</button></div>
+      ${alerts.map((a) => `<div class="alert-row"><span class="badge ${a.level === 'danger' ? 'danger' : a.level === 'warning' ? 'warning' : 'success'}">${a.level === 'danger' ? '严重' : a.level === 'warning' ? '注意' : '正常'}</span><span>${esc(a.text)}</span><span class="spacer"></span>${a.action}</div>`).join('')}
+    </section>
+    <section class="panel"><div class="panel-head"><div><h2>客户端模型一览</h2><p>每个客户能看到的模型现在能不能用</p></div><button class="mini" data-action="ai-tab" data-tab="models">管理模型</button></div>
+      <div class="model-health-grid">${visible.map((m) => `<button type="button" class="model-health ${MODEL_REASONS[m.reason]?.[0] || ''}" data-action="model-routes" data-key="${esc(m.key)}"><strong>${esc(m.displayName)}</strong><small>${esc(ioLabel(m.inputs, m.outputs))}</small><small>${m.usable}/${m.bindings} 渠道 · 24h ${pct(m.success24h, m.failed24h)}</small>${m.reason !== 'ok' ? `<em>${esc(MODEL_REASONS[m.reason]?.[1] || m.reason)}</em>` : ''}</button>`).join('') || empty('还没有模型')}</div>
+    </section>`;
+}
+
+function renderModelsTab() {
+  const models = state.aiHealth.models || [];
+  const filter = state.modelPurpose || 'all';
+  const matches = (m, id) => id === 'all' || (id === 'problem' ? m.enabled && !['ok', 'single_channel'].includes(m.reason) : id === 'hidden' ? !m.enabled : (m.outputs || []).includes(id));
+  const chips = [['all', '全部'], ...MODALITIES.map(([id, label]) => [id, `输出${label}`]), ['problem', '有问题'], ['hidden', '已隐藏']].map(([id, label]) => {
+    const count = models.filter((m) => matches(m, id)).length;
+    return count || id === 'all' ? `<button type="button" class="${filter === id ? 'active' : ''}" data-action="model-purpose" data-purpose="${id}">${label} <small>${count}</small></button>` : '';
+  }).join('');
+  return `<div class="panel"><div class="panel-head"><div><h2>模型</h2><p>按「输入 → 输出」模态区分模型：用途决定输入输出和它出现在客户端哪个入口（客户端目前开放图像、视频；文本、语音、音频模型供文案、配音、视频拆解等功能调用）；售价在「定价与成本」修改</p></div></div>
+    <div class="tabs sub-tabs">${chips}</div>
+    <div class="toolbar" style="margin:12px 0"><input id="modelFilter" placeholder="搜索名称或 Key" /></div>
+    <div class="table-wrap"><table><thead><tr><th>模型</th><th>输入 → 输出</th><th>用途</th><th>售价</th><th>渠道</th><th>24h 成功率</th><th>状态</th><th>操作</th></tr></thead><tbody>${models.filter((m) => matches(m, filter)).map((m) => `<tr><td><span class="cell-main">${esc(m.displayName)}</span><span class="cell-sub">${esc(m.key)}${(m.tags || []).length ? ' · ' + m.tags.map(esc).join(' / ') : ''}</span></td><td><span class="io">${esc(ioLabel(m.inputs, m.outputs))}</span></td><td>${(m.capabilities || []).map((c) => `<span class="badge">${esc(purposeLabel(c))}</span>`).join(' ')}</td><td>${fmtNumber(m.credits)}</td><td>${m.usable}/${m.bindings}<span class="cell-sub">${esc((m.providers || []).join(', ') || '—')}</span></td><td>${pct(m.success24h, m.failed24h)}${m.lastError ? `<span class="cell-sub" title="${esc(errorHelp(m.lastError))}">最近错误 ${esc(m.lastError)}</span>` : ''}</td><td>${badge(MODEL_REASONS[m.reason] || ['', m.reason])}</td><td><div class="row-actions"><button data-action="model-edit" data-key="${esc(m.key)}">编辑</button><button data-action="model-routes" data-key="${esc(m.key)}">路由</button><button data-action="model-visibility" data-key="${esc(m.key)}" data-enabled="${m.enabled ? 'false' : 'true'}">${m.enabled ? '隐藏' : '显示'}</button></div></td></tr>`).join('') || emptyRow(8)}</tbody></table></div></div>`;
+}
+function bindModelFilters() {
+  const input = $('modelFilter');
+  input?.addEventListener('input', () => {
+    const query = input.value.trim().toLowerCase();
+    document.querySelectorAll('#aiBody tbody tr').forEach((row) => { row.dataset.filtered = Boolean(query) && !row.textContent.toLowerCase().includes(query) ? '1' : '0'; });
+    refreshTables();
+  });
+}
+function purposeChecks(selected) {
+  return `<div class="purpose-groups">${MODALITIES.map(([out, label]) => `<fieldset class="purpose-group"><legend>输出${label}</legend>${PURPOSES.filter((p) => p[3] === out).map(([id, name, inputs]) => `<label title="${esc(inputs.map(modalityLabel).join(' + '))} → ${label}"><input type="checkbox" name="purpose" value="${id}" ${selected.includes(id) ? 'checked' : ''} /> ${name}<small>${esc(inputs.map(modalityLabel).join('+'))}</small></label>`).join('')}</fieldset>`).join('')}</div><p class="muted io-preview" id="ioPreview"></p>`;
+}
+function bindIOPreview() {
+  const update = () => { const picked = [...modal.querySelectorAll('input[name=purpose]:checked')].map((input) => input.value); const [inputs, outputs] = deriveIO(picked); const preview = $('ioPreview'); if (preview) preview.textContent = picked.length ? `这个模型：${ioLabel(inputs, outputs)}` : '至少勾选一个用途'; };
+  modal.querySelectorAll('input[name=purpose]').forEach((input) => input.addEventListener('change', update));
+  update();
+}
+function suggestPurposes(id) {
+  const v = id.toLowerCase();
+  const has = (...parts) => parts.some((p) => v.includes(p));
+  if (has('vl-', '-vl', 'vision', 'omni', 'qvq')) return ['text', ['vision']];
+  if (has('tts', 'cosyvoice', 'sambert', 'speech-synth')) return ['speech', ['tts']];
+  if (has('asr', 'paraformer', 'sensevoice', 'whisper', 'transcri')) return ['text', ['asr']];
+  if (has('music', 'suno', 'audio', 'sound')) return ['audio', ['audio_generation']];
+  if (has('videoedit', 'video-edit')) return ['video', ['video_edit']];
+  if (has('r2v')) return ['video', ['reference_to_video']];
+  if (has('i2v')) return ['video', ['image_to_video']];
+  if (has('t2v')) return ['video', ['text_to_video']];
+  if (has('seedance', 'kling', 'hailuo', 'vidu')) return ['video', ['text_to_video', 'image_to_video']];
+  if (has('veo', 'sora', 'video')) return ['video', ['text_to_video']];
+  if (has('imageedit', 'image-edit', '-edit')) return ['image', ['image_to_image', 'image_edit']];
+  if (has('t2i')) return ['image', ['text_to_image']];
+  if (has('image', 'banana', 'seedream', 'flux')) return ['image', ['text_to_image', 'image_to_image']];
+  if (has('gpt', 'qwen', 'deepseek', 'glm', 'claude', 'gemini', 'kimi', 'doubao', 'llama', 'chat', 'turbo', 'max', 'plus')) return ['text', ['text_generation']];
+  return ['image', ['text_to_image']];
+}
+function modelEditModal(model) {
+  const [, suggested] = suggestPurposes(model.key);
+  openModal(`编辑模型 · ${model.displayName}`, `<label>显示名（客户端看到的名字）<input name="displayName" maxlength="60" required value="${esc(model.displayName)}" /></label><label>一句话说明<input name="description" maxlength="200" value="${esc(model.description || '')}" placeholder="例如：擅长中文文字海报，速度快" /></label><div><div class="field-head"><strong>用途（决定输入 → 输出）</strong><button type="button" class="mini" id="applySuggest">按模型名推荐：${suggested.map(purposeLabel).join('、')}</button></div>${purposeChecks(model.capabilities || [])}<p class="muted">只勾「文生图」的模型，客户选了商品参考图时会显示「不支持商品参考图」。请按供应商文档如实勾选；推荐只按名字猜，不会自动保存。</p></div><label>特点标签（逗号分隔，最多 6 个）<input name="tags" value="${esc((model.tags || []).join('，'))}" placeholder="擅长文字，速度快，商品一致性好" /></label><div class="form-row"><label>排序（越小越靠前）<input name="sortOrder" type="number" value="${model.sortOrder ?? 100}" /></label><label>客户端<select name="enabled"><option value="true" ${model.enabled ? 'selected' : ''}>显示</option><option value="false" ${!model.enabled ? 'selected' : ''}>隐藏</option></select></label></div>`, '保存', async (form) => {
+    const capabilities = [...modal.querySelectorAll('input[name=purpose]:checked')].map((input) => input.value);
+    if (!capabilities.length) throw new Error('至少选择一个用途');
+    const tags = String(form.get('tags') || '').split(/[,，、]/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
+    await patch(`/api/admin/ai/logical-models/${encodeURIComponent(model.key)}`, { displayName: form.get('displayName'), description: form.get('description'), capabilities, tags, sortOrder: Number(form.get('sortOrder')) || 100, enabled: form.get('enabled') === 'true' });
+    await navigate('ai');
+  });
+  $('applySuggest')?.addEventListener('click', () => { modal.querySelectorAll('input[name=purpose]').forEach((input) => { input.checked = suggested.includes(input.value); }); modal.querySelector('input[name=purpose]')?.dispatchEvent(new Event('change')); });
+  bindIOPreview();
+}
+async function modelRoutesModal(key) {
+  const model = (state.aiHealth.models || []).find((m) => m.key === key);
+  modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">MODEL ROUTES</span><h2>${esc(model?.displayName || key)}</h2><p>客户选这个模型时，按优先级（大的先）和权重选择下面的渠道；渠道或 Key 不可用时自动跳过</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-loading">读取路由…</div></div>`;
+  modal.showModal();
+  modal.querySelectorAll('[data-close-modal]').forEach((b) => b.addEventListener('click', () => modal.close()));
+  const [routing, logs] = await Promise.all([get('/api/admin/ai/routing'), get(`/api/admin/ai/logs?model=${encodeURIComponent(key)}&hours=168&limit=10`).catch(() => ({ items: [] }))]);
+  state.routing = routing;
+  const channelStatus = new Map((state.aiHealth.channels || []).map((c) => [c.name, c.status]));
+  const rows = (routing.bindings || []).filter((b) => b.logicalKey === key).map((b) => `<tr><td>${esc(b.channelName)}<span class="cell-sub">${esc(b.provider)} · ${esc(b.providerModelId)}</span></td><td>${badge(CHANNEL_STATUS[channelStatus.get(b.channelName)] || ['', '—'])}</td><td>${b.priority}</td><td>${b.weight}</td><td>${b.enabled ? status('active') : status('disabled')}${b.cooldownUntil ? `<span class="cell-sub">冷却至 ${fmtDate(b.cooldownUntil)}</span>` : ''}</td><td><button class="mini" data-action="routing-edit" data-id="${esc(b.id)}">调整</button></td></tr>`).join('') || emptyRow(6);
+  const recent = (logs.items || []).map((row) => `<tr><td>${fmtDate(row.createdAt)}</td><td>${esc(row.channelName)}</td><td>${status(row.status === 'success' ? 'success' : 'failed')}</td><td title="${esc(errorHelp(row.errorCode))}">${esc(row.errorCode || '—')}</td><td>${fmtNumber(row.latencyMs)} ms</td></tr>`).join('') || emptyRow(5);
+  modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">MODEL ROUTES</span><h2>${esc(model?.displayName || key)}</h2><p>${model ? `${model.usable}/${model.bindings} 个渠道可用 · ${esc(MODEL_REASONS[model.reason]?.[1] || '')}` : ''}</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-body"><section class="activity-section"><h3>渠道</h3><div class="table-wrap"><table><thead><tr><th>渠道 / 模型 ID</th><th>渠道状态</th><th>优先级</th><th>权重</th><th>路由状态</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><p class="muted">要给这个模型加备用渠道：到「渠道与 Key」→ 目标渠道 → 发现模型，勾选同名模型并在「接入为」里填 <code>${esc(key)}</code>。</p></section><section class="activity-section"><h3>最近 10 次调用（7 天）</h3><div class="table-wrap"><table><thead><tr><th>时间</th><th>渠道</th><th>结果</th><th>错误码</th><th>延迟</th></tr></thead><tbody>${recent}</tbody></table></div></section></div><div class="activity-actions"><button type="button" class="secondary" data-action="model-edit" data-key="${esc(key)}">编辑模型</button><button type="button" class="primary" data-close-modal>关闭</button></div></div>`;
+  modal.querySelectorAll('[data-close-modal]').forEach((b) => b.addEventListener('click', () => modal.close()));
+}
+
+function renderChannelsTab() {
+  const health = new Map((state.aiHealth.channels || []).map((c) => [c.id, c]));
+  const rows = (state.channels || []).map((channel) => {
+    const h = health.get(channel.id) || { status: channel.enabled ? 'ok' : 'disabled', enabledKeys: 0, keys: 0, rejectedKeys: 0, success24h: 0, failed24h: 0, lastError: '' };
+    return `<tr><td><span class="cell-main">${esc(channel.name)}</span><span class="cell-sub">${esc(providerLabel(channel.providerCode))} · 生成 ${esc(channel.baseUrl || '默认')}</span>${channel.modelsUrl ? `<span class="cell-sub">模型列表 ${esc(channel.modelsUrl)}</span>` : ''}</td><td>${badge(CHANNEL_STATUS[h.status] || ['', h.status])}${h.lastError ? `<span class="cell-sub">${esc(h.lastError.slice(0, 60))}</span>` : ''}</td><td>${h.enabledKeys}/${h.keys}${h.rejectedKeys ? `<span class="cell-sub">${h.rejectedKeys} 把被拒绝</span>` : ''}</td><td>${channel.modelCount}</td><td>${pct(h.success24h, h.failed24h)}<span class="cell-sub">${fmtNumber(h.success24h + h.failed24h)} 次</span></td><td>${channel.priority} / ${channel.weight}</td><td><div class="row-actions"><button data-action="channel-test" data-id="${esc(channel.id)}">测试</button><button data-action="channel-keys" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">Key</button><button data-action="channel-discover" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">发现模型</button><details class="more-menu"><summary>更多</summary><div><button data-action="channel-key" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">添加 Key</button><button data-action="channel-models" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">已接入模型</button><button data-action="channel-model-add" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">手动接入模型</button><button data-action="channel-edit" data-id="${esc(channel.id)}">优先级 / 权重</button><button data-action="channel-meta" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}" data-url="${esc(channel.baseUrl || '')}">名称 / 地址</button><button data-action="channel-toggle" data-id="${esc(channel.id)}" data-enabled="${channel.enabled ? 'false' : 'true'}">${channel.enabled ? '停用渠道' : '启用渠道'}</button><button class="danger" data-action="channel-delete" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">删除渠道</button></div></details></div></td></tr>`;
+  }).join('');
+  return `<div class="panel"><div class="panel-head"><div><h2>渠道与 Key</h2><p>一个渠道 = 一个供应商账号，可挂多把 Key。「测试」只读取模型列表，不产生费用；Key 被供应商拒绝时会自动停用并标注原因</p></div><button class="primary" data-action="channel-new">新增渠道</button></div>${rows ? `<div class="table-wrap"><table><thead><tr><th>渠道</th><th>状态</th><th>可用 Key</th><th>模型</th><th>24h 成功率</th><th>优先级/权重</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>` : empty('还没有渠道')}</div>`;
+}
+async function channelTest(channelID, button) {
+  setBusy(button, true);
+  try {
+    const keys = (await get(`/api/admin/ai/channels/${channelID}/keys`)).items || [];
+    if (!keys.length) { toast('这个渠道还没有 Key'); return; }
+    const results = [];
+    for (const key of keys) {
+      const r = await post(`/api/admin/ai/channel-keys/${key.id}/test`, {});
+      results.push(`•••• ${key.last4}：${r.ok ? '✓ ' : '✗ '}${r.message}（${r.latencyMs} ms）${!key.enabled ? ' [当前停用]' : ''}`);
+    }
+    openModal('连接测试结果', `<div class="test-results">${results.map((line) => `<p>${esc(line)}</p>`).join('')}</div><p class="muted">测试通过但被停用的 Key，可在「Key」里重新启用。</p>`, '好的', async () => {});
+  } catch (error) { toast(error.message); }
+  finally { setBusy(button, false); }
+}
+
+async function loadLogs() {
+  const f = state.logFilter || (state.logFilter = { hours: 24, model: '', channel: '', status: '', code: '' });
+  const query = new URLSearchParams(Object.entries(f).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, String(v)]));
+  const data = await get(`/api/admin/ai/logs?${query}`).catch((error) => { toast(error.message); return { items: [], byCode: [], byChannel: [], byModel: [] }; });
+  const models = state.aiHealth.models || [];
+  const options = (list, value) => list.map(([v, label]) => `<option value="${esc(v)}" ${value === v ? 'selected' : ''}>${esc(label)}</option>`).join('');
+  const summary = (list, key) => list.length ? list.map((s) => `<button type="button" class="log-chip ${s.failed ? 'bad' : ''}" data-action="log-filter" data-key="${key}" data-value="${esc(s.key === 'OK' ? '' : s.key)}" title="${esc(errorHelp(s.key))}"><strong>${esc(s.label)}</strong> ${fmtNumber(s.count)}${s.failed ? ` · 失败 ${fmtNumber(s.failed)}` : ''}</button>`).join('') : '<span class="muted">无</span>';
+  const rows = (data.items || []).map((row) => `<tr><td>${fmtDate(row.createdAt)}</td><td><span class="cell-main">${esc(row.model)}</span><span class="cell-sub">${esc(row.providerModelId)}</span></td><td>${esc(row.channelName || '—')}${row.keyLast4 ? `<span class="cell-sub">•••• ${esc(row.keyLast4)}</span>` : ''}</td><td>${status(row.status === 'success' ? 'success' : 'failed')}${row.attempt > 1 ? `<span class="cell-sub">第 ${row.attempt} 次尝试</span>` : ''}</td><td>${row.errorCode ? `<span class="cell-main">${esc(row.errorCode)}</span><span class="cell-sub">${esc(errorHelp(row.errorCode))}</span>` : '—'}</td><td>${fmtNumber(row.latencyMs)} ms</td><td>${esc(row.userEmail || '—')}</td><td>${row.taskId ? `<button class="mini" data-action="task-detail" data-id="${esc(row.taskId)}">任务</button>` : ''}</td></tr>`).join('');
+  renderInto($('logsBody'), `<div class="panel"><div class="panel-head"><div><h2>调用日志</h2><p>每一次渠道调用；点错误码汇总可快速筛选，点「任务」看完整时间线</p></div></div>
+    <form id="logForm" class="toolbar log-filters"><select name="hours">${options([['1', '1 小时'], ['24', '24 小时'], ['168', '7 天'], ['720', '30 天']], String(f.hours))}</select><select name="model"><option value="">全部模型</option>${options(models.map((m) => [m.key, m.displayName]), f.model)}</select><select name="channel"><option value="">全部渠道</option>${options((state.channels || []).map((c) => [c.id, c.name]), f.channel)}</select><select name="status">${options([['', '全部结果'], ['success', '成功'], ['failed', '失败']], f.status)}</select><input name="code" placeholder="错误码" value="${esc(f.code)}" /><button class="secondary" type="submit">筛选</button><button class="ghost" type="button" data-action="log-reset">重置</button></form>
+    <div class="log-summary"><div><h3>按错误码</h3>${summary(data.byCode || [], 'code')}</div><div><h3>按渠道</h3>${summary((data.byChannel || []).map((s) => ({ ...s })), 'channel')}</div><div><h3>按模型</h3>${summary(data.byModel || [], 'model')}</div></div>
+    ${rows ? `<div class="table-wrap"><table><thead><tr><th>时间</th><th>模型</th><th>渠道 / Key</th><th>结果</th><th>错误</th><th>延迟</th><th>用户</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : empty('这个条件下没有调用记录')}</div>`);
+  $('logForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    state.logFilter = { hours: Number(form.get('hours')) || 24, model: String(form.get('model') || ''), channel: String(form.get('channel') || ''), status: String(form.get('status') || ''), code: String(form.get('code') || '').trim() };
+    void loadLogs();
+  });
+  enhanceTables($('logsBody'));
 }
 
 
@@ -514,47 +823,6 @@ function groupChannelsModal(group) {
     await request(`/api/admin/route-groups/${group.id}/channels`, { method: 'PUT', body: JSON.stringify({ channelIds: ids }) });
     await navigate('ai');
   });
-}
-
-
-function renderAIOverview() {
-  const channels = state.channels || [];
-  const usage = state.usage || [];
-  const pricing = state.aiPricing || [];
-  const platform = state.platformModels || [];
-  const enabledChannels = channels.filter((c) => c.enabled).length;
-  const failing = channels.filter((c) => Number(c.consecutiveFailures || 0) > 0);
-  const failedCalls = usage.filter((row) => String(row.status || '').toLowerCase() === 'failed').length;
-  const failureRate = usage.length ? (failedCalls / usage.length) * 100 : 0;
-  const cost = usage.reduce((sum, row) => sum + Number(row.estimatedCost || 0), 0);
-  const blocked = pricing.filter((row) => row.status === 'block').length;
-  const unverified = pricing.filter((row) => row.status === 'unverified' || row.status === 'needs_duration').length;
-  const unavailableModels = platform.filter((m) => !m.available).length;
-  const alerts = [];
-  failing.slice(0, 3).forEach((c) => alerts.push({ level: 'danger', text: `渠道「${c.name}」连续失败 ${c.consecutiveFailures} 次` }));
-  if (blocked) alerts.push({ level: 'danger', text: `${blocked} 条定价低于毛利红线，已被拦截` });
-  if (unverified) alerts.push({ level: 'warning', text: `${unverified} 条渠道成本待合同核实` });
-  if (!state.aiStorage?.provider || state.aiStorage.provider === 'local') alerts.push({ level: 'warning', text: '对象存储仍为本地磁盘，未启用 OSS' });
-  if (failureRate >= 10) alerts.push({ level: 'warning', text: `最近调用失败率 ${failureRate.toFixed(1)}%，请检查渠道` });
-  if (unavailableModels) alerts.push({ level: 'info', text: `${unavailableModels} 个模型当前不可用` });
-  if (!alerts.length) alerts.push({ level: 'success', text: '没有需要处理的告警' });
-  return `<div class="metrics">
-      ${metric('渠道', enabledChannels + '/' + channels.length, '启用 / 总数')}
-      ${metric('最近调用', fmtNumber(usage.length), `失败 ${failedCalls} · ${failureRate.toFixed(1)}%`)}
-      ${metric('估算成本', '¥' + cost.toFixed(2), '最近 500 条调用')}
-      ${metric('定价拦截', blocked, `${unverified} 条待核实`)}
-      ${metric('模型', (platform.length - unavailableModels) + '/' + platform.length, '可用 / 总数')}
-      ${metric('对象存储', state.aiStorage?.provider === 'oss' ? 'OSS' : '本地磁盘', state.aiStorage?.bucket || '未配置')}
-    </div>
-    <div class="panel-grid">
-      <section class="panel"><div class="panel-head"><div><h2>告警</h2><p>按严重程度排序，点击跳到对应页面处理</p></div></div>
-        ${alerts.map((alert) => `<div class="alert-row"><span class="badge ${alert.level === 'danger' ? 'danger' : alert.level === 'warning' ? 'warning' : alert.level === 'success' ? 'success' : 'gold'}">${alert.level === 'danger' ? '严重' : alert.level === 'warning' ? '注意' : alert.level === 'success' ? '正常' : '提示'}</span><span>${esc(alert.text)}</span></div>`).join('')}
-      </section>
-      <section class="panel"><div class="panel-head"><div><h2>快捷入口</h2><p>常用运维操作</p></div></div>
-        <div class="row-actions"><button data-action="ai-tab" data-tab="channels">管理渠道与 Key</button><button data-action="ai-tab" data-tab="groups">配置分组</button><button data-action="ai-tab" data-tab="usage">查看调用</button><button data-action="go-pricing">定价与成本</button></div>
-        <p class="muted" style="margin-top:12px">渠道多 Key、账户绑定优质组、按秒计价的视频模型都在这里统一管理。</p>
-      </section>
-    </div>`;
 }
 
 
@@ -730,7 +998,7 @@ async function loadStorage() {
 
 async function storageMigrate(direction) {
   const first = await post('/api/admin/storage/migrate', { direction, dryRun: true });
-  const confirmed = confirm(`盘点结果：\n扫描 ${first.scanned} 个对象\n可迁移 ${first.moved} 个（${(first.bytes / 1048576).toFixed(1)} MB）\n跳过 ${first.skipped} 个\n缺失 ${first.missing} 个\n\n确认执行迁移？`);
+  const confirmed = await confirmDialog(`盘点结果：\n扫描 ${first.scanned} 个对象\n可迁移 ${first.moved} 个（${(first.bytes / 1048576).toFixed(1)} MB）\n跳过 ${first.skipped} 个\n缺失 ${first.missing} 个\n\n确认执行迁移？`);
   if (!confirmed) return;
   const report = await post('/api/admin/storage/migrate', { direction, dryRun: false });
   toast(`迁移完成：${report.moved} 个对象，更新素材 ${report.updatedAssets} 条、任务 ${report.updatedTasks} 条`);
@@ -745,9 +1013,22 @@ async function loadTasks() {
   renderTaskBody();
 }
 function renderTaskBody() {
+  const filters = [['all', '全部', () => true], ['failed', '失败', (t) => t.status === 'failed'], ['running', '进行中', (t) => ['running', 'queued', 'reserved', 'reconciling'].includes(t.status)], ['success', '成功', (t) => t.status === 'success'], ['cancelled', '已取消', (t) => t.status === 'cancelled']];
+  const current = filters.find(([id]) => id === (state.taskFilter || 'all')) || filters[0];
+  const query = (state.taskQuery || '').toLowerCase();
+  const rows = state.tasks.filter((t) => current[2](t) && (!query || `${t.id} ${t.email} ${t.model} ${t.errorCode}`.toLowerCase().includes(query)));
+  const failed = state.tasks.filter((t) => t.status === 'failed');
+  const codes = Object.entries(failed.reduce((acc, t) => { const code = t.errorCode || '未知'; acc[code] = (acc[code] || 0) + 1; return acc; }, {})).sort((a, b) => b[1] - a[1]);
   renderInto($('taskBody'), state.taskTab === 'tasks'
-    ? `<div class="panel"><div class="panel-head"><div><h2>任务</h2><p>最近 500 个</p></div></div>${tasksTable(state.tasks)}</div>`
+    ? `<div class="metrics">${metric('任务', fmtNumber(state.tasks.length), '最近 500 个')}${metric('成功率', state.tasks.length ? `${Math.round(state.tasks.filter((t) => t.status === 'success').length / state.tasks.length * 100)}%` : '—')}${metric('失败', fmtNumber(failed.length), codes[0] ? `最多：${codes[0][0]}` : '无')}${metric('进行中', fmtNumber(state.tasks.filter(filters[2][2]).length))}</div>
+      ${codes.length ? `<div class="panel"><div class="panel-head"><div><h2>失败原因</h2><p>点击查看该类失败的任务</p></div></div><div class="code-list">${codes.map(([code, n]) => `<button type="button" class="log-chip bad" data-task-code="${esc(code)}" title="${esc(errorHelp(code))}"><strong>${esc(code)}</strong> ${n}</button><span class="code-help">${esc(errorHelp(code))}</span>`).join('')}</div></div>` : ''}
+      <div class="panel"><div class="panel-head"><div class="tabs sub-tabs" style="margin:0">${filters.map(([id, label, fn]) => `<button type="button" class="${current[0] === id ? 'active' : ''}" data-task-filter="${id}">${label} <small>${state.tasks.filter(fn).length}</small></button>`).join('')}</div><input id="taskSearch" class="search-input" placeholder="搜索任务 ID、用户、模型或错误码" value="${esc(state.taskQuery || '')}" /></div>${tasksTable(rows)}</div>`
     : `<div class="panel"><div class="panel-head"><div><h2>执行记录</h2><p>River 任务尝试与结果</p></div></div>${runsTable(state.runs)}</div>`);
+  content.querySelectorAll('[data-task-filter]').forEach((button) => button.addEventListener('click', () => { state.taskFilter = button.dataset.taskFilter; renderTaskBody(); }));
+  content.querySelectorAll('[data-task-code]').forEach((button) => button.addEventListener('click', () => { state.taskFilter = 'failed'; state.taskQuery = button.dataset.taskCode === '未知' ? '' : button.dataset.taskCode; renderTaskBody(); }));
+  const search = $('taskSearch');
+  search?.addEventListener('input', () => { state.taskQuery = search.value; clearTimeout(renderTaskBody.timer); renderTaskBody.timer = setTimeout(() => { renderTaskBody(); const next = $('taskSearch'); next.focus(); next.setSelectionRange(next.value.length, next.value.length); }, 250); });
+  enhanceTables($('taskBody'));
 }
 function runsTable(rows) {
   if (!rows.length) return empty('还没有执行记录');
@@ -839,10 +1120,21 @@ async function taskDetailModal(taskID) {
     if (modal.open) modal.querySelector('.activity-loading').textContent = error.message || '任务详情读取失败';
   }
 }
+function contentTabs() {
+  return `<div class="tabs" style="margin-bottom:12px">${[['showcase', '示例与模板'], ['skills', 'Skill 审核'], ['apps', 'AI 应用']].map(([id, label]) => `<button type="button" class="${(state.contentTab || 'showcase') === id ? 'active' : ''}" data-action="content-tab" data-tab="${id}">${label}</button>`).join('')}</div>`;
+}
 async function loadShowcase() {
+  if (state.contentTab === 'skills' || state.contentTab === 'apps') {
+    const skills = state.contentTab === 'skills';
+    const data = await get(skills ? '/api/admin/skills' : '/api/admin/apps');
+    const items = data?.items || [];
+    if (skills) state.skills = items; else state.apps = items;
+    content.innerHTML = pageHead('内容管理', '客户端看到的示例、模板、Skill 与 AI 应用。') + contentTabs() + `<div class="panel"><div class="panel-head"><div><h2>${skills ? 'Skill 审核' : 'AI 应用'}</h2><p>${skills ? '客户上传后默认私有，审核通过才公开' : '发布后出现在客户端「AI 应用」'}</p></div><span class="badge gold">${items.length} 个</span></div>${skills ? skillsTable(items) : appsTable(items)}</div>`;
+    return;
+  }
   const data = await get('/api/admin/showcase');
   state.showcase = data.items || [];
-  content.innerHTML = pageHead('内容管理', '客户端首页的示例图与示例作品。上传后客户端刷新即可读取。', '<button class="primary" data-action="showcase-new">上传示例</button>') +
+  content.innerHTML = pageHead('内容管理', '客户端看到的示例、模板、Skill 与 AI 应用。', '<button class="primary" data-action="showcase-new">上传示例</button>') + contentTabs() +
     `<div class="toolbar"><div class="tabs">${[['all', '全部'], ['image', '示例图'], ['work', '示例作品']].map(([id, label]) => `<button type="button" class="${state.showcaseFilter === id ? 'active' : ''}" data-action="showcase-filter" data-tab="${id}">${label}</button>`).join('')}</div><span class="spacer"></span><span class="badge gold">${state.showcase.length} 条内容</span></div><div id="showcaseBody"></div>`;
   renderShowcaseBody();
 }
@@ -873,7 +1165,7 @@ async function loadClient() {
     event.preventDefault();
     const form = new FormData(event.target);
     const body = Object.fromEntries(['apiBaseUrl', 'minVersion', 'latestVersion', 'downloadMac', 'downloadWindows', 'releaseNotes', 'visionProvider', 'visionModel'].map((key) => [key, String(form.get(key) || '').trim()]));
-    if (body.minVersion && !confirm(`保存后，版本低于 ${body.minVersion} 的客户端将无法继续使用，必须下载新版。确定？`)) return;
+    if (body.minVersion && !await confirmDialog(`保存后，版本低于 ${body.minVersion} 的客户端将无法继续使用，必须下载新版。确定？`)) return;
     const button = event.target.querySelector('button[type=submit]');
     setBusy(button, true);
     try { await request('/api/admin/client-config', { method: 'PUT', body: JSON.stringify(body) }); toast('已保存'); await navigate('client'); }
@@ -908,21 +1200,31 @@ function announcementModal(item = null) {
 }
 
 async function loadAnalytics() {
-  const [overview, usage, tasks] = await Promise.all([get('/api/admin/overview'), get('/api/admin/ai/usage'), get('/api/admin/tasks')]);
-  state.overview = overview; state.usage = usage?.usage || []; state.tasks = tasks || [];
-  content.innerHTML = pageHead('数据分析', '收入、成本、任务与 Provider 调用。') +
-    `<div class="metrics">${metric('收入', fmtMoney(overview.revenueMinorCNY))}${metric('AI 成本', '¥' + Number(usage?.estimatedCost || 0).toFixed(2))}${metric('任务', fmtNumber(overview.tasks), `失败 ${overview.failedTasks}`)}${metric('Credits 消耗', fmtNumber(overview.creditsConsumed))}</div>
-    <section class="panel"><div class="panel-head"><div><h2>Provider 用量</h2><p>最近 500 条</p></div></div>${usageTable(state.usage)}</section>`;
+  const [overview, usage, logs] = await Promise.all([get('/api/admin/overview'), get('/api/admin/ai/usage'), get('/api/admin/ai/logs?hours=168&limit=1').catch(() => ({ byModel: [], byChannel: [], byCode: [] }))]);
+  state.overview = overview; state.usage = usage?.usage || [];
+  const rateBar = (row) => { const ok = row.count - row.failed; const rate = row.count ? ok / row.count : 0; return `<div class="rate"><span style="width:${(rate * 100).toFixed(0)}%" class="${rate < 0.8 ? 'bad' : rate < 0.95 ? 'warn' : ''}"></span></div><span class="rate-label">${row.count ? `${(rate * 100).toFixed(1)}%` : '—'}</span>`; };
+  const table = (rows, label) => rows.length ? `<div class="table-wrap"><table><thead><tr><th>${label}</th><th>调用</th><th>失败</th><th>成功率</th></tr></thead><tbody>${rows.map((row) => `<tr><td><span class="cell-main">${esc(row.label)}</span></td><td>${fmtNumber(row.count)}</td><td class="${row.failed ? 'negative' : ''}">${fmtNumber(row.failed)}</td><td class="rate-cell">${rateBar(row)}</td></tr>`).join('')}</tbody></table></div>` : empty('最近 7 天没有调用');
+  const revenue = Number(overview.revenueMinorCNY || 0) / 100;
+  const cost = Number(overview.aiCostByCurrency?.CNY || 0);
+  content.innerHTML = pageHead('数据分析', '收入与成本、模型和渠道最近 7 天的表现。') +
+    `<div class="metrics">${metric('收入', fmtMoney(overview.revenueMinorCNY), '已支付订单')}${metric('AI 成本', '¥' + cost.toFixed(2), '按 Provider 记账')}${metric('毛利率', revenue ? `${(((revenue - cost) / revenue) * 100).toFixed(1)}%` : '—', '(收入 - AI 成本) / 收入')}${metric('任务失败率', overview.tasks ? `${((overview.failedTasks / overview.tasks) * 100).toFixed(1)}%` : '—', `${fmtNumber(overview.failedTasks)} / ${fmtNumber(overview.tasks)}`)}</div>
+    <div class="panel-grid">
+      <section class="panel"><div class="panel-head"><div><h2>模型表现（7 天）</h2><p>按渠道调用次数排序，成功率低于 95% 标黄、低于 80% 标红</p></div><button class="mini" data-action="go-page" data-page="ai">AI Studio</button></div>${table(logs.byModel || [], '模型')}</section>
+      <section class="panel"><div class="panel-head"><div><h2>渠道表现（7 天）</h2><p>同一模型的多个渠道可在 AI Studio → 模型 → 路由里调整</p></div></div>${table(logs.byChannel || [], '渠道')}</section>
+    </div>
+    <section class="panel"><div class="panel-head"><div><h2>Provider 调用明细</h2><p>最近 500 条</p></div></div>${usageTable(state.usage)}</section>`;
 }
 async function loadSettings() {
   const logs = await get('/api/admin/audit-logs').catch(() => ({ items: [] }));
   const rows = (logs.items || []).map((item) => `<tr><td>${fmtDate(item.createdAt)}</td><td>${esc(item.actor)}</td><td><span class="cell-main">${esc(item.action)}</span><span class="cell-sub">${esc(item.resourceType)} ${esc(String(item.resourceId || '').slice(0, 8))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.before || {}))}</span></td><td><span class="cell-sub">${esc(JSON.stringify(item.after || {}))}</span></td><td>${esc(item.ip || '—')}</td></tr>`).join('') || emptyRow(6);
-  content.innerHTML = pageHead('设置', '后台连接与当前工作区信息。') +
+  content.innerHTML = pageHead('设置', '外观、后台连接与操作留痕。') +
+    `<div class="panel"><div class="panel-head"><div><h2>外观</h2><p>跟随系统时，电脑切换深浅色后台会自动跟随；只对当前浏览器生效</p></div></div><div class="appearance-options">${THEME_MODES.map(([id, label, name]) => `<button type="button" class="appearance-option" data-theme-mode="${id}">${icon(name)}<strong>${label}</strong><small>${id === 'system' ? '自动切换' : id === 'light' ? '始终浅色' : '始终深色'}</small></button>`).join('')}</div></div>` +
     `<div class="panel"><div class="panel-head"><div><h2>连接</h2><p>管理后台通过此地址访问 Go API</p></div></div><div class="form-grid"><label>API 地址<input id="settingsApi" value="${esc(apiBase)}" /></label><label>当前管理员<input value="${esc(email)}" disabled /></label><label>后台版本<input value="${BUILD_TAG}" disabled /></label><div><button class="primary" data-action="save-api">保存 API 地址</button></div></div></div>
     <div class="panel"><div class="panel-head"><div><h2>服务状态</h2><p>健康检查结果</p></div><button class="secondary" data-action="check-service">重新检查</button></div><p id="settingsHealth" role="status"></p></div>
     <div class="panel"><div class="panel-head"><div><h2>最近管理操作</h2><p>路由、模型接入等写操作留痕，最多 100 条</p></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>变更前</th><th>变更后</th><th>来源 IP</th></tr></thead><tbody>${rows}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><div><h2>关于</h2><p>WEAVIA Admin Console</p></div></div><p>用户、商业、AI、任务、内容管理与数据分析，统一在新 Go API 之上。</p></div>`;
   renderHealth();
+  applyTheme();
 }
 function openModal(title, body, submitLabel, onSubmit) {
   modal.innerHTML = `<form method="dialog" class="modal-inner"><div class="modal-head"><div><span class="eyebrow">WEAVIA ADMIN</span><h2>${esc(title)}</h2></div><button type="button" class="modal-close" aria-label="关闭" data-close-modal>×</button></div><div class="form-grid">${body}</div><p class="form-error" id="modalError" role="alert"></p><div class="modal-actions"><button type="button" class="secondary" data-close-modal>取消</button><button type="submit" class="primary">${esc(submitLabel)}</button></div></form>`;
@@ -999,7 +1301,7 @@ async function channelKeysModal(channel) {
     const rows = (data.items || []).map((key) => {
       const h = health.get(key.id) || { calls: 0, successes: 0, failures: 0, avgMs: 0, lastModel: '' };
       const rate = h.calls ? ((h.successes / h.calls) * 100).toFixed(0) + '%' : '—';
-      return `<tr><td><span class="cell-main">•••• ${esc(key.last4)}</span><span class="cell-sub">${fmtDate(key.createdAt)} 添加</span></td><td>${key.weight}</td><td>${h.calls ? fmtNumber(h.calls) : '0'}</td><td>${h.calls ? `${fmtNumber(h.successes)} / ${rate}` : '—'}</td><td>${h.avgMs ? fmtNumber(h.avgMs) + ' ms' : '—'}</td><td>${esc(h.lastModel || '—')}</td><td>${key.failures ? `<span class="badge danger">失败 ${key.failures}</span>` : '<span class="badge success">正常</span>'}</td><td>${key.cooldownUntil ? fmtDate(key.cooldownUntil) : '—'}</td><td>${key.enabled ? status('active') : status('disabled')}</td><td><div class="row-actions"><button data-action="channel-key-toggle" data-id="${esc(key.id)}" data-channel="${esc(channel.id)}" data-enabled="${key.enabled ? 'false' : 'true'}">${key.enabled ? '停用' : '启用'}</button><button data-action="channel-key-delete" data-id="${esc(key.id)}" data-channel="${esc(channel.id)}">删除</button></div></td></tr>`;
+      return `<tr><td><span class="cell-main">•••• ${esc(key.last4)}</span><span class="cell-sub">${fmtDate(key.createdAt)} 添加</span></td><td>${key.weight}</td><td>${h.calls ? fmtNumber(h.calls) : '0'}</td><td>${h.calls ? `${fmtNumber(h.successes)} / ${rate}` : '—'}</td><td>${h.avgMs ? fmtNumber(h.avgMs) + ' ms' : '—'}</td><td>${esc(h.lastModel || '—')}</td><td>${key.failures ? `<span class="badge danger">失败 ${key.failures}</span>` : '<span class="badge success">正常</span>'}</td><td>${key.cooldownUntil ? fmtDate(key.cooldownUntil) : '—'}</td><td>${key.enabled ? status('active') : status('disabled')}${key.disabledReason ? `<span class="cell-sub">系统停用：${esc(key.disabledReason)} · ${fmtDate(key.disabledAt)}</span>` : ''}</td><td><div class="row-actions"><button data-action="key-test" data-id="${esc(key.id)}">测试</button><button data-action="channel-key-toggle" data-id="${esc(key.id)}" data-channel="${esc(channel.id)}" data-enabled="${key.enabled ? 'false' : 'true'}">${key.enabled ? '停用' : '启用'}</button><button data-action="channel-key-delete" data-id="${esc(key.id)}" data-channel="${esc(channel.id)}">删除</button></div></td></tr>`;
     }).join('') || emptyRow(10);
     modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">CHANNEL KEYS</span><h2>${esc(channel.name)}</h2><p>同一渠道可挂多把 Key，按权重随机分配，失败自动进入冷却</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-body"><section class="activity-section"><div class="table-wrap"><table><thead><tr><th>Key</th><th>权重</th><th>7 天调用</th><th>成功 / 成功率</th><th>平均延迟</th><th>最近模型</th><th>健康</th><th>冷却至</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div></section></div><div class="activity-actions"><span class="muted">Key 加密存储，只显示末四位</span><button type="button" class="primary" data-action="channel-key" data-id="${esc(channel.id)}" data-name="${esc(channel.name)}">添加 Key</button></div></div>`;
     modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
@@ -1025,31 +1327,54 @@ async function channelModelsModal(channel) {
 }
 
 async function channelDiscoverModal(channel) {
-  modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">DISCOVER</span><h2>${esc(channel.name)} · 发现模型</h2><p>用该渠道的 Key 读取供应商模型列表，勾选后接入</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-loading">正在读取供应商模型列表…</div><div class="activity-actions"><button type="button" class="secondary" data-close-modal>关闭</button></div></div>`;
+  modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">DISCOVER</span><h2>${esc(channel.name)} · 发现模型</h2><p>用该渠道的 Key 读取供应商模型列表</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-loading">正在读取供应商模型列表…</div></div>`;
   modal.showModal();
   modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
   try {
     const data = await post(`/api/admin/ai/channels/${channel.id}/discover`, {});
-    const ids = data.items || [];
-    const list = ids.map((id) => `<label class="switch-row"><span>${esc(id)}</span><input type="checkbox" name="pick" value="${esc(id)}" /></label>`).join('');
-    modal.innerHTML = `<div class="modal-inner activity-modal"><div class="activity-head"><div><span class="eyebrow">DISCOVER</span><h2>${esc(channel.name)} · ${ids.length} 个模型</h2><p>勾选要开放的模型，再统一设置模态、能力和售价</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-body"><section class="activity-section"><input id="discoverSearch" placeholder="搜索模型 ID" /><div id="discoverList" style="max-height:320px;overflow:auto;margin-top:12px">${list || empty('供应商没有返回模型')}</div></section><section class="activity-section"><div class="form-row"><label>模态<select id="discoverModality"><option value="image">图片</option><option value="video">视频</option></select></label><label>售价（Credits）<input id="discoverCredits" type="number" min="1" value="50" /></label></div></section></div><div class="activity-actions"><button type="button" class="secondary" data-close-modal>取消</button><button type="button" class="primary" id="discoverApply">接入所选</button></div></div>`;
+    const items = data.items || [];
+    const existing = (state.aiHealth?.models || []).map((m) => m.key);
+    const row = (item, index) => {
+            return `<tr data-index="${index}" data-id="${esc(item.id)}"><td><input type="checkbox" name="pick" ${item.enabled ? 'disabled' : ''} /></td><td><span class="cell-main">${esc(item.id)}</span>${item.enabled ? `<span class="cell-sub">已接入 → ${esc(item.logicalKey || item.id)}</span>` : ''}</td><td><span class="io" data-io>${esc(ioLabel(item.inputs, item.outputs))}</span></td><td><details class="purpose-pick"><summary>${esc(item.capabilities.map(purposeLabel).join('、'))}</summary><div class="purpose-checks compact">${PURPOSES.map(([id, label]) => `<label><input type="checkbox" name="cap" value="${id}" ${item.capabilities.includes(id) ? 'checked' : ''} /> ${label}</label>`).join('')}</div></details></td><td><input name="display" value="${esc(item.id)}" /><input name="logical" list="logicalKeys" placeholder="接入为（默认同 ID）" /></td><td><input name="credits" type="number" min="1" value="50" style="width:72px" /></td></tr>`;
+    };
+    modal.innerHTML = `<div class="modal-inner activity-modal discover-modal"><div class="activity-head"><div><span class="eyebrow">DISCOVER</span><h2>${esc(channel.name)} · ${items.length} 个模型</h2><p>勾选要接入的模型。用途（决定输入 → 输出）已按模型名推荐，点开可改；图像、视频模型会出现在客户端，文本、语音、音频模型供后台功能调用；「接入为」填已有模型 Key = 给它加备用渠道</p></div><button type="button" class="modal-close" data-close-modal>×</button></div><div class="activity-body"><section class="activity-section"><div class="toolbar"><input id="discoverSearch" placeholder="搜索模型 ID" /><label class="switch-row" style="gap:6px"><input type="checkbox" id="discoverHideEnabled" checked /> 隐藏已接入</label></div><datalist id="logicalKeys">${existing.map((key) => `<option value="${esc(key)}"></option>`).join('')}</datalist><div class="table-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th></th><th>模型 ID</th><th>输入 → 输出</th><th>用途</th><th>显示名 / 接入为</th><th>售价</th></tr></thead><tbody id="discoverList">${items.map(row).join('') || emptyRow(6)}</tbody></table></div></section></div><div class="activity-actions"><span class="muted" id="discoverCount">已选 0 个</span><button type="button" class="secondary" data-close-modal>取消</button><button type="button" class="primary" id="discoverApply">接入选中的模型</button></div></div>`;
     modal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => modal.close()));
-    $('discoverSearch').addEventListener('input', (event) => {
-      const q = event.target.value.toLowerCase();
-      $('discoverList').querySelectorAll('label').forEach((label) => { label.hidden = q && !label.textContent.toLowerCase().includes(q); });
-    });
-    $('discoverApply').addEventListener('click', async () => {
-      const picked = [...modal.querySelectorAll('input[name=pick]:checked')].map((input) => input.value);
-      if (!picked.length) { toast('先勾选模型'); return; }
-      const modality = $('discoverModality').value;
-      const credits = Number($('discoverCredits').value || 50);
-      let done = 0;
-      for (const id of picked) {
-        await post(`/api/admin/ai/channels/${channel.id}/models`, { providerModelId: id, displayName: id, modality, credits });
-        done += 1;
+    const applyFilter = () => {
+      const q = $('discoverSearch').value.toLowerCase();
+      const hide = $('discoverHideEnabled').checked;
+      $('discoverList').querySelectorAll('tr[data-id]').forEach((tr) => { const item = items[Number(tr.dataset.index)]; tr.hidden = (q && !item.id.toLowerCase().includes(q)) || (hide && item.enabled); });
+    };
+    $('discoverSearch').addEventListener('input', applyFilter);
+    $('discoverHideEnabled').addEventListener('change', applyFilter);
+    applyFilter();
+    $('discoverList').addEventListener('change', (event) => {
+      const tr = event.target.closest('tr');
+      if (tr && event.target.name === 'cap') {
+        const picked = [...tr.querySelectorAll('input[name=cap]:checked')].map((input) => input.value);
+        const [inputs, outputs] = deriveIO(picked);
+        tr.querySelector('[data-io]').textContent = ioLabel(inputs, outputs);
+        tr.querySelector('.purpose-pick summary').textContent = picked.map(purposeLabel).join('、') || '未选择';
       }
+      $('discoverCount').textContent = `已选 ${modal.querySelectorAll('input[name=pick]:checked').length} 个`;
+    });
+    $('discoverApply').addEventListener('click', async (event) => {
+      const picked = [...modal.querySelectorAll('input[name=pick]:checked')].map((input) => input.closest('tr'));
+      if (!picked.length) { toast('先勾选模型'); return; }
+      for (const tr of picked) {
+        if (!tr.querySelectorAll('input[name=cap]:checked').length) { toast(`${tr.dataset.id} 至少选一个用途`); return; }
+      }
+      setBusy(event.target, true);
+      let done = 0;
+      try {
+        for (const tr of picked) {
+          const capabilities = [...tr.querySelectorAll('input[name=cap]:checked')].map((input) => input.value);
+          await post(`/api/admin/ai/channels/${channel.id}/models`, { providerModelId: tr.dataset.id, displayName: tr.querySelector('input[name=display]').value.trim() || tr.dataset.id, modality: deriveIO(capabilities)[1][0] || 'image', capabilities, credits: Number(tr.querySelector('input[name=credits]').value) || 50, logicalKey: tr.querySelector('input[name=logical]').value.trim() });
+          done += 1;
+        }
+      } catch (error) { toast(`已接入 ${done} 个，第 ${done + 1} 个失败：${error.message}`); setBusy(event.target, false); return; }
       modal.close();
-      toast(`已接入 ${done} 个模型`);
+      toast(`已接入 ${done} 个模型；到「模型」页核对用途和售价`);
+      state.aiTab = 'models';
       await navigate('ai');
     });
   } catch (error) {
@@ -1063,19 +1388,47 @@ function manualModelModal(channel) {
   });
 }
 
-function channelModal() {
-  openModal('新增渠道', `<label>Provider<select name="providerCode"><option value="antdigital">AntDigital</option><option value="dashscope">DashScope</option><option value="computrix">Computrix</option><option value="volcengine">火山方舟（字节）</option></select></label><label>渠道名称<input name="name" required placeholder="例如：AntDigital 备用账号" /></label><label>Base URL<input name="baseUrl" placeholder="留空使用默认" /></label><label>API Key<input name="apiKey" type="password" required /></label><div class="form-row"><label>优先级<input name="priority" type="number" value="50" /></label><label>权重<input name="weight" type="number" value="1" min="0" /></label></div><p class="muted">会自动复制同 Provider 的模型，并绑到对应逻辑模型。</p>`, '创建渠道', async (form) => {
-    await post('/api/admin/ai/channels', { providerCode: form.get('providerCode'), name: form.get('name'), baseUrl: form.get('baseUrl'), apiKey: form.get('apiKey'), priority: Number(form.get('priority') || 0), weight: Number(form.get('weight') || 1) });
-    await navigate('ai');
+// Where each provider serves generation and its model list. Computrix is the
+// odd one: generation on maas-api.computrix.ai, model list on computrix.ai.
+const PROVIDER_PRESETS = {
+  antdigital: { label: 'Ant Digital MaaS', base: 'https://maas-api.antdigital.com/v1', models: '', note: '模型列表与生成同域：{Base}/models' },
+  computrix: { label: 'Computrix MaaS', base: 'https://maas-api.computrix.ai/v1', models: 'https://computrix.ai/v1/models', note: '生成走 maas-api.computrix.ai，模型列表在 computrix.ai（不同域名，需单独填写）' },
+  volcengine: { label: '火山方舟（字节）', base: 'https://ark.cn-beijing.volces.com/api/v3', models: '', note: '模型列表与生成同域：{Base}/models' },
+  dashscope: { label: '阿里云百炼', base: 'https://dashscope.aliyuncs.com/api/v1', models: 'https://dashscope.aliyuncs.com/compatible-mode/v1/models', note: '生成走原生接口，模型列表走兼容模式 /compatible-mode/v1/models' },
+};
+function endpointFields(provider, baseUrl = '', modelsUrl = '') {
+  const preset = PROVIDER_PRESETS[provider] || { base: '', models: '', note: '' };
+  return `<div class="endpoint-fields" data-provider="${esc(provider)}">
+    <label>生成接口地址（Base URL）<input name="baseUrl" value="${esc(baseUrl)}" placeholder="${esc(preset.base || '留空使用默认')}" /></label>
+    <label>模型列表地址<input name="modelsUrl" value="${esc(modelsUrl)}" placeholder="${esc(preset.models || '留空 = Base URL + /models')}" /></label>
+    <p class="muted endpoint-note">${esc(preset.note || '')}${preset.models ? ` <button type="button" class="mini" data-fill-models="${esc(preset.models)}">填入推荐地址</button>` : ''}</p>
+  </div>`;
+}
+function bindEndpointFields() {
+  modal.querySelector('[data-fill-models]')?.addEventListener('click', (event) => { modal.querySelector('input[name=modelsUrl]').value = event.target.dataset.fillModels; });
+  const select = modal.querySelector('select[name=providerCode]');
+  select?.addEventListener('change', () => {
+    const box = modal.querySelector('.endpoint-fields');
+    box.outerHTML = endpointFields(select.value, '', PROVIDER_PRESETS[select.value]?.models || '');
+    bindEndpointFields();
   });
 }
-
-
-function channelMetaModal(channel) {
-  openModal('编辑渠道', `<label>名称<input name="name" value="${esc(channel.name)}" required /></label><label>Base URL<input name="baseUrl" value="${esc(channel.baseUrl || '')}" placeholder="留空使用 Provider 默认" /></label>`, '保存', async (form) => {
-    await request(`/api/admin/ai/channels/${channel.id}/meta`, { method: 'PATCH', body: JSON.stringify({ name: form.get('name'), baseUrl: form.get('baseUrl') }) });
+function channelModal() {
+  openModal('新增渠道', `<label>供应商<select name="providerCode">${Object.entries(PROVIDER_PRESETS).map(([code, p]) => `<option value="${code}">${esc(p.label)}</option>`).join('')}</select></label><label>渠道名称<input name="name" required placeholder="例如：AntDigital 备用账号" /></label>${endpointFields('antdigital')}<label>API Key<input name="apiKey" type="password" required autocomplete="off" /></label><div class="form-row"><label>优先级<input name="priority" type="number" value="50" /></label><label>权重<input name="weight" type="number" value="1" min="0" /></label></div><p class="muted">创建后会复制同供应商已接入的模型并绑到对应逻辑模型；之后可在「发现模型」里增减。</p>`, '创建渠道', async (form) => {
+    const channel = await post('/api/admin/ai/channels', { providerCode: form.get('providerCode'), name: form.get('name'), baseUrl: form.get('baseUrl'), apiKey: form.get('apiKey'), priority: Number(form.get('priority') || 0), weight: Number(form.get('weight') || 1) });
+    const modelsUrl = String(form.get('modelsUrl') || '').trim();
+    if (modelsUrl && channel?.id) await request(`/api/admin/ai/channels/${channel.id}/meta`, { method: 'PATCH', body: JSON.stringify({ name: form.get('name'), baseUrl: form.get('baseUrl'), modelsUrl }) });
     await navigate('ai');
   });
+  bindEndpointFields();
+}
+
+function channelMetaModal(channel) {
+  openModal('名称与地址', `<label>名称<input name="name" value="${esc(channel.name)}" required /></label><label>供应商<input value="${esc(PROVIDER_PRESETS[channel.providerCode]?.label || channel.providerCode)}" disabled /></label>${endpointFields(channel.providerCode, channel.baseUrl || '', channel.modelsUrl || '')}<p class="muted">保存后可在渠道列表点「测试」验证模型列表地址是否可达。</p>`, '保存', async (form) => {
+    await request(`/api/admin/ai/channels/${channel.id}/meta`, { method: 'PATCH', body: JSON.stringify({ name: form.get('name'), baseUrl: form.get('baseUrl'), modelsUrl: form.get('modelsUrl') }) });
+    await navigate('ai');
+  });
+  bindEndpointFields();
 }
 
 function channelEditModal(channel) {
@@ -1122,7 +1475,7 @@ function showcaseModal(item = null) {
   });
 }
 
-content.addEventListener('click', async (event) => {
+async function onAction(event) {
   const target = event.target.closest('[data-action]');
   if (!target) return;
   const action = target.dataset.action;
@@ -1132,6 +1485,17 @@ content.addEventListener('click', async (event) => {
     if (action === 'go-commerce') return navigate('commerce');
     if (action === 'go-tasks') return navigate('tasks');
     if (action === 'commerce-tab') { state.commerceTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderCommerceTabs(); return renderCommerceBody(); }
+    if (action === 'go-page') { await navigate(target.dataset.page); return; }
+    if (action === 'ai-refresh') { await navigate('ai'); return; }
+    if (action === 'model-purpose') { state.modelPurpose = target.dataset.purpose; return renderAIBody(); }
+    if (action === 'model-edit') { const m = (state.aiHealth?.models || []).find((item) => item.key === target.dataset.key); if (m) modelEditModal(m); return; }
+    if (action === 'model-routes') { await modelRoutesModal(target.dataset.key); return; }
+    if (action === 'model-visibility') { setBusy(target, true); await patch(`/api/admin/ai/logical-models/${encodeURIComponent(target.dataset.key)}`, { enabled: target.dataset.enabled === 'true' }); await navigate('ai'); return; }
+    if (action === 'channel-test') { await channelTest(target.dataset.id, target); return; }
+    if (action === 'key-test') { setBusy(target, true); try { const r = await post(`/api/admin/ai/channel-keys/${target.dataset.id}/test`, {}); toast(`${r.ok ? '✓' : '✗'} ${r.message}`); } finally { setBusy(target, false); } return; }
+    if (action === 'log-filter') { state.logFilter = { ...(state.logFilter || { hours: 24 }), [target.dataset.key]: target.dataset.value }; await loadLogs(); return; }
+    if (action === 'log-reset') { state.logFilter = { hours: 24, model: '', channel: '', status: '', code: '' }; await loadLogs(); return; }
+    if (action === 'content-tab') { state.contentTab = target.dataset.tab; await navigate('showcase'); return; }
     if (action === 'ai-tab') { state.aiTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = renderAITabs(); return renderAIBody(); }
     if (action === 'task-tab') { state.taskTab = target.dataset.tab; content.querySelector('.tabs').outerHTML = `<div class="tabs">${[['tasks', '任务'], ['runs', '执行记录']].map(([id, label]) => `<button type="button" class="${state.taskTab === id ? 'active' : ''}" data-action="task-tab" data-tab="${id}">${label}</button>`).join('')}</div>`; return renderTaskBody(); }
     if (action === 'task-detail') return taskDetailModal(target.dataset.id);
@@ -1151,10 +1515,10 @@ content.addEventListener('click', async (event) => {
     if (action === 'user-password') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) passwordModal(user); return; }
     if (action === 'user-credits') { const user = state.users.find((item) => item.id === target.dataset.id); if (user) creditsModal(user); return; }
     if (action === 'plan-edit') { const plan = state.plans.find((item) => item.id === target.dataset.id); if (plan) planModal(plan); return; }
-    if (action === 'skill-publish') { setBusy(target, true); await patch(`/api/admin/skills/${target.dataset.id}`, { status: 'published' }); await navigate('ai'); return; }
-    if (action === 'skill-reject') { setBusy(target, true); await patch(`/api/admin/skills/${target.dataset.id}`, { status: 'rejected' }); await navigate('ai'); return; }
-    if (action === 'app-publish') { setBusy(target, true); await patch(`/api/admin/apps/${target.dataset.id}`, { status: 'published' }); await navigate('ai'); return; }
-    if (action === 'app-draft') { setBusy(target, true); await patch(`/api/admin/apps/${target.dataset.id}`, { status: 'draft' }); await navigate('ai'); return; }
+    if (action === 'skill-publish') { setBusy(target, true); await patch(`/api/admin/skills/${target.dataset.id}`, { status: 'published' }); await navigate(state.page); return; }
+    if (action === 'skill-reject') { setBusy(target, true); await patch(`/api/admin/skills/${target.dataset.id}`, { status: 'rejected' }); await navigate(state.page); return; }
+    if (action === 'app-publish') { setBusy(target, true); await patch(`/api/admin/apps/${target.dataset.id}`, { status: 'published' }); await navigate(state.page); return; }
+    if (action === 'app-draft') { setBusy(target, true); await patch(`/api/admin/apps/${target.dataset.id}`, { status: 'draft' }); await navigate(state.page); return; }
     if (action === 'sync-models') { setBusy(target, true); const result = await post('/api/admin/ai/models/sync', {}); toast(`已同步 ${result.synced || 0} 个模型`); await navigate('ai'); return; }
     if (action === 'pricing-price') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingPriceModal(row); return; }
     if (action === 'pricing-cost') { const row = state.pricing.find((item) => item.channelModelId === target.dataset.id); if (row) pricingCostModal(row); return; }
@@ -1163,14 +1527,14 @@ content.addEventListener('click', async (event) => {
     if (action === 'group-price') { const group = (state.routeGroups || []).find((item) => item.id === target.dataset.id); if (group) groupPriceModal(group); return; }
     if (action === 'group-channels') { const group = (state.routeGroups || []).find((item) => item.id === target.dataset.id); if (group) groupChannelsModal(group); return; }
     if (action === 'channel-meta') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelMetaModal(channel); return; }
-    if (action === 'channel-delete') { if (!confirm(`删除渠道「${target.dataset.name}」？其 Key、模型与绑定会一起删除，不可恢复。`)) return; setBusy(target, true); await remove(`/api/admin/ai/channels/${target.dataset.id}`); await navigate('ai'); return; }
+    if (action === 'channel-delete') { if (!await confirmDialog(`删除渠道「${target.dataset.name}」？其 Key、模型与绑定会一起删除，不可恢复。`)) return; setBusy(target, true); await remove(`/api/admin/ai/channels/${target.dataset.id}`); await navigate('ai'); return; }
     if (action === 'channel-models') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelModelsModal(channel); return; }
     if (action === 'channel-model-toggle') { setBusy(target, true); await patch(`/api/admin/ai/channel-models/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelModelsModal(channel); return; }
     if (action === 'channel-discover') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelDiscoverModal(channel); return; }
     if (action === 'channel-model-add') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) manualModelModal(channel); return; }
     if (action === 'channel-keys') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelKeysModal(channel); return; }
     if (action === 'channel-key-toggle') { setBusy(target, true); await patch(`/api/admin/ai/channel-keys/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelKeysModal(channel); return; }
-    if (action === 'channel-key-delete') { if (!confirm('删除这把 Key？该操作不可恢复。')) return; setBusy(target, true); await remove(`/api/admin/ai/channel-keys/${target.dataset.id}`); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelKeysModal(channel); return; }
+    if (action === 'channel-key-delete') { if (!await confirmDialog('删除这把 Key？该操作不可恢复。')) return; setBusy(target, true); await remove(`/api/admin/ai/channel-keys/${target.dataset.id}`); const channel = (state.channels || []).find((item) => item.id === target.dataset.channel); if (channel) channelKeysModal(channel); return; }
     if (action === 'channel-new') return channelModal();
     if (action === 'channel-edit') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelEditModal(channel); return; }
     if (action === 'channel-key') { const channel = (state.channels || []).find((item) => item.id === target.dataset.id); if (channel) channelKeyModal(channel); return; }
@@ -1181,17 +1545,20 @@ content.addEventListener('click', async (event) => {
     if (action === 'announcement-new') return announcementModal();
     if (action === 'announcement-edit') { const item = state.announcements.find((entry) => entry.id === target.dataset.id); if (item) announcementModal(item); return; }
     if (action === 'announcement-toggle') { const item = state.announcements.find((entry) => entry.id === target.dataset.id); if (!item) return; setBusy(target, true); await request(`/api/admin/announcements/${item.id}`, { method: 'PUT', body: JSON.stringify(announcementBody(item, { status: item.status === 'published' ? 'draft' : 'published' })) }); await navigate('client'); return; }
-    if (action === 'announcement-delete') { if (!confirm('确定删除这条公告？')) return; setBusy(target, true); await remove(`/api/admin/announcements/${target.dataset.id}`); await navigate('client'); return; }
+    if (action === 'announcement-delete') { if (!await confirmDialog('确定删除这条公告？')) return; setBusy(target, true); await remove(`/api/admin/announcements/${target.dataset.id}`); await navigate('client'); return; }
     if (action === 'showcase-edit') { const item = state.showcase.find((entry) => entry.id === target.dataset.id); if (item) showcaseModal(item); return; }
     if (action === 'showcase-toggle') { setBusy(target, true); await patch(`/api/admin/showcase/${target.dataset.id}`, { status: target.dataset.status }); await navigate('showcase'); return; }
-    if (action === 'showcase-delete') { if (!confirm('确定删除这条内容？客户端将不再显示。')) return; setBusy(target, true); await remove(`/api/admin/showcase/${target.dataset.id}`); await navigate('showcase'); return; }
+    if (action === 'showcase-delete') { if (!await confirmDialog('确定删除这条内容？客户端将不再显示。')) return; setBusy(target, true); await remove(`/api/admin/showcase/${target.dataset.id}`); await navigate('showcase'); return; }
     if (action === 'save-api') { apiBase = $('settingsApi').value.trim().replace(/\/$/, ''); localStorage.setItem('weavia.admin.api', apiBase); toast('API 地址已保存'); await checkService(); return; }
     if (action === 'check-service') { await checkService(); toast('服务状态已更新'); return; }
     if (action === 'ops-refresh') { await navigate('ops'); return; }
     if (action === 'ops-period') { state.opsPeriod = target.dataset.period; await navigate('ops'); return; }
     if (action === 'ops-logs') { await loadOpsLogs(target.dataset.service); return; }
   } catch (error) { toast(error.message); setBusy(target, false); }
-});
+}
+// Buttons inside dialogs live outside #content, so both share one handler.
+content.addEventListener('click', onAction);
+modal.addEventListener('click', onAction);
 $('loginForm').addEventListener('submit', login);
 $('logout').addEventListener('click', logout);
 $('refresh').addEventListener('click', () => navigate(state.page));
@@ -1203,5 +1570,8 @@ document.addEventListener('visibilitychange', () => {
   if (token && !document.hidden) checkService();
 });
 $('apiBase').value = apiBase;
+initLogin();
+$('themeSlot').innerHTML = themeSwitch();
+applyTheme();
 window.addEventListener('hashchange', () => { if (token && pageFromHash() !== state.page) navigate(pageFromHash()); });
 if (token) { showAdmin(); renderNav(); checkService(); navigate(pageFromHash()); } else { showLogin(); }
