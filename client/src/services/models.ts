@@ -12,6 +12,8 @@ type ServerModel = {
   creditsCost?: number;
   channels?: number;
   icon?: string;
+  description?: string;
+  tags?: string[];
 };
 
 function logoFor(item: ServerModel) {
@@ -41,7 +43,8 @@ function toModel(item: ServerModel): Model {
     resolutions: ['1K', '2K'],
     maxCount: 4,
     creditBase: item.creditsCost || 8,
-    description: (item.capabilities || []).map(capabilityLabel).join(' · '),
+    description: item.description || (item.capabilities || []).map(capabilityLabel).join(' · '),
+    tags: item.tags || [],
     available: item.available,
     provider: item.provider,
     icon: item.icon || iconFor(item),
@@ -50,37 +53,31 @@ function toModel(item: ServerModel): Model {
   };
 }
 
-function capabilityLabel(value: string) {
-  const labels: Record<string, string> = { text_to_image: '文生图', image_to_image: '参考图', image_edit: '图像编辑', text_to_video: '文生视频', image_to_video: '图生视频' };
+export function capabilityLabel(value: string) {
+  const labels: Record<string, string> = { text_to_image: '文生图', image_to_image: '参考图生图', image_edit: '图片编辑', text_to_video: '文生视频', image_to_video: '图生视频', reference_to_video: '参考生视频', video_edit: '视频编辑' };
   return labels[value] || value;
 }
 
+// Models are unique by id; two models that share a display name are still
+// different models and must both be listed.
 function dedupe(items: Model[]) {
   const map = new Map<string, Model>();
-  for (const item of items) {
-    const key = `${item.modes.join(',')}:${item.name.toLowerCase()}`;
-    const current = map.get(key);
-    if (!current || (item.available && !current.available)) map.set(key, item);
-  }
+  for (const item of items) if (!map.has(item.id)) map.set(item.id, item);
   return [...map.values()];
 }
 
 export async function loadPlatformModels(mode?: Mode): Promise<Model[]> {
   if (apiConfig.mode !== 'live') return MODELS;
-  const cached = getCachedModels();
-  if (cached?.length) {
-    const normalized = dedupe(cached.map(item => {
-      if (Array.isArray((item as Model).modes)) return item as Model;
-      return toModel(item as unknown as ServerModel);
-    }));
-    return mode ? normalized.filter(item => item.modes.includes(mode)) : normalized;
-  }
+  const pick = (items: Model[]) => (mode ? items.filter(item => item.modes.includes(mode)) : items);
+  // Always ask the server first so newly enabled or hidden models show up at
+  // once; the startup cache is only a fallback when the network fails.
   try {
     const suffix = mode ? `?modality=${mode}` : '';
-    const data = await apiRequest<{ items: ServerModel[] }>(`/api/ai/models${suffix}`, {}, { auth: false });
-    const items = dedupe((data.items || []).map(toModel));
-    return items;
+    const data = await apiRequest<{ items: ServerModel[] }>(`/api/ai/models${suffix}`, {}, { auth: false, timeoutMs: 8000 });
+    return pick(dedupe((data.items || []).map(toModel)));
   } catch {
-    return [];
+    const cached = getCachedModels();
+    if (!cached?.length) return [];
+    return pick(dedupe(cached.map(item => (Array.isArray((item as Model).modes) ? item as Model : toModel(item as unknown as ServerModel)))));
   }
 }

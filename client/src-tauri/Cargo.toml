@@ -1,6 +1,6 @@
 [package]
 name = "weavia-desktop"
-version = "0.3.0"
+version = "0.3.1"
 description = "WEAVIA AI Commerce Studio desktop client"
 authors = ["WEAVIA"]
 edition = "2021"
