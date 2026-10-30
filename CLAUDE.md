@@ -49,8 +49,8 @@ UI 改动还要在浏览器里看：把 `client/dist` 用带 SPA fallback 的静
 
 1. 花 40 Credits 验证真实生成与套图提交（唯一"代码全绿但可能出不了图"的地方）
 2. 改管理员密码、3001 限源
-3. 按 `reviews/2026-10-30/release-0.2.0-acceptance.md` 验收 0.2.0
-4. 加批次概念（规格见 `reviews/2026-10-30/feature-specs.md`）
+3. 按 `reviews/2026-10-30/release-0.3.0-acceptance.md` 验收 0.3.0（视频复刻需先在后台配置视觉模型）
+4. 设计新功能前用项目 Skill `weavia-feature-design` 出规格
 5. 再做 P2：批量 SKU、视频、模板市场、数据分析三维对账
 
 ## 提交信息
