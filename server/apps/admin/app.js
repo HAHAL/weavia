@@ -1,4 +1,4 @@
-const BUILD_TAG = '2026-10-25-ops-a';
+const BUILD_TAG = '2026-10-30-client-a';
 const $ = (id) => document.getElementById(id);
 const content = $('content');
 const modal = $('modal');
@@ -14,6 +14,7 @@ const pages = [
   { id: 'tasks', label: '创作任务', kicker: 'TASKS' },
   { id: 'ops', label: '运行与排障', kicker: 'OPERATIONS' },
   { id: 'showcase', label: '内容管理', kicker: 'SHOWCASE' },
+  { id: 'client', label: '客户端发布', kicker: 'CLIENT RELEASE' },
   { id: 'analytics', label: '数据分析', kicker: 'ANALYTICS' },
   { id: 'settings', label: '设置', kicker: 'SETTINGS' },
 ];
@@ -21,7 +22,7 @@ const defaultApiBase = location.port && location.port !== '80' && location.port 
 let apiBase = localStorage.getItem('weavia.admin.api') || defaultApiBase;
 let token = sessionStorage.getItem('weavia.admin.token') || '';
 let email = sessionStorage.getItem('weavia.admin.email') || '';
-const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', opsPeriod: '24h', health: 'checking', opsStatus: null, users: [], showcase: [], plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
+const state = { page: 'dashboard', commerceTab: 'plans', aiTab: 'overview', taskTab: 'tasks', showcaseFilter: 'all', opsPeriod: '24h', health: 'checking', opsStatus: null, users: [], showcase: [], announcements: [], clientConfig: null, plans: [], orders: [], payments: [], providers: [], models: null, routing: null, usage: [], overview: null, tasks: [], runs: [], pricing: [], pricingSettings: null, invites: [] };
 
 
 const tablePagers = new Map();
@@ -172,7 +173,7 @@ const patch = (path, body) => request(path, { method: 'PATCH', body: JSON.string
 const remove = (path) => request(path, { method: 'DELETE' });
 
 function renderNav() {
-  $('nav').innerHTML = pages.map((page, index) => `<button type="button" class="nav-item ${state.page === page.id ? 'active' : ''}" data-page="${page.id}"><span class="nav-index">0${index + 1}</span><span class="nav-label">${esc(page.label)}</span>${page.id === 'showcase' && state.showcase.length ? `<span class="nav-count">${state.showcase.length}</span>` : ''}</button>`).join('');
+  $('nav').innerHTML = pages.map((page, index) => `<button type="button" class="nav-item ${state.page === page.id ? 'active' : ''}" data-page="${page.id}"><span class="nav-index">${String(index + 1).padStart(2, "0")}</span><span class="nav-label">${esc(page.label)}</span>${page.id === 'showcase' && state.showcase.length ? `<span class="nav-count">${state.showcase.length}</span>` : ''}</button>`).join('');
   document.querySelectorAll('[data-page]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.page)));
 }
 function showLogin() { $('loginView').hidden = false; $('adminView').hidden = true; }
@@ -204,7 +205,7 @@ async function login(event) {
     email = data.user.email;
     sessionStorage.setItem('weavia.admin.token', token);
     sessionStorage.setItem('weavia.admin.email', email);
-    showAdmin(); renderNav(); await navigate('dashboard'); await checkService();
+    showAdmin(); renderNav(); await navigate(pageFromHash()); await checkService();
   } catch (error) {
     $('loginError').textContent = error.message;
   } finally {
@@ -234,15 +235,20 @@ async function checkService() {
   } catch { state.health = 'unreachable'; }
   finally { clearTimeout(timeout); renderHealth(); }
 }
+function pageFromHash() {
+  const id = location.hash.replace(/^#\/?/, '');
+  return pages.some((page) => page.id === id) ? id : 'dashboard';
+}
 async function navigate(pageId) {
   state.page = pageId;
+  if (location.hash !== `#/${pageId}`) history.replaceState(null, '', `#/${pageId}`);
   const page = pages.find((item) => item.id === pageId) || pages[0];
   $('pageKicker').textContent = page.kicker;
   renderNav();
   content.innerHTML = loading();
   try { await loaders[pageId](); enhanceTables(); } catch (error) { content.innerHTML = pageHead(page.label, '') + empty(error.message); }
 }
-const loaders = { dashboard: loadDashboard, users: loadUsers, roles: loadRoles, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, ops: loadOps, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
+const loaders = { client: loadClient, dashboard: loadDashboard, users: loadUsers, roles: loadRoles, commerce: loadCommerce, ai: loadAI, pricing: loadPricing, invites: loadInvites, storage: loadStorage, tasks: loadTasks, ops: loadOps, showcase: loadShowcase, analytics: loadAnalytics, settings: loadSettings };
 
 async function loadDashboard() {
   const [overview, orders, tasks, showcase] = await Promise.all([get('/api/admin/overview'), get('/api/admin/orders'), get('/api/admin/tasks'), get('/api/admin/showcase')]);
@@ -835,8 +841,63 @@ async function loadShowcase() {
 }
 function renderShowcaseBody() {
   const rows = state.showcaseFilter === 'all' ? state.showcase : state.showcase.filter((item) => item.kind === state.showcaseFilter);
-  renderInto($('showcaseBody'), rows.length ? `<div class="showcase-grid">${rows.map((item) => `<article class="showcase-card"><img src="${apiBase.replace(/\/$/, '')}${esc(item.imageUrl)}" alt="${esc(item.title)}" loading="eager" /><div class="showcase-body"><div class="showcase-top"><span class="badge ${item.kind === 'work' ? 'gold' : ''}">${item.kind === 'work' ? '示例作品' : '示例图'}</span>${status(item.status)}</div><h3>${esc(item.title)}</h3><p>${esc(item.tag || '未设置标签')} · 排序 ${item.sortOrder}</p><div class="row-actions"><button data-action="showcase-toggle" data-id="${esc(item.id)}" data-status="${item.status === 'published' ? 'draft' : 'published'}">${item.status === 'published' ? '下架' : '发布'}</button><button data-action="showcase-edit" data-id="${esc(item.id)}">编辑</button><button class="danger" data-action="showcase-delete" data-id="${esc(item.id)}">删除</button></div></div></article>`).join('')}</div>` : empty('这个分类还没有内容'));
+  renderInto($('showcaseBody'), rows.length ? `<div class="showcase-grid">${rows.map((item) => `<article class="showcase-card"><img src="${apiBase.replace(/\/$/, '')}${esc(item.imageUrl)}" alt="${esc(item.title)}" loading="eager" /><div class="showcase-body"><div class="showcase-top"><span class="badge ${item.kind === 'work' ? 'gold' : ''}">${item.kind === 'work' ? '示例作品' : '示例图'}</span>${status(item.status)}</div><h3>${esc(item.title)}</h3><p>${esc(item.tag || '未设置标签')} · 排序 ${item.sortOrder} · 已被使用 ${fmtNumber(item.useCount)} 次</p><p class="muted">${item.model ? `一键同款：${esc(item.media === 'video' ? '视频' : '图片')} · ${esc(item.model)} · ${esc(item.ratio || '默认比例')} · ${esc(item.resolution || '1K')} · ${item.count || 1} 张` : '未设置一键同款参数（客户端只带入提示词）'}</p><div class="row-actions"><button data-action="showcase-toggle" data-id="${esc(item.id)}" data-status="${item.status === 'published' ? 'draft' : 'published'}">${item.status === 'published' ? '下架' : '发布'}</button><button data-action="showcase-edit" data-id="${esc(item.id)}">编辑</button><button class="danger" data-action="showcase-delete" data-id="${esc(item.id)}">删除</button></div></div></article>`).join('')}</div>` : empty('这个分类还没有内容'));
 }
+const levelLabels = { info: '普通', warning: '提醒', important: '重要' };
+async function loadClient() {
+  const [config, announcements] = await Promise.all([get('/api/admin/client-config'), get('/api/admin/announcements')]);
+  state.clientConfig = config || {};
+  state.announcements = announcements?.items || [];
+  const c = state.clientConfig;
+  content.innerHTML = pageHead('客户端发布', 'API 地址、强制升级与公告。保存后客户端下次启动（或 5 分钟内）生效。', '<button class="primary" data-action="announcement-new">新建公告</button>') +
+    `<section class="panel"><div class="panel-head"><div><h2>连接与版本</h2><p>最后保存：${fmtDate(c.updatedAt)}</p></div></div>
+      <form id="clientConfigForm" class="form-grid">
+        <label>API 地址<input name="apiBaseUrl" value="${esc(c.apiBaseUrl || '')}" placeholder="https://api.example.com（留空表示沿用客户端内置地址）" /></label>
+        <p class="muted">换域名步骤：先确认新地址能打开 <code>/api/health</code>，再保存这里。客户端会先探测新地址，探测失败会继续用旧地址，不会断连。</p>
+        <div class="form-row"><label>最低可用版本（低于它必须升级）<input name="minVersion" value="${esc(c.minVersion || '')}" placeholder="0.2.0" /></label><label>最新版本<input name="latestVersion" value="${esc(c.latestVersion || '')}" placeholder="0.2.0" /></label></div>
+        <div class="form-row"><label>macOS 下载地址<input name="downloadMac" value="${esc(c.downloadMac || '')}" placeholder="https://…/WEAVIA-mac.zip" /></label><label>Windows 下载地址<input name="downloadWindows" value="${esc(c.downloadWindows || '')}" placeholder="https://…/WEAVIA-setup.exe" /></label></div>
+        <label>更新说明<textarea name="releaseNotes" rows="4" maxlength="4000">${esc(c.releaseNotes || '')}</textarea></label>
+        <div class="row-actions"><button class="primary" type="submit">保存连接与版本</button></div>
+      </form></section>
+    <section class="panel"><div class="panel-head"><div><h2>公告</h2><p>已发布且在有效期内的公告会显示在客户端首页顶部和铃铛里；置顶的排在最前</p></div><button class="secondary" data-action="announcement-new">新建公告</button></div>${announcementsTable(state.announcements)}</section>`;
+  $('clientConfigForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const body = Object.fromEntries(['apiBaseUrl', 'minVersion', 'latestVersion', 'downloadMac', 'downloadWindows', 'releaseNotes'].map((key) => [key, String(form.get(key) || '').trim()]));
+    if (body.minVersion && !confirm(`保存后，版本低于 ${body.minVersion} 的客户端将无法继续使用，必须下载新版。确定？`)) return;
+    const button = event.target.querySelector('button[type=submit]');
+    setBusy(button, true);
+    try { await request('/api/admin/client-config', { method: 'PUT', body: JSON.stringify(body) }); toast('已保存'); await navigate('client'); }
+    catch (error) { toast(error.message); setBusy(button, false); }
+  });
+}
+function announcementWindow(item) {
+  if (!item.startsAt && !item.endsAt) return '长期';
+  return `${item.startsAt ? fmtDate(item.startsAt) : '立即'} → ${item.endsAt ? fmtDate(item.endsAt) : '长期'}`;
+}
+function announcementsTable(rows) {
+  if (!rows.length) return empty('还没有公告');
+  return `<div class="table-wrap"><table><thead><tr><th>标题</th><th>级别</th><th>状态</th><th>有效期</th><th>更新</th><th>操作</th></tr></thead><tbody>${rows.map((item) => `<tr><td><span class="cell-main">${item.pinned ? '📌 ' : ''}${esc(item.title)}</span><span class="cell-sub">${esc((item.body || '').slice(0, 60))}</span></td><td><span class="badge ${item.level === 'important' ? 'danger' : item.level === 'warning' ? 'warning' : ''}">${levelLabels[item.level] || item.level}</span></td><td>${status(item.status)}</td><td>${announcementWindow(item)}</td><td>${fmtDate(item.updatedAt)}</td><td><div class="row-actions"><button data-action="announcement-toggle" data-id="${esc(item.id)}">${item.status === 'published' ? '下线' : '发布'}</button><button data-action="announcement-edit" data-id="${esc(item.id)}">编辑</button><button class="danger" data-action="announcement-delete" data-id="${esc(item.id)}">删除</button></div></td></tr>`).join('')}</tbody></table></div>`;
+}
+function toLocalInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+function announcementBody(item, overrides = {}) {
+  return { title: item.title, body: item.body, level: item.level, pinned: item.pinned, status: item.status, startsAt: item.startsAt || null, endsAt: item.endsAt || null, ...overrides };
+}
+function announcementModal(item = null) {
+  openModal(item ? '编辑公告' : '新建公告', `<label>标题<input name="title" maxlength="80" required value="${esc(item?.title || '')}" /></label><label>正文<textarea name="body" rows="6" maxlength="4000">${esc(item?.body || '')}</textarea></label><div class="form-row"><label>级别<select name="level">${Object.entries(levelLabels).map(([id, label]) => `<option value="${id}" ${(item?.level || 'info') === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label>状态<select name="status"><option value="published" ${item?.status === 'published' ? 'selected' : ''}>发布</option><option value="draft" ${item?.status !== 'published' ? 'selected' : ''}>草稿</option></select></label><label>置顶<select name="pinned"><option value="false">否</option><option value="true" ${item?.pinned ? 'selected' : ''}>是</option></select></label></div><div class="form-row"><label>开始时间（可空）<input name="startsAt" type="datetime-local" value="${toLocalInput(item?.startsAt)}" /></label><label>结束时间（可空）<input name="endsAt" type="datetime-local" value="${toLocalInput(item?.endsAt)}" /></label></div>`, item ? '保存' : '创建', async (form) => {
+    const when = (key) => { const value = form.get(key); return value ? new Date(String(value)).toISOString() : null; };
+    const body = { title: form.get('title'), body: form.get('body'), level: form.get('level'), status: form.get('status'), pinned: form.get('pinned') === 'true', startsAt: when('startsAt'), endsAt: when('endsAt') };
+    if (item) await request(`/api/admin/announcements/${item.id}`, { method: 'PUT', body: JSON.stringify(body) });
+    else await post('/api/admin/announcements', body);
+    await navigate('client');
+  });
+}
+
 async function loadAnalytics() {
   const [overview, usage, tasks] = await Promise.all([get('/api/admin/overview'), get('/api/admin/ai/usage'), get('/api/admin/tasks')]);
   state.overview = overview; state.usage = usage?.usage || []; state.tasks = tasks || [];
@@ -1020,14 +1081,14 @@ function planModal(plan) {
 }
 function showcaseModal(item = null) {
   const image = item?.imageUrl ? `${apiBase.replace(/\/$/, '')}${item.imageUrl}` : '';
-  openModal(item ? '编辑示例' : '上传示例', `<div class="modal-upload"><div class="upload-preview" id="uploadPreview">${image ? `<img id="showcasePreview" src="${esc(image)}" alt="" />` : '<img id="showcasePreview" alt="" hidden />'}<span id="previewEmpty" ${image ? 'hidden' : ''}>选择一张图片</span><input name="image" id="showcaseImage" type="file" accept="image/jpeg,image/png,image/webp" ${item ? '' : 'required'} /></div><div class="form-grid"><label>类型<select name="kind"><option value="image" ${item?.kind === 'image' || !item ? 'selected' : ''}>示例图</option><option value="work" ${item?.kind === 'work' ? 'selected' : ''}>示例作品</option></select></label><label>标题<input name="title" maxlength="120" value="${esc(item?.title || '')}" required /></label><label>标签<input name="tag" maxlength="40" value="${esc(item?.tag || '')}" placeholder="美妆 / 暖调" /></label><label>提示词<textarea name="prompt" rows="4" maxlength="2000">${esc(item?.prompt || '')}</textarea></label><div class="form-row"><label>排序<input name="sortOrder" type="number" value="${item?.sortOrder ?? 100}" /></label><label>状态<select name="status"><option value="published" ${item?.status === 'published' || !item ? 'selected' : ''}>发布</option><option value="draft" ${item?.status === 'draft' ? 'selected' : ''}>草稿</option></select></label></div></div></div>`, item ? '保存修改' : '上传并发布', async (form) => {
+  openModal(item ? '编辑示例' : '上传示例', `<div class="modal-upload"><div class="upload-preview" id="uploadPreview">${image ? `<img id="showcasePreview" src="${esc(image)}" alt="" />` : '<img id="showcasePreview" alt="" hidden />'}<span id="previewEmpty" ${image ? 'hidden' : ''}>选择一张图片</span><input name="image" id="showcaseImage" type="file" accept="image/jpeg,image/png,image/webp" ${item ? '' : 'required'} /></div><div class="form-grid"><label>类型<select name="kind"><option value="image" ${item?.kind === 'image' || !item ? 'selected' : ''}>示例图</option><option value="work" ${item?.kind === 'work' ? 'selected' : ''}>示例作品</option></select></label><label>标题<input name="title" maxlength="120" value="${esc(item?.title || '')}" required /></label><label>标签<input name="tag" maxlength="40" value="${esc(item?.tag || '')}" placeholder="美妆 / 暖调" /></label><label>提示词<textarea name="prompt" rows="4" maxlength="2000">${esc(item?.prompt || '')}</textarea></label><div class="form-row"><label>排序<input name="sortOrder" type="number" value="${item?.sortOrder ?? 100}" /></label><label>状态<select name="status"><option value="published" ${item?.status === 'published' || !item ? 'selected' : ''}>发布</option><option value="draft" ${item?.status === 'draft' ? 'selected' : ''}>草稿</option></select></label></div><p class="muted">一键同款参数：客户点「做同款」时自动填入。模型填逻辑模型 Key（如 qwen-image-2.0），留空则只带入提示词。</p><div class="form-row"><label>媒体<select name="media"><option value="image" ${item?.media !== 'video' ? 'selected' : ''}>图片</option><option value="video" ${item?.media === 'video' ? 'selected' : ''}>视频</option></select></label><label>模型 Key<input name="model" maxlength="120" value="${esc(item?.model || '')}" placeholder="qwen-image-2.0" /></label></div><div class="form-row"><label>比例<select name="ratio">${['', '1:1', '3:4', '4:5', '16:9', '9:16'].map((r) => `<option value="${r}" ${(item?.ratio || '') === r ? 'selected' : ''}>${r || '不指定'}</option>`).join('')}</select></label><label>清晰度<select name="resolution">${['', '1K', '2K', '4K'].map((r) => `<option value="${r}" ${(item?.resolution || '') === r ? 'selected' : ''}>${r || '不指定'}</option>`).join('')}</select></label><label>张数<input name="count" type="number" min="1" max="4" value="${item?.count || 1}" /></label></div></div></div>`, item ? '保存修改' : '上传并发布', async (form) => {
     if (item) {
-      await patch(`/api/admin/showcase/${item.id}`, { kind: form.get('kind'), title: form.get('title'), tag: form.get('tag'), prompt: form.get('prompt'), status: form.get('status'), sortOrder: Number(form.get('sortOrder')) });
+      await patch(`/api/admin/showcase/${item.id}`, { kind: form.get('kind'), title: form.get('title'), tag: form.get('tag'), prompt: form.get('prompt'), status: form.get('status'), sortOrder: Number(form.get('sortOrder')), media: form.get('media'), model: form.get('model'), ratio: form.get('ratio'), resolution: form.get('resolution'), count: Number(form.get('count')) || 1 });
     } else {
       const file = form.get('image');
       if (!(file instanceof File) || !file.size) throw new Error('请选择图片文件');
       const upload = new FormData();
-      ['kind', 'title', 'tag', 'prompt', 'status', 'sortOrder', 'image'].forEach((key) => upload.append(key, form.get(key)));
+      ['kind', 'title', 'tag', 'prompt', 'status', 'sortOrder', 'media', 'model', 'ratio', 'resolution', 'count', 'image'].forEach((key) => upload.append(key, form.get(key)));
       await request('/api/admin/showcase', { method: 'POST', body: upload });
     }
     await navigate('showcase');
@@ -1097,6 +1158,10 @@ content.addEventListener('click', async (event) => {
     if (action === 'provider-key') { const provider = state.providers.find((item) => item.code === target.dataset.code); if (provider) providerKeyModal(provider); return; }
     if (action === 'provider-toggle') { setBusy(target, true); await patch(`/api/admin/ai/providers/${target.dataset.id}`, { enabled: target.dataset.enabled === 'true' }); await navigate('ai'); return; }
     if (action === 'showcase-new') return showcaseModal();
+    if (action === 'announcement-new') return announcementModal();
+    if (action === 'announcement-edit') { const item = state.announcements.find((entry) => entry.id === target.dataset.id); if (item) announcementModal(item); return; }
+    if (action === 'announcement-toggle') { const item = state.announcements.find((entry) => entry.id === target.dataset.id); if (!item) return; setBusy(target, true); await request(`/api/admin/announcements/${item.id}`, { method: 'PUT', body: JSON.stringify(announcementBody(item, { status: item.status === 'published' ? 'draft' : 'published' })) }); await navigate('client'); return; }
+    if (action === 'announcement-delete') { if (!confirm('确定删除这条公告？')) return; setBusy(target, true); await remove(`/api/admin/announcements/${target.dataset.id}`); await navigate('client'); return; }
     if (action === 'showcase-edit') { const item = state.showcase.find((entry) => entry.id === target.dataset.id); if (item) showcaseModal(item); return; }
     if (action === 'showcase-toggle') { setBusy(target, true); await patch(`/api/admin/showcase/${target.dataset.id}`, { status: target.dataset.status }); await navigate('showcase'); return; }
     if (action === 'showcase-delete') { if (!confirm('确定删除这条内容？客户端将不再显示。')) return; setBusy(target, true); await remove(`/api/admin/showcase/${target.dataset.id}`); await navigate('showcase'); return; }
@@ -1118,4 +1183,5 @@ document.addEventListener('visibilitychange', () => {
   if (token && !document.hidden) checkService();
 });
 $('apiBase').value = apiBase;
-if (token) { showAdmin(); renderNav(); checkService(); navigate('dashboard'); } else { showLogin(); }
+window.addEventListener('hashchange', () => { if (token && pageFromHash() !== state.page) navigate(pageFromHash()); });
+if (token) { showAdmin(); renderNav(); checkService(); navigate(pageFromHash()); } else { showLogin(); }
